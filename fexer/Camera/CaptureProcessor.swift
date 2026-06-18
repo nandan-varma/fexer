@@ -81,22 +81,24 @@ extension CaptureProcessor: AVCaptureVideoDataOutputSampleBufferDelegate {
         var image = CIImage(cvPixelBuffer: pixelBuffer)
         let rawImage = image  // snapshot before filter chain for histogram
 
-        // LUT
-        lutFilterLock.lock()
-        if let lut = _lutFilter {
-            lut.inputImage = image
-            if let output = lut.outputImage {
-                image = output
-            }
-        }
-        lutFilterLock.unlock()
-
-        // False color (replaces zebra when active)
+        // False color must see the ungraded signal — apply before LUT
         if isFalseColorEnabled {
             falseColorFilter.inputImage = image
             if let output = falseColorFilter.outputImage {
                 image = output
             }
+        }
+
+        // LUT (skip when false color is active — monitoring tool shows ungraded image)
+        if !isFalseColorEnabled {
+            lutFilterLock.lock()
+            if let lut = _lutFilter {
+                lut.inputImage = image
+                if let output = lut.outputImage {
+                    image = output
+                }
+            }
+            lutFilterLock.unlock()
         }
 
         // Focus peaking (composited on top of false color if both active)

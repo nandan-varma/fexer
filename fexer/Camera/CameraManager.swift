@@ -180,6 +180,7 @@ final class CameraManager: NSObject {
             try? device.lockForConfiguration()
             device.exposureMode = .continuousAutoExposure
             device.unlockForConfiguration()
+            Task { @MainActor in self.captureSettings.isAELocked = false }
         }
     }
 

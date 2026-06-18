@@ -22,8 +22,8 @@ final class CameraViewModel {
     var showFocusIndicator = false
     var zoomLevel: CGFloat = 1.0
 
-    // AE Lock
-    var isAELocked: Bool = false
+    // AE Lock — computed from hardware state so it can never drift
+    var isAELocked: Bool { cameraManager.captureSettings.isAELocked }
 
     // Self-timer
     var timerCountdown: Int = 0
@@ -106,7 +106,6 @@ final class CameraViewModel {
         cameraManager.captureSettings.isAutoWhiteBalance = true
         cameraManager.captureSettings.whiteBalanceTint = 0
         accumulatedExposureBias = 0
-        if isAELocked { toggleAELock() }
         HapticManager.medium()
     }
 
@@ -115,10 +114,8 @@ final class CameraViewModel {
     func toggleAELock() {
         if isAELocked {
             cameraManager.unlockAutoExposure()
-            isAELocked = false
         } else {
             cameraManager.lockAutoExposure()
-            isAELocked = true
         }
         HapticManager.medium()
     }
@@ -139,10 +136,11 @@ final class CameraViewModel {
                 await MainActor.run { self.timerCountdown = remaining }
             }
             await MainActor.run {
+                guard !Task.isCancelled else { return }
                 self.isTimerActive = false
                 self.timerCountdown = 0
+                action()
             }
-            action()
         }
     }
 

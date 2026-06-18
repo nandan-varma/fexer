@@ -30,8 +30,6 @@ struct CameraView: View {
     @AppStorage("bracketEVStep")       private var bracketEVStep: Double  = 1.0
     @AppStorage("selfTimerDelay")      private var selfTimerDelay: Int    = 0
 
-    @State private var isShutterPressed = false
-
     private var cropRatio: CropRatio { CropRatio(rawValue: cropRatioRaw) ?? .full }
 
     init() {
@@ -129,7 +127,9 @@ struct CameraView: View {
                     ) {
                         cameraViewModel.handleSwipeDown()
                     }
-                    .frame(height: 330)
+                    .frame(height: cameraManager.captureSettings.isAutoWhiteBalance ? 330 : 376)
+                    .animation(.spring(response: 0.3, dampingFraction: 0.85),
+                               value: cameraManager.captureSettings.isAutoWhiteBalance)
                     .transition(.move(edge: .bottom))
                     .padding(.bottom, 8)
                 }
@@ -223,17 +223,17 @@ struct CameraView: View {
                 .frame(width: 76, height: 76)
                 .animation(.easeInOut(duration: 0.15), value: aelLocked)
 
-            // Inner capture button
-            Circle()
-                .fill(.white)
-                .frame(width: 62, height: 62)
-                .scaleEffect(isShutterPressed ? 0.88 : 1.0)
-                .animation(.easeInOut(duration: 0.08), value: isShutterPressed)
-                .onTapGesture { captureAction() }
-                .simultaneousGesture(
-                    LongPressGesture(minimumDuration: 0.5)
-                        .onEnded { _ in cameraViewModel.toggleAELock() }
-                )
+            // Inner capture button — tap to shoot, long-press to toggle AEL
+            Button { captureAction() } label: {
+                Circle()
+                    .fill(.white)
+                    .frame(width: 62, height: 62)
+            }
+            .buttonStyle(ShutterButtonStyle())
+            .highPriorityGesture(
+                LongPressGesture(minimumDuration: 0.5)
+                    .onEnded { _ in cameraViewModel.toggleAELock() }
+            )
 
             // AEL badge
             if aelLocked {

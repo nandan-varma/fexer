@@ -14,6 +14,8 @@ struct ManualControlsPanel: View {
             EVStrip(cameraManager: cameraManager)
                 .padding(.horizontal, 24)
                 .padding(.bottom, 10)
+                .opacity(cameraManager.captureSettings.isAELocked ? 0.38 : 1.0)
+                .allowsHitTesting(!cameraManager.captureSettings.isAELocked)
 
             // ── WB Tint strip (only when WB is in manual mode) ──────────────────
             if !cameraManager.captureSettings.isAutoWhiteBalance {
@@ -233,13 +235,21 @@ private struct EVStrip: View {
                     .tracking(1.5)
                     .textCase(.uppercase)
 
+                if cameraManager.captureSettings.isAELocked {
+                    Text("AEL")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(.black)
+                        .padding(.horizontal, 5).padding(.vertical, 2)
+                        .background(Color.yellow, in: Capsule())
+                }
+
                 Spacer()
 
                 Text(evString(ev))
                     .font(.system(size: 13, weight: .bold, design: .monospaced))
                     .monospacedDigit()
                     .foregroundStyle(evColor(ev))
-                    .frame(minWidth: 48, alignment: .trailing) // fixed width – no layout shift
+                    .frame(minWidth: 48, alignment: .trailing)
                     .animation(.none, value: ev)
             }
 
