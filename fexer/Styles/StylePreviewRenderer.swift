@@ -1,98 +1,63 @@
 import UIKit
 import CoreImage
 
-/// Generates style preview thumbnails from the current live frame in parallel.
+/// Generates style preview thumbnails from a bundled sample image.
 final class StylePreviewRenderer {
     static let shared = StylePreviewRenderer()
 
     private let cache = NSCache<NSString, UIImage>()
     private let renderQueue = DispatchQueue(label: "com.fexer.stylePreview", qos: .userInitiated, attributes: .concurrent)
-    private let ciContext: CIContext = {
-        CIContext(options: [.useSoftwareRenderer: false])
-    }()
-    private var lastFramePixelBuffer: CVPixelBuffer?
-    private var lastFrameLuma: Float = -1
+    private let ciContext: CIContext = CIContext(options: [.useSoftwareRenderer: false])
+    private let sampleImage: CIImage
 
     private init() {
         cache.countLimit = 40
-    }
-
-    func updateFrame(_ pixelBuffer: CVPixelBuffer) {
-        let luma = averageLuminance(of: pixelBuffer)
-        if abs(luma - lastFrameLuma) > 0.1 {
-            cache.removeAllObjects()
-            lastFrameLuma = luma
+        if let uiImage = UIImage(named: "SamplePreview"), let ci = CIImage(image: uiImage) {
+            sampleImage = ci
+        } else {
+            sampleImage = CIImage.empty()
         }
-        lastFramePixelBuffer = pixelBuffer
     }
 
-    func thumbnail(for style: PhotoStyle, size: CGSize = CGSize(width: 120, height: 90), completion: @escaping (UIImage?) -> Void) {
+    /// No-op — previews now use a bundled sample image, not live frames.
+    nonisolated func updateFrame(_ pixelBuffer: CVPixelBuffer) {}
+
+    nonisolated func thumbnail(for style: PhotoStyle,
+                                size: CGSize = CGSize(width: 120, height: 90),
+                                completion: @escaping (UIImage?) -> Void) {
         let key = "\(style.id)-\(Int(size.width))x\(Int(size.height))" as NSString
-        if let cached = cache.object(forKey: key) {
-            completion(cached)
-            return
-        }
+        if let cached = cache.object(forKey: key) { completion(cached); return }
 
-        guard let buffer = lastFramePixelBuffer else {
-            completion(nil)
-            return
-        }
+        let base = sampleImage
 
         renderQueue.async { [self] in
-            let image = CIImage(cvPixelBuffer: buffer)
-            var processed = image
+            var processed = base
 
-            if let lutFileName = style.lutFileName,
-               let (data, dim) = LUTLoader.shared.load(filename: lutFileName),
+            if let (data, dim) = LUTLoader.shared.effectiveLUT(for: style),
                let lutFilter = CIFilter(name: "CIColorCubeWithColorSpace",
-                                         parameters: [
-                                            "inputImage": image,
+                                        parameters: [
+                                            "inputImage": base,
                                             "inputCubeDimension": dim,
                                             "inputCubeData": data,
                                             "inputColorSpace": CGColorSpace(name: CGColorSpace.sRGB)!
-                                         ]),
+                                        ]),
                let output = lutFilter.outputImage {
                 processed = output
             }
 
             let scale = max(size.width / processed.extent.width, size.height / processed.extent.height)
             let scaled = processed.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
-            let cropped = scaled.cropped(to: CGRect(origin: .zero, size: size))
+            let ox = (scaled.extent.width  - size.width)  / 2
+            let oy = (scaled.extent.height - size.height) / 2
+            let cropRect = CGRect(x: scaled.extent.minX + ox, y: scaled.extent.minY + oy,
+                                  width: size.width, height: size.height)
 
-            guard let cgImage = self.ciContext.createCGImage(cropped, from: cropped.extent) else {
-                completion(nil)
-                return
+            guard let cgImage = self.ciContext.createCGImage(scaled, from: cropRect) else {
+                completion(nil); return
             }
-
-            let thumbnail = UIImage(cgImage: cgImage)
-            self.cache.setObject(thumbnail, forKey: key)
-            DispatchQueue.main.async { completion(thumbnail) }
+            let thumb = UIImage(cgImage: cgImage)
+            self.cache.setObject(thumb, forKey: key)
+            DispatchQueue.main.async { completion(thumb) }
         }
-    }
-
-    private func averageLuminance(of buffer: CVPixelBuffer) -> Float {
-        CVPixelBufferLockBaseAddress(buffer, .readOnly)
-        defer { CVPixelBufferUnlockBaseAddress(buffer, .readOnly) }
-
-        guard let base = CVPixelBufferGetBaseAddress(buffer) else { return 0 }
-        let width = CVPixelBufferGetWidth(buffer)
-        let height = CVPixelBufferGetHeight(buffer)
-        let bytesPerRow = CVPixelBufferGetBytesPerRow(buffer)
-        let pixels = base.assumingMemoryBound(to: UInt8.self)
-
-        var sum: Float = 0
-        let step = 32
-        var count = 0
-        for y in stride(from: 0, to: height, by: step) {
-            for x in stride(from: 0, to: width, by: step) {
-                let offset = y * bytesPerRow + x * 4
-                let b = Float(pixels[offset])
-                let g = Float(pixels[offset + 1])
-                let r = Float(pixels[offset + 2])
-                sum += (0.299 * r + 0.587 * g + 0.114 * b) / 255.0
-                count += 1
-            }
-        }
-        return count > 0 ? sum / Float(count) : 0
     }
 }

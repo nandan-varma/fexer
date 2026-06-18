@@ -33,6 +33,50 @@ final class LUTLoader {
         return (data as NSData, dim)
     }
 
+    /// Generates LUT data from a mathematical (r,g,b)→(r,g,b) transform.
+    /// Cached by name+dimension so generation only happens once per style.
+    func generateProcedural(name: String,
+                             dimension: Int = 17,
+                             transform: (Float32, Float32, Float32) -> (Float32, Float32, Float32)) -> (NSData, Int) {
+        let cacheKey = "__proc_\(name)_\(dimension)" as NSString
+        if let entry = cache.object(forKey: cacheKey) { return (entry.data, entry.dimension) }
+
+        let d = dimension
+        var floats = [Float32](repeating: 0, count: d * d * d * 4)
+        var idx = 0
+        // .cube order: B outer, G middle, R inner
+        for bi in 0..<d {
+            for gi in 0..<d {
+                for ri in 0..<d {
+                    let (ro, go, bo) = transform(Float32(ri) / Float32(d - 1),
+                                                 Float32(gi) / Float32(d - 1),
+                                                 Float32(bi) / Float32(d - 1))
+                    floats[idx]     = max(0, min(1, ro))
+                    floats[idx + 1] = max(0, min(1, go))
+                    floats[idx + 2] = max(0, min(1, bo))
+                    floats[idx + 3] = 1.0
+                    idx += 4
+                }
+            }
+        }
+        let data = floats.withUnsafeBytes { NSData(bytes: $0.baseAddress!, length: $0.count) }
+        cache.setObject(LUTEntry(data, d), forKey: cacheKey)
+        return (data, d)
+    }
+
+    /// Loads a .cube file if available; otherwise generates LUT data procedurally.
+    /// This is the single entry point both the live pipeline and thumbnail renderer should use.
+    func effectiveLUT(for style: PhotoStyle) -> (NSData, Int)? {
+        if let fileName = style.lutFileName, let loaded = load(filename: fileName) {
+            return loaded
+        }
+        // No .cube file — generate from parametric color science definition
+        let p = StyleTransforms.params(for: style)
+        return generateProcedural(name: style.name) { r, g, b in
+            StyleTransforms.apply(p, r: r, g: g, b: b)
+        }
+    }
+
     private func parseCube(content: String) -> (Data, Int)? {
         var dimension = 33
         var floats: [Float32] = []

@@ -163,6 +163,8 @@ struct CameraView: View {
         .onAppear {
             cameraManager.startSession()
             syncProcessor()
+            // Feed live frames to StylePreviewRenderer so thumbnails can be generated
+            cameraManager.processor.onPixelBuffer = stylesViewModel.onFrameAvailable
             UIApplication.shared.isIdleTimerDisabled = true
             Task { await appState.permissionsManager.requestPhotoLibraryAccess() }
             appState.permissionsManager.requestLocationAccess()

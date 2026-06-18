@@ -14,6 +14,8 @@ final class CaptureProcessor: NSObject {
     var onHistogramUpdate: (([Float], [Float], [Float], [Float]) -> Void)?
     var onFrameAvailable: (() -> Void)?
     var onPreviewSizeKnown: ((CGSize) -> Void)?
+    /// Called with the raw pixel buffer ~once per second (for thumbnail generation).
+    var onPixelBuffer: ((CVPixelBuffer) -> Void)?
 
     // Filter pipeline state (set from CameraViewModel on main thread, read here)
     var lutFilter: LUTFilter? {
@@ -87,6 +89,11 @@ extension CaptureProcessor: AVCaptureVideoDataOutputSampleBufferDelegate {
         if size != reportedSize {
             reportedSize = size
             onPreviewSizeKnown?(size)
+        }
+
+        // Feed raw buffer for thumbnail generation: on first frame and every ~1 s (60 fps ÷ 60)
+        if frameCount == 1 || frameCount % 60 == 0 {
+            onPixelBuffer?(pixelBuffer)
         }
         let rawImage = image  // snapshot before filter chain for histogram
 

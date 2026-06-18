@@ -36,8 +36,19 @@ final class StylesViewModel {
         }
     }
 
-    func updateFrame(_ pixelBuffer: CVPixelBuffer) {
+    /// Called from sessionQueue via CaptureProcessor.onPixelBuffer (~1/s).
+    nonisolated func onFrameAvailable(_ pixelBuffer: CVPixelBuffer) {
         StylePreviewRenderer.shared.updateFrame(pixelBuffer)
         stylesManager.processFrame(pixelBuffer)
+        Task { @MainActor [weak self] in self?.retryPendingThumbnailsOnce() }
+    }
+
+    private var _hasRetriedThumbnails = false
+    private func retryPendingThumbnailsOnce() {
+        guard !_hasRetriedThumbnails else { return }
+        _hasRetriedThumbnails = true
+        for style in stylesManager.allStyles.values.flatMap({ $0 }) {
+            requestThumbnail(for: style)
+        }
     }
 }

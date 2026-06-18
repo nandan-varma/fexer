@@ -22,8 +22,8 @@ final class StylesManager {
 
     // Called from CaptureProcessor on sessionQueue — returns filter configured for this frame
     func activeLUTFilter() -> LUTFilter? {
-        guard let style = activeStyle, let lutFileName = style.lutFileName else { return nil }
-        guard let (data, dim) = lutLoader.load(filename: lutFileName) else { return nil }
+        guard let style = activeStyle else { return nil }
+        guard let (data, dim) = lutLoader.effectiveLUT(for: style) else { return nil }
         lutFilter.setStyle(name: style.name, data: data, dimension: dim)
         lutFilter.inputIntensity = styleIntensity
         return lutFilter
