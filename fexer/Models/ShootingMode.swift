@@ -59,6 +59,25 @@ enum CropRatio: String, CaseIterable, Identifiable {
     }
 }
 
+enum MeteringMode: String, CaseIterable {
+    case matrix = "Matrix"
+    case center = "Center"
+    case spot   = "Spot"
+
+    var next: MeteringMode {
+        let all = MeteringMode.allCases
+        return all[((all.firstIndex(of: self) ?? 0) + 1) % all.count]
+    }
+
+    var systemImage: String {
+        switch self {
+        case .matrix: return "square.grid.3x3"
+        case .center: return "circle.and.line.horizontal"
+        case .spot:   return "scope"
+        }
+    }
+}
+
 enum QuickAccessItem: String, CaseIterable, Identifiable {
     case flash = "Flash"
     case timer = "Timer"
@@ -70,6 +89,8 @@ enum QuickAccessItem: String, CaseIterable, Identifiable {
     case levelIndicator = "Level"
     case livePhoto = "Live"
     case format = "Format"
+    case falseColor = "FalseColor"
+    case bracketAEB = "Bracket"
 
     var id: String { rawValue }
 
@@ -85,6 +106,8 @@ enum QuickAccessItem: String, CaseIterable, Identifiable {
         case .levelIndicator: return "level"
         case .livePhoto: return "livephoto"
         case .format: return "doc.badge.gearshape"
+        case .falseColor: return "camera.filters"
+        case .bracketAEB: return "plusminus"
         }
     }
 }

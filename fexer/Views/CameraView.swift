@@ -24,7 +24,13 @@ struct CameraView: View {
     @AppStorage("showStylePicker")    private var showStylePicker    = false
     @AppStorage("showShootingModes")  private var showShootingModes  = false
     @AppStorage("showGallery")        private var showGallery        = true
-    @AppStorage("cropRatio")          private var cropRatioRaw       = CropRatio.full.rawValue
+    @AppStorage("cropRatio")           private var cropRatioRaw          = CropRatio.full.rawValue
+    @AppStorage("showFalseColor")      private var showFalseColor         = false
+    @AppStorage("isBracketingEnabled") private var isBracketingEnabled    = false
+    @AppStorage("bracketEVStep")       private var bracketEVStep: Double  = 1.0
+    @AppStorage("selfTimerDelay")      private var selfTimerDelay: Int    = 0
+
+    @State private var isShutterPressed = false
 
     private var cropRatio: CropRatio { CropRatio(rawValue: cropRatioRaw) ?? .full }
 
@@ -53,6 +59,18 @@ struct CameraView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .ignoresSafeArea()
                 .allowsHitTesting(false)
+            }
+
+            // ── Timer countdown ──────────────────────────────────────────────────
+            if cameraViewModel.isTimerActive && cameraViewModel.timerCountdown > 0 {
+                Text("\(cameraViewModel.timerCountdown)")
+                    .font(.system(size: 100, weight: .thin, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.9))
+                    .shadow(color: .black.opacity(0.7), radius: 12)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                    .padding(.bottom, 180)
+                    .allowsHitTesting(false)
+                    .transition(.scale.combined(with: .opacity))
             }
 
             // ── Grid overlay ─────────────────────────────────────────────────────
@@ -150,6 +168,7 @@ struct CameraView: View {
         .onChange(of: stylesManager.styleIntensity) { syncProcessor() }
         .onChange(of: showFocusPeaking)             { syncProcessor() }
         .onChange(of: showZebra)                    { syncProcessor() }
+        .onChange(of: showFalseColor)               { syncProcessor() }
     }
 
     // MARK: - Shutter row
@@ -189,6 +208,7 @@ struct CameraView: View {
     private var shutterButton: some View {
         let ev = cameraManager.captureSettings.exposureCompensation
         let fraction = CGFloat((ev + 3) / 6)
+        let aelLocked = cameraViewModel.isAELocked
 
         return ZStack {
             Circle()
@@ -199,18 +219,68 @@ struct CameraView: View {
                 .animation(.easeInOut(duration: 0.1), value: ev)
 
             Circle()
-                .stroke(.white, lineWidth: 3)
+                .stroke(aelLocked ? Color.yellow : .white, lineWidth: 3)
                 .frame(width: 76, height: 76)
+                .animation(.easeInOut(duration: 0.15), value: aelLocked)
 
-            Button {
-                HapticManager.shutter()
-                cameraManager.capturePhoto(delegate: makeCaptureDelegate())
-            } label: {
-                Circle()
-                    .fill(.white)
-                    .frame(width: 62, height: 62)
+            // Inner capture button
+            Circle()
+                .fill(.white)
+                .frame(width: 62, height: 62)
+                .scaleEffect(isShutterPressed ? 0.88 : 1.0)
+                .animation(.easeInOut(duration: 0.08), value: isShutterPressed)
+                .onTapGesture { captureAction() }
+                .simultaneousGesture(
+                    LongPressGesture(minimumDuration: 0.5)
+                        .onEnded { _ in cameraViewModel.toggleAELock() }
+                )
+
+            // AEL badge
+            if aelLocked {
+                Text("AEL")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(.black)
+                    .padding(.horizontal, 6).padding(.vertical, 3)
+                    .background(Color.yellow, in: Capsule())
+                    .offset(y: -48)
+                    .transition(.opacity.combined(with: .scale))
             }
-            .buttonStyle(ShutterButtonStyle())
+
+            // Bracket badge
+            if isBracketingEnabled {
+                let stepLabel = bracketEVStep == 1.0 ? "1" : String(format: "%.1g", bracketEVStep)
+                Text("±\(stepLabel)")
+                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 5).padding(.vertical, 2)
+                    .background(.black.opacity(0.55), in: Capsule())
+                    .offset(y: 48)
+            }
+        }
+    }
+
+    // MARK: - Capture flow
+
+    private func captureAction() {
+        if cameraViewModel.isTimerActive {
+            cameraViewModel.cancelTimer()
+            return
+        }
+        if cameraViewModel.activeMode == .selfTimer && selfTimerDelay > 0 {
+            HapticManager.light()
+            cameraViewModel.startTimerCapture(delay: Double(selfTimerDelay)) { performCapture() }
+        } else {
+            performCapture()
+        }
+    }
+
+    private func performCapture() {
+        HapticManager.shutter()
+        let delegate = makeCaptureDelegate()
+        if isBracketingEnabled {
+            cameraManager.capturePhotoBracketed(evStep: Float(bracketEVStep), delegate: delegate)
+        } else {
+            cameraManager.capturePhoto(delegate: delegate)
         }
     }
 
@@ -282,7 +352,7 @@ struct CameraView: View {
     // MARK: - Helpers
 
     private func syncProcessor() {
-        cameraViewModel.syncOverlaysToProcessor(focusPeaking: showFocusPeaking, zebra: showZebra)
+        cameraViewModel.syncOverlaysToProcessor(focusPeaking: showFocusPeaking, zebra: showZebra, falseColor: showFalseColor)
     }
 
     private func makeCaptureDelegate() -> CapturePhotoDelegate {
@@ -293,7 +363,7 @@ struct CameraView: View {
         let captureSettings = cameraManager.captureSettings
 
         return CapturePhotoDelegate(
-            onProcessed: { photo in
+            onProcessed: { photo, shouldShowReview in
                 guard let rawData = photo.fileDataRepresentation() else {
                     print("[fexer] fileDataRepresentation returned nil")
                     return
@@ -320,8 +390,6 @@ struct CameraView: View {
                     }
                 }
 
-                // Request authorization inline if the user hasn't been asked yet,
-                // then save. Handles both first-launch and already-authorized paths.
                 let status = PHPhotoLibrary.authorizationStatus(for: .addOnly)
                 if status == .notDetermined {
                     PHPhotoLibrary.requestAuthorization(for: .addOnly) { granted in
@@ -332,6 +400,8 @@ struct CameraView: View {
                 } else {
                     print("[fexer] Photo library access denied — cannot save")
                 }
+
+                guard shouldShowReview else { return }
 
                 let captured = CapturedPhoto(
                     jpegData: rawData,
@@ -366,10 +436,10 @@ struct ShutterButtonStyle: ButtonStyle {
 }
 
 final class CapturePhotoDelegate: NSObject, AVCapturePhotoCaptureDelegate {
-    private let onProcessed: (AVCapturePhoto) -> Void
+    private let onProcessed: (AVCapturePhoto, Bool) -> Void
     private let onCaptureDone: () -> Void
 
-    init(onProcessed: @escaping (AVCapturePhoto) -> Void,
+    init(onProcessed: @escaping (AVCapturePhoto, Bool) -> Void,
          onCaptureDone: @escaping () -> Void) {
         self.onProcessed = onProcessed
         self.onCaptureDone = onCaptureDone
@@ -382,10 +452,19 @@ final class CapturePhotoDelegate: NSObject, AVCapturePhotoCaptureDelegate {
             print("[fexer] Capture error: \(error.localizedDescription)")
             return
         }
-        onProcessed(photo)
+        var shouldShowReview = true
+        // RAW in a RAW+JPEG capture: expectedPhotoCount == 2 means JPEG will follow
+        if photo.isRawPhoto && photo.resolvedSettings.expectedPhotoCount > 1 {
+            shouldShowReview = false
+        }
+        // Bracketed capture: only show review for the EV-0 frame
+        if let auto = photo.bracketSettings
+            as? AVCaptureAutoExposureBracketedStillImageSettings {
+            shouldShowReview = abs(auto.exposureTargetBias) < 0.01
+        }
+        onProcessed(photo, shouldShowReview)
     }
 
-    // Always fires as the final step — use this to reset isCapturing unconditionally.
     func photoOutput(_ output: AVCapturePhotoOutput,
                      didFinishCaptureFor resolvedSettings: AVCaptureResolvedPhotoSettings,
                      error: Error?) {

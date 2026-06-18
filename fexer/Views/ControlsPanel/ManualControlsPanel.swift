@@ -13,7 +13,15 @@ struct ManualControlsPanel: View {
             // ── EV strip ────────────────────────────────────────────────────────
             EVStrip(cameraManager: cameraManager)
                 .padding(.horizontal, 24)
-                .padding(.bottom, 16)
+                .padding(.bottom, 10)
+
+            // ── WB Tint strip (only when WB is in manual mode) ──────────────────
+            if !cameraManager.captureSettings.isAutoWhiteBalance {
+                TintStrip(cameraManager: cameraManager)
+                    .padding(.horizontal, 24)
+                    .padding(.bottom, 10)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            }
 
             Divider()
                 .background(.white.opacity(0.15))
@@ -46,7 +54,8 @@ struct ManualControlsPanel: View {
                 WhiteBalanceSlider(
                     kelvin: $cameraManager.captureSettings.whiteBalance,
                     isAuto: $cameraManager.captureSettings.isAutoWhiteBalance
-                ) { cameraManager.setWhiteBalance(kelvin: cameraManager.captureSettings.whiteBalance) }
+                ) { cameraManager.setWhiteBalance(kelvin: cameraManager.captureSettings.whiteBalance,
+                                                   tint: cameraManager.captureSettings.whiteBalanceTint) }
                 .onChange(of: cameraManager.captureSettings.isAutoWhiteBalance) { _, isAuto in
                     if isAuto { cameraManager.setAutoWhiteBalance() }
                 }
@@ -79,7 +88,7 @@ struct ManualControlsPanel: View {
     }
 
     private var handle: some View {
-        ZStack(alignment: .trailing) {
+        ZStack {
             // Center pill — tapping it dismisses the panel
             RoundedRectangle(cornerRadius: 2.5)
                 .fill(.white.opacity(0.3))
@@ -88,15 +97,38 @@ struct ManualControlsPanel: View {
                 .contentShape(Rectangle())
                 .onTapGesture { onDismiss?() }
 
-            // Settings gear — top-right corner
-            Button { onSettings?() } label: {
-                Image(systemName: "gearshape")
-                    .font(.system(size: 16))
+            HStack {
+                // Metering mode cycling button — top-left
+                Button {
+                    let next = cameraManager.captureSettings.meteringMode.next
+                    cameraManager.setMeteringMode(next)
+                    HapticManager.selectionChanged()
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: cameraManager.captureSettings.meteringMode.systemImage)
+                            .font(.system(size: 12))
+                        Text(cameraManager.captureSettings.meteringMode.rawValue)
+                            .font(.system(size: 10, weight: .semibold))
+                            .tracking(0.5)
+                    }
                     .foregroundStyle(.white.opacity(0.55))
-                    .frame(width: 36, height: 36)
+                    .frame(height: 36)
                     .contentShape(Rectangle())
+                }
+                .padding(.leading, 14)
+
+                Spacer()
+
+                // Settings gear — top-right
+                Button { onSettings?() } label: {
+                    Image(systemName: "gearshape")
+                        .font(.system(size: 16))
+                        .foregroundStyle(.white.opacity(0.55))
+                        .frame(width: 36, height: 36)
+                        .contentShape(Rectangle())
+                }
+                .padding(.trailing, 14)
             }
-            .padding(.trailing, 14)
         }
         .padding(.top, 6)
         .padding(.bottom, 10)
@@ -107,6 +139,79 @@ struct ManualControlsPanel: View {
             .fill(.white.opacity(0.08))
             .frame(width: 1, height: 120)
             .padding(.top, 38) // align with track area
+    }
+}
+
+// MARK: - Tint Strip
+
+private struct TintStrip: View {
+    @Bindable var cameraManager: CameraManager
+
+    var body: some View {
+        let tint = cameraManager.captureSettings.whiteBalanceTint
+
+        VStack(spacing: 6) {
+            HStack {
+                Text("TINT")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.5))
+                    .tracking(1.5)
+
+                Spacer()
+
+                Text(tint >= 0 ? "+\(Int(tint))" : "\(Int(tint))")
+                    .font(.system(size: 13, weight: .bold, design: .monospaced))
+                    .monospacedDigit()
+                    .foregroundStyle(abs(tint) < 5 ? .white : tint > 0 ? Color(red: 0.9, green: 0.3, blue: 0.9) : Color(red: 0.2, green: 0.85, blue: 0.2))
+                    .frame(minWidth: 40, alignment: .trailing)
+                    .animation(.none, value: tint)
+            }
+
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    LinearGradient(
+                        colors: [
+                            Color(red: 0.1, green: 0.8, blue: 0.1),
+                            Color.white.opacity(0.18),
+                            Color(red: 0.9, green: 0.2, blue: 0.9)
+                        ],
+                        startPoint: .leading, endPoint: .trailing
+                    )
+                    .frame(height: 6)
+                    .clipShape(RoundedRectangle(cornerRadius: 3))
+
+                    // Center tick
+                    RoundedRectangle(cornerRadius: 1)
+                        .fill(.white.opacity(0.5))
+                        .frame(width: 2, height: 12)
+                        .offset(x: geo.size.width / 2 - 1, y: -3)
+
+                    // Thumb
+                    let fraction = CGFloat((tint + 150) / 300)
+                    Circle()
+                        .fill(.white)
+                        .shadow(color: .black.opacity(0.4), radius: 2)
+                        .frame(width: 14, height: 14)
+                        .offset(x: fraction * geo.size.width - 7, y: -4)
+                        .animation(.easeOut(duration: 0.08), value: tint)
+                }
+            }
+            .frame(height: 14)
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { g in
+                        let trackWidth = UIScreen.main.bounds.width - 48
+                        let fraction = Float((g.location.x / trackWidth).clamped(to: 0...1))
+                        let newTint = (fraction * 300 - 150).fxClamped(to: -150...150)
+                        cameraManager.captureSettings.whiteBalanceTint = newTint
+                        cameraManager.setWhiteBalance(
+                            kelvin: cameraManager.captureSettings.whiteBalance,
+                            tint: newTint
+                        )
+                    }
+            )
+        }
     }
 }
 

@@ -25,6 +25,7 @@ final class CaptureProcessor: NSObject {
     private let flagsLock = NSLock()
     private var _isFocusPeakingEnabled = false
     private var _isZebraEnabled = false
+    private var _isFalseColorEnabled = false
     var isFocusPeakingEnabled: Bool {
         get { flagsLock.withLock { _isFocusPeakingEnabled } }
         set { flagsLock.withLock { _isFocusPeakingEnabled = newValue } }
@@ -33,11 +34,16 @@ final class CaptureProcessor: NSObject {
         get { flagsLock.withLock { _isZebraEnabled } }
         set { flagsLock.withLock { _isZebraEnabled = newValue } }
     }
+    var isFalseColorEnabled: Bool {
+        get { flagsLock.withLock { _isFalseColorEnabled } }
+        set { flagsLock.withLock { _isFalseColorEnabled = newValue } }
+    }
     // zebraTime is only ever read and written on sessionQueue — no lock needed
     var zebraTime: Float = 0
 
     private let focusPeakingFilter = FocusPeakingFilter()
     private let zebraFilter = ZebraFilter()
+    private let falseColorFilter = FalseColorFilter()
     private lazy var histogramFilter: CIFilter = CIFilter(name: "CIAreaHistogram")!
 
     private var frameCount = 0
@@ -85,7 +91,15 @@ extension CaptureProcessor: AVCaptureVideoDataOutputSampleBufferDelegate {
         }
         lutFilterLock.unlock()
 
-        // Focus peaking
+        // False color (replaces zebra when active)
+        if isFalseColorEnabled {
+            falseColorFilter.inputImage = image
+            if let output = falseColorFilter.outputImage {
+                image = output
+            }
+        }
+
+        // Focus peaking (composited on top of false color if both active)
         if isFocusPeakingEnabled {
             focusPeakingFilter.inputImage = image
             if let output = focusPeakingFilter.outputImage {
@@ -93,8 +107,8 @@ extension CaptureProcessor: AVCaptureVideoDataOutputSampleBufferDelegate {
             }
         }
 
-        // Zebra stripes
-        if isZebraEnabled {
+        // Zebra stripes (skipped when false color is on — redundant)
+        if isZebraEnabled && !isFalseColorEnabled {
             zebraFilter.inputImage = image
             zebraFilter.inputTime = zebraTime
             if let output = zebraFilter.outputImage {

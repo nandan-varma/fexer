@@ -22,6 +22,13 @@ final class CameraViewModel {
     var showFocusIndicator = false
     var zoomLevel: CGFloat = 1.0
 
+    // AE Lock
+    var isAELocked: Bool = false
+
+    // Self-timer
+    var timerCountdown: Int = 0
+    var isTimerActive: Bool = false
+
     // Histogram data — single property update fires one SwiftUI notification per frame
     var histogram = HistogramData()
 
@@ -29,6 +36,7 @@ final class CameraViewModel {
     private var accumulatedExposureBias: Float = 0
 
     private var focusTask: Task<Void, Never>?
+    private var timerTask: Task<Void, Never>?
 
     var activeMode: ShootingMode { ShootingMode.allCases[activeModeIndex] }
 
@@ -96,8 +104,53 @@ final class CameraViewModel {
         cameraManager.captureSettings.isAutoShutter = true
         cameraManager.captureSettings.isAutoFocus = true
         cameraManager.captureSettings.isAutoWhiteBalance = true
+        cameraManager.captureSettings.whiteBalanceTint = 0
         accumulatedExposureBias = 0
+        if isAELocked { toggleAELock() }
         HapticManager.medium()
+    }
+
+    // MARK: - AE Lock
+
+    func toggleAELock() {
+        if isAELocked {
+            cameraManager.unlockAutoExposure()
+            isAELocked = false
+        } else {
+            cameraManager.lockAutoExposure()
+            isAELocked = true
+        }
+        HapticManager.medium()
+    }
+
+    // MARK: - Self-timer
+
+    func startTimerCapture(delay: Double, action: @escaping () -> Void) {
+        guard !isTimerActive else { return }
+        isTimerActive = true
+        timerCountdown = Int(delay)
+
+        timerTask = Task {
+            var remaining = Int(delay)
+            while remaining > 0 {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                guard !Task.isCancelled else { return }
+                remaining -= 1
+                await MainActor.run { self.timerCountdown = remaining }
+            }
+            await MainActor.run {
+                self.isTimerActive = false
+                self.timerCountdown = 0
+            }
+            action()
+        }
+    }
+
+    func cancelTimer() {
+        timerTask?.cancel()
+        timerTask = nil
+        isTimerActive = false
+        timerCountdown = 0
     }
 
     func handleBrightnessSwipe(delta: CGFloat) {
@@ -107,11 +160,11 @@ final class CameraViewModel {
 
     // MARK: - Overlay Sync
 
-    /// focusPeaking and zebra come from CameraView's @AppStorage so the
-    /// caller passes them in rather than this class storing them.
-    func syncOverlaysToProcessor(focusPeaking: Bool = false, zebra: Bool = false) {
+    /// Caller passes AppStorage flags in so this class doesn't need to own them.
+    func syncOverlaysToProcessor(focusPeaking: Bool = false, zebra: Bool = false, falseColor: Bool = false) {
         cameraManager.processor.isFocusPeakingEnabled = focusPeaking
         cameraManager.processor.isZebraEnabled = zebra
+        cameraManager.processor.isFalseColorEnabled = falseColor
         let filter = stylesManager.activeLUTFilter()
         cameraManager.processor.lutFilter = filter
     }

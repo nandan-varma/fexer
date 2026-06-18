@@ -10,6 +10,7 @@ final class CameraManager: NSObject {
     var currentShutterSpeed: CMTime = CMTimeMake(value: 1, timescale: 250)
     var currentWhiteBalance: Float = 5500
     var currentLensPosition: Float = 0.5
+    var currentWhiteBalanceTint: Float = 0
     var currentZoomFactor: CGFloat = 1.0
     var availableLenses: [LensOption] = []
     var flashMode: AVCaptureDevice.FlashMode = .off
@@ -109,10 +110,10 @@ final class CameraManager: NSObject {
         }
     }
 
-    func setWhiteBalance(kelvin: Float) {
+    func setWhiteBalance(kelvin: Float, tint: Float = 0) {
         sessionQueue.async { [self] in
             guard let device = currentDevice else { return }
-            let tnt = AVCaptureDevice.WhiteBalanceTemperatureAndTintValues(temperature: kelvin, tint: 0)
+            let tnt = AVCaptureDevice.WhiteBalanceTemperatureAndTintValues(temperature: kelvin, tint: tint)
             var gains = device.deviceWhiteBalanceGains(for: tnt)
             let maxGain = device.maxWhiteBalanceGain
             gains.redGain   = gains.redGain.fxClamped(to: 1.0...maxGain)
@@ -200,6 +201,45 @@ final class CameraManager: NSObject {
         }
     }
 
+    func lockAutoExposure() {
+        sessionQueue.async { [self] in
+            guard let device = currentDevice else { return }
+            try? device.lockForConfiguration()
+            device.setExposureModeCustom(duration: device.exposureDuration, iso: device.iso, completionHandler: nil)
+            device.unlockForConfiguration()
+            Task { @MainActor in self.captureSettings.isAELocked = true }
+        }
+    }
+
+    func unlockAutoExposure() {
+        sessionQueue.async { [self] in
+            guard let device = currentDevice else { return }
+            try? device.lockForConfiguration()
+            device.exposureMode = .continuousAutoExposure
+            device.unlockForConfiguration()
+            Task { @MainActor in self.captureSettings.isAELocked = false }
+        }
+    }
+
+    func setMeteringMode(_ mode: MeteringMode) {
+        sessionQueue.async { [self] in
+            guard let device = currentDevice else { return }
+            try? device.lockForConfiguration()
+            if device.isExposurePointOfInterestSupported {
+                switch mode {
+                case .matrix, .center:
+                    device.exposurePointOfInterest = CGPoint(x: 0.5, y: 0.5)
+                    device.exposureMode = .continuousAutoExposure
+                case .spot:
+                    // Keep current tap point; just flag the mode
+                    device.exposureMode = .continuousAutoExposure
+                }
+            }
+            device.unlockForConfiguration()
+            Task { @MainActor in self.captureSettings.meteringMode = mode }
+        }
+    }
+
     func flipCamera() {
         sessionQueue.async { [self] in
             let currentPosition = currentDevice?.position ?? .back
@@ -225,16 +265,51 @@ final class CameraManager: NSObject {
             guard !isCapturing else { return }
             Task { @MainActor in self.isCapturing = true }
 
-            var settings: AVCapturePhotoSettings
-            if captureSettings.captureFormat == .jpeg || captureSettings.captureFormat == .rawPlusJpeg {
-                settings = AVCapturePhotoSettings(format: [AVVideoCodecKey: AVVideoCodecType.jpeg])
-            } else {
-                settings = AVCapturePhotoSettings()
-            }
+            let settings = makePhotoSettings(format: captureSettings.captureFormat)
             settings.flashMode = flashMode
             settings.photoQualityPrioritization = .quality
-
             photoOutput.capturePhoto(with: settings, delegate: delegate)
+        }
+    }
+
+    func capturePhotoBracketed(evStep: Float, delegate: AVCapturePhotoCaptureDelegate) {
+        sessionQueue.async { [self] in
+            guard !isCapturing else { return }
+            Task { @MainActor in self.isCapturing = true }
+
+            let offsets: [Float] = [-evStep, 0, evStep]
+            let maxCount = photoOutput.maxBracketedCapturePhotoCount
+            let bracketedSettings: [AVCaptureBracketedStillImageSettings] = offsets
+                .prefix(maxCount)
+                .map { AVCaptureAutoExposureBracketedStillImageSettings.autoExposureSettings(exposureTargetBias: $0) }
+
+            let settings = AVCapturePhotoBracketSettings(
+                rawPixelFormatType: 0,
+                processedFormat: [AVVideoCodecKey: AVVideoCodecType.jpeg],
+                bracketedSettings: bracketedSettings
+            )
+            settings.flashMode = flashMode
+            photoOutput.capturePhoto(with: settings, delegate: delegate)
+        }
+    }
+
+    private func makePhotoSettings(format: CaptureFormat) -> AVCapturePhotoSettings {
+        switch format {
+        case .rawPlusJpeg:
+            if let rawType = photoOutput.availableRawPhotoPixelFormatTypes.first {
+                return AVCapturePhotoSettings(
+                    rawPixelFormatType: rawType,
+                    processedFormat: [AVVideoCodecKey: AVVideoCodecType.jpeg]
+                )
+            }
+            return AVCapturePhotoSettings(format: [AVVideoCodecKey: AVVideoCodecType.jpeg])
+        case .raw:
+            if let rawType = photoOutput.availableRawPhotoPixelFormatTypes.first {
+                return AVCapturePhotoSettings(rawPixelFormatType: rawType, processedFormat: nil)
+            }
+            return AVCapturePhotoSettings()
+        case .jpeg:
+            return AVCapturePhotoSettings(format: [AVVideoCodecKey: AVVideoCodecType.jpeg])
         }
     }
 
@@ -299,8 +374,10 @@ final class CameraManager: NSObject {
                 let tnt = d.temperatureAndTintValues(for: d.deviceWhiteBalanceGains)
                 Task { @MainActor in
                     self?.currentWhiteBalance = tnt.temperature
+                    self?.currentWhiteBalanceTint = tnt.tint
                     if self?.captureSettings.isAutoWhiteBalance == true {
                         self?.captureSettings.whiteBalance = tnt.temperature
+                        self?.captureSettings.whiteBalanceTint = tnt.tint
                     }
                 }
             }

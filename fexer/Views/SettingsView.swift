@@ -10,6 +10,9 @@ struct SettingsView: View {
     @AppStorage("isProRAWEnabled")      private var isProRAW = false
     @AppStorage("isLocationEnabled")    private var isLocationEnabled = true
     @AppStorage("volumeButtonBehavior") private var volumeButtonBehavior = "Shutter"
+    @AppStorage("isBracketingEnabled")  private var isBracketingEnabled = false
+    @AppStorage("bracketEVStep")        private var bracketEVStep: Double = 1.0
+    @AppStorage("selfTimerDelay")       private var selfTimerDelay: Int = 0
 
     // Viewfinder overlays (shared keys with CameraView)
     @AppStorage("showHistogram")      private var showHistogram      = true
@@ -18,6 +21,7 @@ struct SettingsView: View {
     @AppStorage("showFocusPeaking")   private var showFocusPeaking   = false
     @AppStorage("showZebra")          private var showZebra          = false
     @AppStorage("showLevelIndicator") private var showLevelIndicator = false
+    @AppStorage("showFalseColor")     private var showFalseColor     = false
 
     // Crop ratio
     @AppStorage("cropRatio")          private var cropRatioRaw       = CropRatio.full.rawValue
@@ -43,6 +47,23 @@ struct SettingsView: View {
                     Picker("Volume Button", selection: $volumeButtonBehavior) {
                         ForEach(["Shutter", "Zoom", "Disabled"], id: \.self) { Text($0) }
                     }
+                    Toggle("Exposure Bracketing (AEB)", isOn: $isBracketingEnabled)
+                    if isBracketingEnabled {
+                        Picker("Bracket Step", selection: $bracketEVStep) {
+                            Text("±⅓ EV").tag(0.333)
+                            Text("±⅔ EV").tag(0.667)
+                            Text("±1 EV").tag(1.0)
+                            Text("±2 EV").tag(2.0)
+                        }
+                        .pickerStyle(.menu)
+                    }
+                    Picker("Self-Timer", selection: $selfTimerDelay) {
+                        Text("Off").tag(0)
+                        Text("2 s").tag(2)
+                        Text("5 s").tag(5)
+                        Text("10 s").tag(10)
+                    }
+                    .pickerStyle(.menu)
                 }
 
                 // MARK: Viewfinder overlays
@@ -62,6 +83,7 @@ struct SettingsView: View {
 
                     Toggle("Focus Peaking", isOn: $showFocusPeaking)
                     Toggle("Zebra Stripes", isOn: $showZebra)
+                    Toggle("False Color", isOn: $showFalseColor)
 
                     Picker("Crop Ratio", selection: $cropRatioRaw) {
                         ForEach(CropRatio.allCases) { ratio in

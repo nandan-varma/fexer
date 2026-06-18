@@ -11,8 +11,11 @@ struct CaptureSettings {
     var isoValue: Float = 200
     var shutterSpeed: CMTime = CMTimeMake(value: 1, timescale: 250)
     var whiteBalance: Float = 5500
+    var whiteBalanceTint: Float = 0        // -150 (green) … +150 (magenta)
     var focusDistance: Float = 0.5
     var exposureCompensation: Float = 0
+    var meteringMode: MeteringMode = .matrix
+    var isAELocked: Bool = false
 
     var isAutoISO: Bool = true
     var isAutoShutter: Bool = true

@@ -8,6 +8,7 @@ struct ReviewView: View {
     @State private var lastMagnification: CGFloat = 1.0
     @State private var showExif = false
     @State private var showShareSheet = false
+    @State private var reviewHistogram: HistogramData?
 
     var body: some View {
         ZStack {
@@ -93,6 +94,7 @@ struct ReviewView: View {
                     if g.translation.height > 80 { onDismiss?() }
                 }
         )
+        .onAppear { computeReviewHistogram() }
         .onTapGesture(count: 2) {
             let target: CGFloat = magnification > 1.5 ? 1.0 : 2.0
             withAnimation(.spring()) { magnification = target }
@@ -120,10 +122,16 @@ struct ReviewView: View {
                 .foregroundStyle(.yellow)
                 .tracking(2)
 
+            if let hist = reviewHistogram {
+                HistogramView(data: hist)
+                    .padding(.bottom, 4)
+            }
+
             Group {
                 exifRow("ISO", value: "ISO \(Int(settings.isoValue))")
                 exifRow("Shutter", value: settings.shutterSpeedDisplayString)
-                exifRow("White Balance", value: "\(Int(settings.whiteBalance))K")
+                exifRow("WB", value: "\(Int(settings.whiteBalance))K \(settings.whiteBalanceTint >= 0 ? "+\(Int(settings.whiteBalanceTint))" : "\(Int(settings.whiteBalanceTint))")")
+                exifRow("Metering", value: settings.meteringMode.rawValue)
                 if let make = exif[.make] { exifRow("Camera", value: make) }
                 if let fl = exif[.focalLength] { exifRow("Focal Length", value: fl) }
                 if let lat = exif[.gpsLatitude] { exifRow("GPS", value: lat) }
@@ -137,6 +145,46 @@ struct ReviewView: View {
         .background(.black.opacity(0.75), in: RoundedRectangle(cornerRadius: 12))
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+    }
+
+    private func computeReviewHistogram() {
+        guard let data = photo.jpegData, let uiImage = UIImage(data: data),
+              let cgImage = uiImage.cgImage else { return }
+
+        Task.detached(priority: .utility) {
+            let ciImage = CIImage(cgImage: cgImage)
+            let context = CIContext()
+            let count = 256
+
+            guard let filter = CIFilter(name: "CIAreaHistogram") else { return }
+            filter.setValue(ciImage, forKey: "inputImage")
+            filter.setValue(CIVector(cgRect: ciImage.extent), forKey: "inputExtent")
+            filter.setValue(count, forKey: "inputCount")
+            filter.setValue(1.0, forKey: "inputScale")
+            guard let output = filter.outputImage else { return }
+
+            let bitmapSize = count * 4 * MemoryLayout<Float>.size
+            var bitmap = [Float](repeating: 0, count: count * 4)
+            context.render(output, toBitmap: &bitmap, rowBytes: bitmapSize,
+                           bounds: CGRect(x: 0, y: 0, width: count, height: 1),
+                           format: .RGBAf, colorSpace: nil)
+
+            var r = [Float](repeating: 0, count: count)
+            var g = [Float](repeating: 0, count: count)
+            var b = [Float](repeating: 0, count: count)
+            var l = [Float](repeating: 0, count: count)
+            for i in 0..<count {
+                r[i] = bitmap[i*4]; g[i] = bitmap[i*4+1]; b[i] = bitmap[i*4+2]
+                l[i] = 0.299*r[i] + 0.587*g[i] + 0.114*b[i]
+            }
+            var maxV: Float = 0.001
+            for arr in [r, g, b, l] { if let m = arr.max(), m > maxV { maxV = m } }
+            let hist = HistogramData(
+                red: r.map { $0/maxV }, green: g.map { $0/maxV },
+                blue: b.map { $0/maxV }, luma: l.map { $0/maxV }
+            )
+            await MainActor.run { self.reviewHistogram = hist }
+        }
     }
 
     private func exifRow(_ label: String, value: String) -> some View {
