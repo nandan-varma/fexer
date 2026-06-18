@@ -16,6 +16,7 @@ final class CameraManager: NSObject {
     var flashMode: AVCaptureDevice.FlashMode = .off
     var isCapturing = false
     var lastCapturedPhoto: CapturedPhoto?
+    var previewImageSize: CGSize = .zero
 
     // MARK: - Internal (sessionQueue only)
     let processor = CaptureProcessor()
@@ -84,6 +85,10 @@ final class CameraManager: NSObject {
         // Rotate frames to portrait so CIImage arrives upright
         configureVideoRotation()
         setupObservations(for: device)
+
+        processor.onPreviewSizeKnown = { [weak self] size in
+            Task { @MainActor in self?.previewImageSize = size }
+        }
     }
 
     // MARK: - Manual Controls (call on any thread; executes on sessionQueue)

@@ -61,37 +61,44 @@ struct CameraView: View {
 
             // ── Timer countdown ──────────────────────────────────────────────────
             if cameraViewModel.isTimerActive && cameraViewModel.timerCountdown > 0 {
+                let barH = letterboxBarHeight ?? 0
                 Text("\(cameraViewModel.timerCountdown)")
                     .font(.system(size: 100, weight: .thin, design: .monospaced))
                     .foregroundStyle(.white.opacity(0.9))
                     .shadow(color: .black.opacity(0.7), radius: 12)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-                    .padding(.bottom, 180)
+                    .padding(.top, barH)
+                    .padding(.bottom, max(180, barH + 180))
                     .allowsHitTesting(false)
                     .transition(.scale.combined(with: .opacity))
             }
 
-            // ── Grid overlay ─────────────────────────────────────────────────────
+            // ── Grid overlay — constrained to the actual preview area ─────────────
             if showGrid {
-                GridOverlayView(gridType: GridType(rawValue: gridType) ?? .thirds)
-                    .ignoresSafeArea()
-                    .allowsHitTesting(false)
+                GeometryReader { geo in
+                    let barH = letterboxBarHeight ?? 0
+                    GridOverlayView(gridType: GridType(rawValue: gridType) ?? .thirds)
+                        .frame(width: geo.size.width, height: max(0, geo.size.height - 2 * barH))
+                        .offset(y: barH)
+                }
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
             }
 
-            // ── Histogram ────────────────────────────────────────────────────────
+            // ── Histogram — stays inside preview area ────────────────────────────
             if showHistogram && !cameraViewModel.histogram.red.isEmpty {
                 HistogramView(data: cameraViewModel.histogram)
-                    .padding(.top, 60)
+                    .padding(.top, max(60, (letterboxBarHeight ?? 0) + 16))
                     .padding(.leading, 16)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                     .allowsHitTesting(false)
             }
 
-            // ── Level indicator ──────────────────────────────────────────────────
+            // ── Level indicator — stays inside preview area ──────────────────────
             if showLevelIndicator {
                 LevelIndicatorView()
                     .frame(maxHeight: .infinity, alignment: .bottom)
-                    .padding(.bottom, 160)
+                    .padding(.bottom, max(160, (letterboxBarHeight ?? 0) + 12))
                     .allowsHitTesting(false)
             }
 
@@ -339,14 +346,25 @@ struct CameraView: View {
 
     // MARK: - Crop helpers
 
-    /// Height of each letterbox bar for the selected crop ratio, or nil for Full.
-    /// Bars are placed at top and bottom; content fills the full screen width.
+    /// Height of each letterbox bar (top and bottom) in screen points, or nil when the preview fills edge-to-edge.
+    /// Covers both crop-ratio bars (SwiftUI black bars) and the aspect-fit empty area in "Full" mode.
     private var letterboxBarHeight: CGFloat? {
-        guard let aspect = cropRatio.portraitAspect else { return nil }
         let screen = UIScreen.main.bounds
-        let contentH = screen.width / aspect
-        let barH = (screen.height - contentH) / 2
-        return barH > 1 ? barH : nil
+        if cropRatio == .full {
+            let imageSize = cameraManager.previewImageSize
+            guard imageSize.width > 0 && imageSize.height > 0 else { return nil }
+            let imageAspect = imageSize.width / imageSize.height
+            let viewAspect  = screen.width  / screen.height
+            guard viewAspect < imageAspect else { return nil }
+            let scaledH = screen.width / imageAspect
+            let barH = (screen.height - scaledH) / 2
+            return barH > 1 ? barH : nil
+        } else {
+            guard let aspect = cropRatio.portraitAspect else { return nil }
+            let contentH = screen.width / aspect
+            let barH = (screen.height - contentH) / 2
+            return barH > 1 ? barH : nil
+        }
     }
 
     // MARK: - Helpers

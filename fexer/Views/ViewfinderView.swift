@@ -15,9 +15,12 @@ struct ViewfinderView: View {
                     cameraManager: cameraViewModel.cameraManager,
                     cropRatio: cropRatio,
                     onTapToFocus: { normalizedPoint, _ in
+                        // Invert the AVFoundation coordinate mapping (axes swapped for 90° rotation):
+                        //   normalizedPoint.x = tap.y / height  →  tap.y = normalizedPoint.x * height
+                        //   normalizedPoint.y = 1 - tap.x / width  →  tap.x = (1 - normalizedPoint.y) * width
                         let screenPoint = CGPoint(
-                            x: normalizedPoint.x * geo.size.width,
-                            y: normalizedPoint.y * geo.size.height
+                            x: (1 - normalizedPoint.y) * geo.size.width,
+                            y: normalizedPoint.x * geo.size.height
                         )
                         cameraViewModel.focusIndicatorPosition = screenPoint
                         animateFocusSquare()

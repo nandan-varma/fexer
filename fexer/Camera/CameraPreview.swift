@@ -137,9 +137,31 @@ struct CameraPreview: UIViewRepresentable {
             guard let view = gesture.view else { return }
             let point = gesture.location(in: view)
             let size = view.bounds.size
+
+            // Ignore taps in letterbox bar areas (neither focus point nor indicator should land there)
+            let barH = previewBarHeight(viewSize: size)
+            guard point.y >= barH && point.y <= size.height - barH else { return }
+
             // Convert to AVFoundation normalized coordinates (origin bottom-left, axes swapped for portrait)
             let normalized = CGPoint(x: point.y / size.height, y: 1 - point.x / size.width)
             onTapToFocus?(normalized, size)
+        }
+
+        /// Height of each letterbox bar in the view's points coordinate system.
+        private func previewBarHeight(viewSize: CGSize) -> CGFloat {
+            if cropRatio == .full {
+                let imageSize = cameraManager.previewImageSize
+                guard imageSize.width > 0 && imageSize.height > 0 else { return 0 }
+                let imageAspect = imageSize.width / imageSize.height
+                let viewAspect  = viewSize.width  / viewSize.height
+                guard viewAspect < imageAspect else { return 0 }
+                let scaledH = viewSize.width / imageAspect
+                return max(0, (viewSize.height - scaledH) / 2)
+            } else {
+                guard let aspect = cropRatio.portraitAspect else { return 0 }
+                let contentH = viewSize.width / aspect
+                return max(0, (viewSize.height - contentH) / 2)
+            }
         }
 
         @objc func handlePinch(_ gesture: UIPinchGestureRecognizer) {
@@ -152,9 +174,13 @@ struct CameraPreview: UIViewRepresentable {
             guard let view = gesture.view else { return }
             let location  = gesture.location(in: view)
             let translation = gesture.translation(in: view)
+            let size = view.bounds.size
 
             if gesture.state == .began {
-                panIsVerticalRight = location.x > view.bounds.width * 0.7 &&
+                let barH = previewBarHeight(viewSize: size)
+                let inPreview = location.y >= barH && location.y <= size.height - barH
+                panIsVerticalRight = inPreview &&
+                                     location.x > size.width * 0.7 &&
                                      abs(translation.y) > abs(translation.x)
             }
 

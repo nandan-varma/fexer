@@ -13,6 +13,7 @@ final class CaptureProcessor: NSObject {
     // Histogram data published to UI (swapped atomically)
     var onHistogramUpdate: (([Float], [Float], [Float], [Float]) -> Void)?
     var onFrameAvailable: (() -> Void)?
+    var onPreviewSizeKnown: ((CGSize) -> Void)?
 
     // Filter pipeline state (set from CameraViewModel on main thread, read here)
     var lutFilter: LUTFilter? {
@@ -47,6 +48,7 @@ final class CaptureProcessor: NSObject {
     private lazy var histogramFilter: CIFilter = CIFilter(name: "CIAreaHistogram")!
 
     private var frameCount = 0
+    private var reportedSize: CGSize = .zero
     private lazy var ciContext: CIContext = {
         let device = MTLCreateSystemDefaultDevice()!
         return CIContext(mtlDevice: device, options: [
@@ -79,6 +81,13 @@ extension CaptureProcessor: AVCaptureVideoDataOutputSampleBufferDelegate {
         zebraTime = (zebraTime + 1.0 / 60.0).truncatingRemainder(dividingBy: 100.0)
 
         var image = CIImage(cvPixelBuffer: pixelBuffer)
+
+        // Report image dimensions once (and again if camera is flipped)
+        let size = image.extent.size
+        if size != reportedSize {
+            reportedSize = size
+            onPreviewSizeKnown?(size)
+        }
         let rawImage = image  // snapshot before filter chain for histogram
 
         // False color must see the ungraded signal — apply before LUT
