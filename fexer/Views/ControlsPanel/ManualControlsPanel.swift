@@ -25,6 +25,9 @@ struct ManualControlsPanel: View {
                         iso: $cameraManager.captureSettings.isoValue,
                         isAuto: $cameraManager.captureSettings.isAutoISO
                     ) { cameraManager.setISO(cameraManager.captureSettings.isoValue) }
+                    .onChange(of: cameraManager.captureSettings.isAutoISO) { _, isAuto in
+                        if isAuto { cameraManager.setAutoExposure() }
+                    }
 
                     divider
 
@@ -32,6 +35,9 @@ struct ManualControlsPanel: View {
                         shutterSpeed: $cameraManager.captureSettings.shutterSpeed,
                         isAuto: $cameraManager.captureSettings.isAutoShutter
                     ) { cameraManager.setShutterSpeed(cameraManager.captureSettings.shutterSpeed) }
+                    .onChange(of: cameraManager.captureSettings.isAutoShutter) { _, isAuto in
+                        if isAuto { cameraManager.setAutoExposure() }
+                    }
 
                     divider
 
@@ -39,6 +45,9 @@ struct ManualControlsPanel: View {
                         kelvin: $cameraManager.captureSettings.whiteBalance,
                         isAuto: $cameraManager.captureSettings.isAutoWhiteBalance
                     ) { cameraManager.setWhiteBalance(kelvin: cameraManager.captureSettings.whiteBalance) }
+                    .onChange(of: cameraManager.captureSettings.isAutoWhiteBalance) { _, isAuto in
+                        if isAuto { cameraManager.setAutoWhiteBalance() }
+                    }
 
                     if FeatureFlags.focusSlider {
                         divider
@@ -46,6 +55,9 @@ struct ManualControlsPanel: View {
                             lensPosition: $cameraManager.captureSettings.focusDistance,
                             isAuto: $cameraManager.captureSettings.isAutoFocus
                         ) { cameraManager.setFocus(lensPosition: cameraManager.captureSettings.focusDistance) }
+                        .onChange(of: cameraManager.captureSettings.isAutoFocus) { _, isAuto in
+                            if isAuto { cameraManager.setAutoFocus() }
+                        }
                     }
                 }
                 .padding(.horizontal, 28)
