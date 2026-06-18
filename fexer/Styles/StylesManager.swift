@@ -2,10 +2,18 @@ import Foundation
 import CoreImage
 import Observation
 
+struct StyleAdjustments: Equatable {
+    var exposure: Float = 0      // EV stops, -1.5 … +1.5
+    var contrast: Float = 0      // delta, -0.5 … +0.5
+    var saturation: Float = 0    // delta, -1.0 … +1.0 (ignored for BW styles)
+    var warmth: Float = 0        // -1 = cool, +1 = warm
+}
+
 @Observable
 final class StylesManager {
     var activeStyle: PhotoStyle? = nil
     var styleIntensity: Float = 0.85
+    var adjustments = StyleAdjustments()
     var suggestedStyle: PhotoStyle?
 
     private let lutLoader = LUTLoader.shared
@@ -26,15 +34,23 @@ final class StylesManager {
         guard let (data, dim) = lutLoader.effectiveLUT(for: style) else { return nil }
         lutFilter.setStyle(name: style.name, data: data, dimension: dim)
         lutFilter.inputIntensity = styleIntensity
+
+        let p = StyleTransforms.params(for: style)
+        lutFilter.isBW = (p.saturation == 0)
+        lutFilter.adjExposure   = adjustments.exposure
+        lutFilter.adjContrast   = adjustments.contrast
+        lutFilter.adjSaturation = lutFilter.isBW ? 0 : adjustments.saturation
+        lutFilter.adjWarmth     = adjustments.warmth
+
         return lutFilter
     }
 
     func selectStyle(_ style: PhotoStyle?) {
-        if style?.id == PhotoStyle.none.id {
-            activeStyle = nil
-        } else {
-            activeStyle = style
+        let newStyle = (style?.id == PhotoStyle.none.id) ? nil : style
+        if newStyle?.id != activeStyle?.id {
+            adjustments = StyleAdjustments()
         }
+        activeStyle = newStyle
     }
 
     func processFrame(_ pixelBuffer: CVPixelBuffer) {

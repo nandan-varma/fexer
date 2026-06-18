@@ -11,6 +11,7 @@ struct CameraView: View {
     @State private var showReview = false
     @State private var capturedPhoto: CapturedPhoto?
     @State private var showSettings = false
+    @State private var activeDelegates: [CapturePhotoDelegate] = []
 
     @Environment(AppState.self) var appState
 
@@ -107,7 +108,8 @@ struct CameraView: View {
                 Spacer()
 
                 if showStylePicker {
-                    StylePickerView(stylesViewModel: stylesViewModel, isExpanded: false)
+                    StylePickerView(stylesViewModel: stylesViewModel, isExpanded: false,
+                                   onAdjust: { syncProcessor() })
                         .padding(.bottom, 8)
                 }
 
@@ -286,6 +288,7 @@ struct CameraView: View {
     private func performCapture() {
         HapticManager.shutter()
         let delegate = makeCaptureDelegate()
+        activeDelegates.append(delegate)
         if isBracketingEnabled {
             cameraManager.capturePhotoBracketed(evStep: Float(bracketEVStep), delegate: delegate)
         } else {
@@ -439,7 +442,10 @@ struct CameraView: View {
             onCaptureDone: { [cameraManager] in
                 // didFinishCaptureFor is guaranteed to fire even on errors,
                 // so this is the only safe place to reset isCapturing.
-                Task { @MainActor in cameraManager.isCapturing = false }
+                Task { @MainActor in
+                    cameraManager.isCapturing = false
+                    activeDelegates.removeFirst()
+                }
             }
         )
     }

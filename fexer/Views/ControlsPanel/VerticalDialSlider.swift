@@ -27,6 +27,14 @@ struct VerticalDialSlider: View {
                 .tracking(1.5)
                 .frame(width: kColumnWidth)
 
+            Text(isDragging ? " " : formatValue(value))
+                .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                .monospacedDigit()
+                .foregroundStyle(.white)
+                .frame(width: kColumnWidth, alignment: .center)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+
             ZStack {
                 drumWheel
                 centerIndicator
@@ -48,14 +56,6 @@ struct VerticalDialSlider: View {
             .frame(width: kColumnWidth, height: kTrackHeight + 20)
             .contentShape(Rectangle())
             .gesture(dragGesture)
-
-            Text(isDragging ? " " : formatValue(value))
-                .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                .monospacedDigit()
-                .foregroundStyle(.white)
-                .frame(width: kColumnWidth, alignment: .center)
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
         }
         .frame(width: kColumnWidth)
         .animation(.easeInOut(duration: 0.12), value: isDragging)
@@ -178,10 +178,10 @@ struct VerticalDialSlider: View {
                     let lo = log2(range.lowerBound), hi = log2(range.upperBound)
                     let logRange = hi - lo
                     let logDelta = g.translation.height / kTrackHeight * logRange
-                    newValue = pow(2, (log2(dragStart) - logDelta).fxClamped(to: lo...hi))
+                    newValue = pow(2, (log2(dragStart) + logDelta).fxClamped(to: lo...hi))
                 } else {
                     let sensitivity = (range.upperBound - range.lowerBound) / kTrackHeight
-                    newValue = (dragStart - g.translation.height * sensitivity).fxClamped(to: range)
+                    newValue = (dragStart + g.translation.height * sensitivity).fxClamped(to: range)
                 }
 
                 if let steps {

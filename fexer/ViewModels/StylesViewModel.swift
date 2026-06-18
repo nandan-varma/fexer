@@ -28,6 +28,16 @@ final class StylesViewModel {
         set { stylesManager.styleIntensity = newValue }
     }
 
+    var adjustments: StyleAdjustments {
+        get { stylesManager.adjustments }
+        set { stylesManager.adjustments = newValue }
+    }
+
+    var activeStyleIsBW: Bool {
+        guard let style = stylesManager.activeStyle else { return false }
+        return StyleTransforms.params(for: style).saturation == 0
+    }
+
     func requestThumbnail(for style: PhotoStyle) {
         guard thumbnails[style.id] == nil else { return }
         StylePreviewRenderer.shared.thumbnail(for: style) { [weak self] image in

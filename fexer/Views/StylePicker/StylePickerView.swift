@@ -3,11 +3,11 @@ import SwiftUI
 struct StylePickerView: View {
     @Bindable var stylesViewModel: StylesViewModel
     var isExpanded: Bool
+    var onAdjust: (() -> Void)?
 
     var body: some View {
         VStack(spacing: 0) {
             if isExpanded {
-                // Category filter
                 StyleCategoryView(
                     selectedCategory: $stylesViewModel.selectedCategory,
                     hasSmartStyle: stylesViewModel.stylesManager.isSmartStylesEnabled
@@ -16,10 +16,24 @@ struct StylePickerView: View {
                 .transition(.move(edge: .top).combined(with: .opacity))
             }
 
+            // Adjustment dials — appear when a style is active
+            if stylesViewModel.activeStyle != nil {
+                StyleAdjustmentsRow(
+                    adjustments: Binding(
+                        get: { stylesViewModel.adjustments },
+                        set: {
+                            stylesViewModel.adjustments = $0
+                            onAdjust?()
+                        }
+                    ),
+                    isBW: stylesViewModel.activeStyleIsBW
+                )
+                .transition(.move(edge: .top).combined(with: .opacity))
+            }
+
             // Style thumbnails strip
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(spacing: 10) {
-                    // "None" option
                     noneButton
 
                     ForEach(stylesViewModel.stylesForSelectedCategory) { style in
@@ -31,6 +45,7 @@ struct StylePickerView: View {
                                 withAnimation(.easeInOut(duration: 0.2)) {
                                     stylesViewModel.activeStyle = style
                                 }
+                                onAdjust?()
                                 HapticManager.selectionChanged()
                             },
                             onLongPress: {
@@ -53,13 +68,13 @@ struct StylePickerView: View {
                 endPoint: .bottom
             )
         )
+        .animation(.easeInOut(duration: 0.2), value: stylesViewModel.activeStyle?.id)
     }
 
     private var noneButton: some View {
         VStack(spacing: 5) {
             ZStack {
                 Color(white: 0.15)
-
                 Image(systemName: "xmark")
                     .font(.system(size: 18, weight: .light))
                     .foregroundStyle(.white.opacity(0.6))
@@ -77,6 +92,7 @@ struct StylePickerView: View {
         }
         .onTapGesture {
             withAnimation { stylesViewModel.activeStyle = nil }
+            onAdjust?()
             HapticManager.selectionChanged()
         }
     }
