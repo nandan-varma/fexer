@@ -1,7 +1,18 @@
 import SwiftUI
 
+// Portrait lock: system checks this before presenting any controller.
+final class AppDelegate: NSObject, UIApplicationDelegate {
+    func application(
+        _ application: UIApplication,
+        supportedInterfaceOrientationsFor window: UIWindow?
+    ) -> UIInterfaceOrientationMask {
+        .portrait
+    }
+}
+
 @main
 struct fexerApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @State private var appState = AppState.shared
 
     var body: some Scene {
@@ -21,18 +32,17 @@ struct RootView: View {
             CameraView()
                 .environment(appState)
         case .gallery:
-            GalleryView()
-                .toolbar {
-                    ToolbarItem(placement: .navigationBarLeading) {
-                        Button {
-                            appState.currentScreen = .camera
-                        } label: {
-                            Image(systemName: "camera")
-                        }
-                    }
-                }
+            if FeatureFlags.galleryView {
+                GalleryView()
+            } else {
+                CameraView().environment(appState)
+            }
         case .settings:
-            Text("Settings")
+            if FeatureFlags.settingsView {
+                Text("Settings")
+            } else {
+                CameraView().environment(appState)
+            }
         }
     }
 }

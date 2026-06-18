@@ -1,16 +1,15 @@
 import SwiftUI
 import AVFoundation
+import Photos
+import UniformTypeIdentifiers
 
 struct CameraView: View {
-    @State private var cameraManager = CameraManager()
-    @State private var stylesManager = StylesManager()
+    @State private var cameraManager: CameraManager
+    @State private var stylesManager: StylesManager
     @State private var cameraViewModel: CameraViewModel
     @State private var stylesViewModel: StylesViewModel
     @State private var showReview = false
     @State private var capturedPhoto: CapturedPhoto?
-    @State private var showModeCarousel = false
-    @State private var showStylePicker = false
-    @State private var histogramPosition: CGSize = .zero
 
     @Environment(AppState.self) var appState
 
@@ -25,84 +24,82 @@ struct CameraView: View {
 
     var body: some View {
         ZStack {
-            // Layer 1: Viewfinder (fills screen)
+            // ── Viewfinder ──────────────────────────────────────────────────────
             ViewfinderView(cameraViewModel: cameraViewModel)
                 .ignoresSafeArea()
 
-            // Layer 2: Grid overlay
-            if cameraViewModel.showGrid {
+            // ── Grid overlay (flagged) ───────────────────────────────────────────
+            if FeatureFlags.gridOverlay && cameraViewModel.showGrid {
                 GridOverlayView(gridType: cameraViewModel.gridType)
                     .ignoresSafeArea()
                     .allowsHitTesting(false)
             }
 
-            // Layer 3: Histogram (draggable)
-            if cameraViewModel.showHistogram && !cameraViewModel.histogramRed.isEmpty {
+            // ── Histogram (always shown when flag enabled) ───────────────────────
+            if FeatureFlags.histogram && !cameraViewModel.histogramRed.isEmpty {
                 HistogramView(
                     red:   cameraViewModel.histogramRed,
                     green: cameraViewModel.histogramGreen,
                     blue:  cameraViewModel.histogramBlue,
                     luma:  cameraViewModel.histogramLuma
                 )
-                .offset(histogramPosition)
-                .gesture(
-                    DragGesture()
-                        .onChanged { g in histogramPosition = g.translation }
-                )
                 .padding(.top, 60)
                 .padding(.leading, 16)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .allowsHitTesting(true)
+                .allowsHitTesting(false)
             }
 
-            // Layer 4: Level indicator
-            if cameraViewModel.showLevelIndicator {
+            // ── Level indicator (flagged) ────────────────────────────────────────
+            if FeatureFlags.levelIndicator {
                 LevelIndicatorView()
                     .frame(maxHeight: .infinity, alignment: .bottom)
                     .padding(.bottom, 160)
                     .allowsHitTesting(false)
             }
 
-            // Layer 5: Shooting mode carousel
-            if showModeCarousel {
-                modeCarousel
-                    .transition(.move(edge: .leading).combined(with: .opacity))
-                    .frame(maxHeight: .infinity, alignment: .center)
-            }
-
-            // Layer 6: Bottom UI (always visible)
+            // ── Bottom controls ──────────────────────────────────────────────────
             VStack(spacing: 0) {
                 Spacer()
 
-                // Style picker
-                StylePickerView(stylesViewModel: stylesViewModel, isExpanded: showStylePicker)
-                    .padding(.bottom, 8)
+                // Style picker (flagged)
+                if FeatureFlags.stylePicker {
+                    StylePickerView(stylesViewModel: stylesViewModel, isExpanded: false)
+                        .padding(.bottom, 8)
+                }
 
-                // Quick access bar
-                quickAccessBar
-                    .padding(.horizontal, 20)
-                    .padding(.bottom, 12)
+                // Shooting mode label
+                if FeatureFlags.shootingModes {
+                    shootingModeLabel
+                        .padding(.bottom, 8)
+                }
+
+                // Lens switcher
+                if FeatureFlags.lensSwitch {
+                    lensSwitcherRow
+                        .padding(.bottom, 14)
+                }
 
                 // Shutter row
                 shutterRow
-                    .padding(.horizontal, 28)
+                    .padding(.horizontal, 32)
                     .padding(.bottom, max(34, 0))
             }
 
-            // Layer 7: Manual controls panel (slides up)
+            // ── Manual controls panel ────────────────────────────────────────────
             if cameraViewModel.isPanelExpanded {
                 VStack {
                     Spacer()
                     ManualControlsPanel(cameraManager: cameraManager) {
                         cameraViewModel.handleSwipeDown()
                     }
-                    .frame(height: 340)
+                    .frame(height: 330)
                     .transition(.move(edge: .bottom))
+                    .padding(.bottom, 8)
                 }
                 .ignoresSafeArea(edges: .bottom)
             }
 
-            // Layer 8: Review overlay
+            // ── Review ───────────────────────────────────────────────────────────
             if showReview, let photo = capturedPhoto {
                 ReviewView(photo: photo) {
                     withAnimation(.easeInOut(duration: 0.3)) { showReview = false }
@@ -114,7 +111,7 @@ struct CameraView: View {
         .statusBarHidden()
         .persistentSystemOverlays(.hidden)
         .preferredColorScheme(.dark)
-        .gesture(mainSwipeGesture)
+        .gesture(swipeUpGesture)
         .onAppear {
             cameraManager.startSession()
             cameraViewModel.syncOverlaysToProcessor()
@@ -124,28 +121,24 @@ struct CameraView: View {
             cameraManager.stopSession()
             UIApplication.shared.isIdleTimerDisabled = false
         }
-        .onChange(of: cameraViewModel.showFocusPeaking) { cameraViewModel.syncOverlaysToProcessor() }
-        .onChange(of: cameraViewModel.showZebra)        { cameraViewModel.syncOverlaysToProcessor() }
-        .onChange(of: stylesManager.activeStyle)        { cameraViewModel.syncOverlaysToProcessor() }
-        .onChange(of: stylesManager.styleIntensity)     { cameraViewModel.syncOverlaysToProcessor() }
+        .onChange(of: stylesManager.activeStyle)    { cameraViewModel.syncOverlaysToProcessor() }
+        .onChange(of: stylesManager.styleIntensity) { cameraViewModel.syncOverlaysToProcessor() }
     }
 
-    // MARK: - Shutter Row
+    // MARK: - Shutter row
 
     private var shutterRow: some View {
         HStack {
-            // Gallery quick peek
-            Button {
-                appState.currentScreen = .gallery
-            } label: {
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(.white.opacity(0.15))
-                    .frame(width: 52, height: 52)
-                    .overlay(
-                        Image(systemName: "photo.stack")
-                            .font(.system(size: 22))
-                            .foregroundStyle(.white)
-                    )
+            // Gallery peek (flagged)
+            if FeatureFlags.galleryView {
+                Button { appState.currentScreen = .gallery } label: {
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(.white.opacity(0.15))
+                        .frame(width: 52, height: 52)
+                        .overlay(Image(systemName: "photo.stack").font(.system(size: 22)).foregroundStyle(.white))
+                }
+            } else {
+                Spacer().frame(width: 52, height: 52)
             }
 
             Spacer()
@@ -156,41 +149,45 @@ struct CameraView: View {
             Spacer()
 
             // Flip camera
-            Button {
-                cameraManager.flipCamera()
-                HapticManager.medium()
-            } label: {
-                Image(systemName: "arrow.triangle.2.circlepath.camera")
-                    .font(.system(size: 22))
-                    .foregroundStyle(.white)
-                    .frame(width: 52, height: 52)
-                    .background(.white.opacity(0.15), in: Circle())
+            if FeatureFlags.cameraFlip {
+                Button {
+                    cameraManager.flipCamera()
+                    HapticManager.medium()
+                } label: {
+                    Image(systemName: "arrow.triangle.2.circlepath.camera")
+                        .font(.system(size: 22))
+                        .foregroundStyle(.white)
+                        .frame(width: 52, height: 52)
+                        .background(.white.opacity(0.15), in: Circle())
+                }
+            } else {
+                Spacer().frame(width: 52, height: 52)
             }
         }
     }
 
-    // MARK: - Shutter Button
+    // MARK: - Shutter button
 
     private var shutterButton: some View {
-        ZStack {
-            // Exposure ring (fills based on EV)
-            let ev = cameraManager.captureSettings.exposureCompensation
-            let normalizedEV = CGFloat((ev + 3) / 6)
+        let ev = cameraManager.captureSettings.exposureCompensation
+        let fraction = CGFloat((ev + 3) / 6)
+
+        return ZStack {
+            // EV ring
             Circle()
-                .trim(from: 0, to: normalizedEV)
-                .stroke(evColor(ev: ev), lineWidth: 3)
+                .trim(from: 0, to: fraction)
+                .stroke(fraction < 0.5 ? Color.blue : Color.orange, lineWidth: 3)
                 .frame(width: 76, height: 76)
                 .rotationEffect(.degrees(-90))
                 .animation(.easeInOut(duration: 0.1), value: ev)
 
-            // Outer ring
             Circle()
                 .stroke(.white, lineWidth: 3)
                 .frame(width: 76, height: 76)
 
-            // Inner button
             Button {
-                cameraViewModel.capturePhoto(delegate: photoCaptureDelegate)
+                HapticManager.shutter()
+                cameraManager.capturePhoto(delegate: makeCaptureDelegate())
             } label: {
                 Circle()
                     .fill(.white)
@@ -200,148 +197,74 @@ struct CameraView: View {
         }
     }
 
-    private func evColor(ev: Float) -> Color {
-        if ev < -0.5 { return .blue }
-        if ev > 0.5  { return .orange }
-        return .white
-    }
+    // MARK: - Lens switcher
 
-    // MARK: - Quick Access Bar
+    private var lensSwitcherRow: some View {
+        let factors = cameraManager.availableZoomFactors
+        guard !factors.isEmpty else { return AnyView(EmptyView()) }
 
-    private var quickAccessBar: some View {
-        HStack(spacing: 0) {
-            ForEach(appState.quickAccessItems) { item in
-                Spacer()
-                quickAccessButton(item: item)
-                Spacer()
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func quickAccessButton(item: QuickAccessItem) -> some View {
-        Button {
-            handleQuickAccessTap(item: item)
-        } label: {
-            VStack(spacing: 3) {
-                Image(systemName: iconForQuickItem(item))
-                    .font(.system(size: 18))
-                    .foregroundStyle(isQuickItemActive(item) ? .yellow : .white)
-                    .frame(width: 44, height: 44)
-            }
-        }
-        .buttonStyle(.plain)
-    }
-
-    private func iconForQuickItem(_ item: QuickAccessItem) -> String {
-        switch item {
-        case .flash:
-            switch cameraManager.flashMode {
-            case .on:  return "bolt.fill"
-            case .off: return "bolt.slash"
-            case .auto: return "bolt.badge.a"
-            @unknown default: return "bolt"
-            }
-        default: return item.systemImageName
-        }
-    }
-
-    private func isQuickItemActive(_ item: QuickAccessItem) -> Bool {
-        switch item {
-        case .flash:       return cameraManager.flashMode == .on
-        case .grid:        return cameraViewModel.showGrid
-        case .histogram:   return cameraViewModel.showHistogram
-        case .focusPeaking:return cameraViewModel.showFocusPeaking
-        case .zebra:       return cameraViewModel.showZebra
-        case .levelIndicator: return cameraViewModel.showLevelIndicator
-        default: return false
-        }
-    }
-
-    private func handleQuickAccessTap(item: QuickAccessItem) {
-        HapticManager.light()
-        switch item {
-        case .flash:
-            let modes: [AVCaptureDevice.FlashMode] = [.off, .on, .auto]
-            let current = modes.firstIndex(of: cameraManager.flashMode) ?? 0
-            cameraManager.flashMode = modes[(current + 1) % modes.count]
-        case .timer:
-            break // TODO: self-timer UI
-        case .grid:
-            cameraViewModel.showGrid.toggle()
-        case .histogram:
-            cameraViewModel.showHistogram.toggle()
-        case .flipCamera:
-            cameraManager.flipCamera()
-        case .focusPeaking:
-            cameraViewModel.showFocusPeaking.toggle()
-            cameraViewModel.syncOverlaysToProcessor()
-        case .zebra:
-            cameraViewModel.showZebra.toggle()
-            cameraViewModel.syncOverlaysToProcessor()
-        case .levelIndicator:
-            cameraViewModel.showLevelIndicator.toggle()
-        default:
-            break
-        }
-    }
-
-    // MARK: - Mode Carousel
-
-    private var modeCarousel: some View {
-        VStack(spacing: 0) {
-            ForEach(Array(ShootingMode.allCases.enumerated()), id: \.element.id) { idx, mode in
-                Button {
-                    cameraViewModel.selectMode(index: idx)
-                    withAnimation { showModeCarousel = false }
-                } label: {
-                    HStack(spacing: 10) {
-                        Image(systemName: mode.systemImageName)
-                            .frame(width: 20)
-                        Text(mode.rawValue)
-                            .font(.system(size: 14, weight: cameraViewModel.activeModeIndex == idx ? .semibold : .regular))
+        return AnyView(
+            HStack(spacing: 12) {
+                ForEach(factors, id: \.self) { factor in
+                    let isActive = abs(cameraManager.currentZoomFactor - factor) < 0.3
+                    Button {
+                        cameraManager.setZoom(factor)
+                        HapticManager.selectionChanged()
+                    } label: {
+                        Text(zoomLabel(factor))
+                            .font(.system(size: 13, weight: isActive ? .bold : .medium, design: .monospaced))
+                            .foregroundStyle(isActive ? .black : .white)
+                            .frame(width: 44, height: 30)
+                            .background(isActive ? Color.yellow : Color.white.opacity(0.2),
+                                        in: Capsule())
                     }
-                    .foregroundStyle(cameraViewModel.activeModeIndex == idx ? .yellow : .white.opacity(0.8))
-                    .padding(.horizontal, 18)
-                    .padding(.vertical, 11)
-                    .background(cameraViewModel.activeModeIndex == idx ? Color.white.opacity(0.12) : .clear)
                 }
-                .buttonStyle(.plain)
             }
-        }
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
-        .padding(.leading, 16)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        )
     }
 
-    // MARK: - Main Swipe Gesture
+    private func zoomLabel(_ factor: CGFloat) -> String {
+        factor < 1 ? "0.5×" : factor == 1 ? "1×" : "\(Int(factor))×"
+    }
 
-    private var mainSwipeGesture: some Gesture {
-        DragGesture(minimumDistance: 30)
+    // MARK: - Shooting mode label (flagged)
+
+    private var shootingModeLabel: some View {
+        Text(cameraViewModel.activeMode.rawValue.uppercased())
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(.white.opacity(0.8))
+            .tracking(2)
+    }
+
+    // MARK: - Swipe up gesture (only for manual controls)
+
+    private var swipeUpGesture: some Gesture {
+        DragGesture(minimumDistance: 40)
             .onEnded { g in
                 let isVertical = abs(g.translation.height) > abs(g.translation.width)
-                let isHorizontal = !isVertical
-
-                if isVertical && g.translation.height < -50 {
-                    // Swipe up → manual controls
+                if isVertical && g.translation.height < -40 {
                     cameraViewModel.handleSwipeUp()
-                } else if isHorizontal && g.translation.width < -50 {
-                    // Swipe left → mode carousel
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                        showModeCarousel.toggle()
-                    }
-                } else if isHorizontal && g.translation.width > 50 {
-                    // Swipe right → gallery
-                    appState.currentScreen = .gallery
+                } else if isVertical && g.translation.height > 40 && cameraViewModel.isPanelExpanded {
+                    cameraViewModel.handleSwipeDown()
                 }
             }
     }
 
-    // MARK: - Photo Capture Delegate
+    // MARK: - Capture delegate
 
-    private var photoCaptureDelegate: CapturePhotoDelegate {
+    private func makeCaptureDelegate() -> CapturePhotoDelegate {
         CapturePhotoDelegate { photo in
             guard let data = photo.fileDataRepresentation() else { return }
+
+            PHPhotoLibrary.shared().performChanges({
+                let request = PHAssetCreationRequest.forAsset()
+                let options = PHAssetResourceCreationOptions()
+                options.uniformTypeIdentifier = photo.isRawPhoto
+                    ? AVFileType.dng.rawValue
+                    : UTType.jpeg.identifier
+                request.addResource(with: .photo, data: data, options: options)
+            }, completionHandler: nil)
+
             let captured = CapturedPhoto(
                 jpegData: data,
                 captureSettings: cameraManager.captureSettings,
@@ -350,17 +273,17 @@ struct CameraView: View {
                 exifMetadata: photo.metadata
             )
             Task { @MainActor in
-                self.capturedPhoto = captured
+                capturedPhoto = captured
                 withAnimation(.easeInOut(duration: 0.3)) {
-                    self.showReview = true
-                    self.cameraManager.isCapturing = false
+                    showReview = true
+                    cameraManager.isCapturing = false
                 }
             }
         }
     }
 }
 
-// MARK: - Shutter Button Style
+// MARK: - Supporting types
 
 struct ShutterButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
@@ -370,14 +293,9 @@ struct ShutterButtonStyle: ButtonStyle {
     }
 }
 
-// MARK: - Photo Capture Delegate
-
 final class CapturePhotoDelegate: NSObject, AVCapturePhotoCaptureDelegate {
     let onComplete: (AVCapturePhoto) -> Void
-
-    init(onComplete: @escaping (AVCapturePhoto) -> Void) {
-        self.onComplete = onComplete
-    }
+    init(onComplete: @escaping (AVCapturePhoto) -> Void) { self.onComplete = onComplete }
 
     func photoOutput(_ output: AVCapturePhotoOutput,
                      didFinishProcessingPhoto photo: AVCapturePhoto,

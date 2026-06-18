@@ -79,6 +79,9 @@ final class CameraManager: NSObject {
         if session.canAddOutput(photoOutput) { session.addOutput(photoOutput) }
 
         session.commitConfiguration()
+
+        // Rotate frames to portrait so CIImage arrives upright
+        configureVideoRotation()
         setupObservations(for: device)
     }
 
@@ -153,6 +156,7 @@ final class CameraManager: NSObject {
             try? device.lockForConfiguration()
             device.setExposureTargetBias(clamped, completionHandler: nil)
             device.unlockForConfiguration()
+            Task { @MainActor in self.captureSettings.exposureCompensation = clamped }
         }
     }
 
@@ -209,6 +213,7 @@ final class CameraManager: NSObject {
             if session.canAddInput(newInput) { session.addInput(newInput) }
             currentDevice = device
             session.commitConfiguration()
+            configureVideoRotation()
             setupObservations(for: device)
         }
     }
@@ -233,24 +238,71 @@ final class CameraManager: NSObject {
         }
     }
 
+    // MARK: - Video Rotation
+
+    /// Tells AVFoundation to deliver portrait-upright frames to the video output.
+    /// Must be called on sessionQueue, after session.commitConfiguration().
+    private func configureVideoRotation() {
+        guard let connection = videoOutput.connection(with: .video) else { return }
+        let portraitAngle: CGFloat = 90
+        if connection.isVideoRotationAngleSupported(portraitAngle) {
+            connection.videoRotationAngle = portraitAngle
+        }
+    }
+
+    // MARK: - Zoom Levels
+
+    var availableZoomFactors: [CGFloat] {
+        guard let device = currentDevice else { return [1.0] }
+        let switchOvers = device.virtualDeviceSwitchOverVideoZoomFactors.map { CGFloat($0.doubleValue) }
+        var factors: [CGFloat] = [1.0]
+        // Insert 0.5× for ultrawide (zoom factor 1 on a triple/dual-wide system)
+        let hasUltraWide = device.constituentDevices.contains { $0.deviceType == .builtInUltraWideCamera }
+        if hasUltraWide { factors.insert(0.5, at: 0) }
+        factors.append(contentsOf: switchOvers.filter { $0 > 1.0 })
+        // Cap at 3 options for clean UI
+        return Array(factors.prefix(3))
+    }
+
     // MARK: - KVO Observations
 
     private func setupObservations(for device: AVCaptureDevice) {
         deviceObservations.forEach { $0.invalidate() }
         deviceObservations = [
             device.observe(\.iso, options: .new) { [weak self] d, _ in
-                Task { @MainActor in self?.currentISO = d.iso }
+                Task { @MainActor in
+                    self?.currentISO = d.iso
+                    // In auto mode, mirror live value into the binding so sliders show reality
+                    if self?.captureSettings.isAutoISO == true {
+                        self?.captureSettings.isoValue = d.iso
+                    }
+                }
             },
             device.observe(\.exposureDuration, options: .new) { [weak self] d, _ in
-                Task { @MainActor in self?.currentShutterSpeed = d.exposureDuration }
+                Task { @MainActor in
+                    self?.currentShutterSpeed = d.exposureDuration
+                    if self?.captureSettings.isAutoShutter == true {
+                        self?.captureSettings.shutterSpeed = d.exposureDuration
+                    }
+                }
             },
             device.observe(\.lensPosition, options: .new) { [weak self] d, _ in
-                Task { @MainActor in self?.currentLensPosition = d.lensPosition }
+                Task { @MainActor in
+                    self?.currentLensPosition = d.lensPosition
+                    if self?.captureSettings.isAutoFocus == true {
+                        self?.captureSettings.focusDistance = d.lensPosition
+                    }
+                }
             },
             device.observe(\.deviceWhiteBalanceGains, options: .new) { [weak self] d, _ in
                 guard d.isAdjustingWhiteBalance == false else { return }
                 let tnt = d.temperatureAndTintValues(for: d.deviceWhiteBalanceGains)
-                Task { @MainActor in self?.currentWhiteBalance = tnt.temperature }
+                Task { @MainActor in
+                    self?.currentWhiteBalance = tnt.temperature
+                    if self?.captureSettings.isAutoWhiteBalance == true {
+                        self?.captureSettings.whiteBalance = tnt.temperature
+                    }
+                }
             }
         ]
     }

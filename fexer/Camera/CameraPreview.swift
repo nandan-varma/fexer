@@ -12,26 +12,30 @@ struct CameraPreview: UIViewRepresentable {
     func makeUIView(context: Context) -> MTKView {
         let view = MTKView(frame: .zero, device: MTLCreateSystemDefaultDevice())
         view.framebufferOnly = false
+        // Continuous rendering — MTKViewDelegate.draw fires at 60fps automatically.
+        // enableSetNeedsDisplay = false + isPaused = false is the continuous mode.
         view.enableSetNeedsDisplay = false
         view.isPaused = false
         view.preferredFramesPerSecond = 60
         view.clearColor = MTLClearColorMake(0, 0, 0, 1)
         view.delegate = context.coordinator
 
-        let tap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleTap))
-        view.addGestureRecognizer(tap)
+        if FeatureFlags.tapToFocus {
+            let tap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleTap))
+            view.addGestureRecognizer(tap)
+        }
 
-        let pinch = UIPinchGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handlePinch))
-        view.addGestureRecognizer(pinch)
+        if FeatureFlags.pinchToZoom {
+            let pinch = UIPinchGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handlePinch))
+            view.addGestureRecognizer(pinch)
+        }
 
         let pan = UIPanGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handlePan))
         pan.minimumNumberOfTouches = 1
         pan.maximumNumberOfTouches = 1
         view.addGestureRecognizer(pan)
 
-        cameraManager.processor.onFrameAvailable = { [weak view] in
-            view?.setNeedsDisplay()
-        }
+        // No onFrameAvailable needed — MTKView renders continuously.
 
         return view
     }
@@ -53,7 +57,6 @@ struct CameraPreview: UIViewRepresentable {
         var onSwipeBrightness: ((CGFloat) -> Void)?
 
         private var lastPinchScale: CGFloat = 1.0
-        private var panStartY: CGFloat = 0
         private var panIsVerticalRight = false
 
         private lazy var ciContext: CIContext = {
@@ -69,26 +72,35 @@ struct CameraPreview: UIViewRepresentable {
 
         func draw(in view: MTKView) {
             guard let drawable = view.currentDrawable,
-                  let commandQueue = view.device?.makeCommandQueue(),
+                  let device = view.device,
+                  let commandQueue = device.makeCommandQueue(),
                   let commandBuffer = commandQueue.makeCommandBuffer(),
                   let image = cameraManager.processor.getLatestImage()
             else { return }
 
             let drawableSize = view.drawableSize
-            let scaleX = drawableSize.width  / image.extent.width
-            let scaleY = drawableSize.height / image.extent.height
+            let imageExtent = image.extent
+
+            // Aspect-fill: scale so the image fully covers the drawable.
+            let scaleX = drawableSize.width  / imageExtent.width
+            let scaleY = drawableSize.height / imageExtent.height
             let scale  = max(scaleX, scaleY)
 
-            let scaledImage = image
-                .transformed(by: CGAffineTransform(scaleX: scale, y: scale))
-                .cropped(to: CGRect(origin: .zero, size: drawableSize))
+            let scaledImage = image.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+
+            // Center-crop: offset into the scaled image so we sample from the middle.
+            let scaledExtent = scaledImage.extent
+            let cropOrigin = CGPoint(
+                x: scaledExtent.origin.x + (scaledExtent.width  - drawableSize.width)  / 2,
+                y: scaledExtent.origin.y + (scaledExtent.height - drawableSize.height) / 2
+            )
+            let renderBounds = CGRect(origin: cropOrigin, size: drawableSize)
 
             ciContext.render(scaledImage,
                              to: drawable.texture,
                              commandBuffer: commandBuffer,
-                             bounds: CGRect(origin: .zero, size: drawableSize),
+                             bounds: renderBounds,
                              colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!)
-
             commandBuffer.present(drawable)
             commandBuffer.commit()
         }
@@ -97,7 +109,7 @@ struct CameraPreview: UIViewRepresentable {
             guard let view = gesture.view else { return }
             let point = gesture.location(in: view)
             let size = view.bounds.size
-            // Normalize to 0–1 for AVFoundation focus point
+            // Convert to AVFoundation normalized coordinates (origin bottom-left, axes swapped for portrait)
             let normalized = CGPoint(x: point.y / size.height, y: 1 - point.x / size.width)
             onTapToFocus?(normalized, size)
         }
@@ -110,18 +122,16 @@ struct CameraPreview: UIViewRepresentable {
 
         @objc func handlePan(_ gesture: UIPanGestureRecognizer) {
             guard let view = gesture.view else { return }
-            let location = gesture.location(in: view)
+            let location  = gesture.location(in: view)
             let translation = gesture.translation(in: view)
 
             if gesture.state == .began {
-                panStartY = location.y
-                // Only capture right-side vertical swipe for exposure comp
                 panIsVerticalRight = location.x > view.bounds.width * 0.7 &&
                                      abs(translation.y) > abs(translation.x)
             }
 
             if panIsVerticalRight && gesture.state == .changed {
-                let delta = -translation.y / view.bounds.height * 6.0 // ±3 EV range
+                let delta = -translation.y / view.bounds.height * 6.0
                 onSwipeBrightness?(delta)
                 gesture.setTranslation(.zero, in: view)
             }
