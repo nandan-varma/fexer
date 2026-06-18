@@ -94,23 +94,19 @@ struct ReviewView: View {
                 }
         )
         .onTapGesture(count: 2) {
-            withAnimation(.spring()) {
-                magnification = magnification > 1.5 ? 1.0 : 2.0
-            }
+            let target: CGFloat = magnification > 1.5 ? 1.0 : 2.0
+            withAnimation(.spring()) { magnification = target }
+            lastMagnification = target
         }
     }
 
     private var magnificationGesture: some Gesture {
         MagnificationGesture()
             .onChanged { value in
-                magnification = lastMagnification * value
+                magnification = (lastMagnification * value).fxClamped(to: 1.0...10.0)
             }
-            .onEnded { value in
+            .onEnded { _ in
                 lastMagnification = magnification
-                if magnification < 1.0 {
-                    withAnimation(.spring()) { magnification = 1.0 }
-                    lastMagnification = 1.0
-                }
             }
     }
 

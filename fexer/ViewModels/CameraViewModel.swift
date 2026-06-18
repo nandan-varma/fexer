@@ -15,14 +15,6 @@ final class CameraViewModel {
     var showFocusIndicator = false
     var zoomLevel: CGFloat = 1.0
 
-    // Overlay toggles
-    var showHistogram = false
-    var showFocusPeaking = false
-    var showZebra = false
-    var showGrid = false
-    var gridType: GridType = .thirds
-    var showLevelIndicator = true
-
     // Histogram data
     var histogramRed:   [Float] = []
     var histogramGreen: [Float] = []
@@ -94,10 +86,12 @@ final class CameraViewModel {
         cameraManager.setAutoExposure()
         cameraManager.setAutoFocus()
         cameraManager.setAutoWhiteBalance()
+        cameraManager.setExposureCompensation(0)
         cameraManager.captureSettings.isAutoISO = true
         cameraManager.captureSettings.isAutoShutter = true
         cameraManager.captureSettings.isAutoFocus = true
         cameraManager.captureSettings.isAutoWhiteBalance = true
+        accumulatedExposureBias = 0
         HapticManager.medium()
     }
 
@@ -108,9 +102,11 @@ final class CameraViewModel {
 
     // MARK: - Overlay Sync
 
-    func syncOverlaysToProcessor() {
-        cameraManager.processor.isFocusPeakingEnabled = showFocusPeaking
-        cameraManager.processor.isZebraEnabled = showZebra
+    /// focusPeaking and zebra come from CameraView's @AppStorage so the
+    /// caller passes them in rather than this class storing them.
+    func syncOverlaysToProcessor(focusPeaking: Bool = false, zebra: Bool = false) {
+        cameraManager.processor.isFocusPeakingEnabled = focusPeaking
+        cameraManager.processor.isZebraEnabled = zebra
         let filter = stylesManager.activeLUTFilter()
         cameraManager.processor.lutFilter = filter
     }

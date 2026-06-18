@@ -10,8 +10,20 @@ struct CameraView: View {
     @State private var stylesViewModel: StylesViewModel
     @State private var showReview = false
     @State private var capturedPhoto: CapturedPhoto?
+    @State private var showSettings = false
 
     @Environment(AppState.self) var appState
+
+    // Overlay visibility — shared keys with SettingsView
+    @AppStorage("showHistogram")      private var showHistogram      = true
+    @AppStorage("showGrid")           private var showGrid           = false
+    @AppStorage("gridType")           private var gridType           = "Thirds"
+    @AppStorage("showFocusPeaking")   private var showFocusPeaking   = false
+    @AppStorage("showZebra")          private var showZebra          = false
+    @AppStorage("showLevelIndicator") private var showLevelIndicator = false
+    @AppStorage("showStylePicker")    private var showStylePicker    = false
+    @AppStorage("showShootingModes")  private var showShootingModes  = false
+    @AppStorage("showGallery")        private var showGallery        = true
 
     init() {
         let cm = CameraManager()
@@ -28,15 +40,15 @@ struct CameraView: View {
             ViewfinderView(cameraViewModel: cameraViewModel)
                 .ignoresSafeArea()
 
-            // ── Grid overlay (flagged) ───────────────────────────────────────────
-            if FeatureFlags.gridOverlay && cameraViewModel.showGrid {
-                GridOverlayView(gridType: cameraViewModel.gridType)
+            // ── Grid overlay ─────────────────────────────────────────────────────
+            if showGrid {
+                GridOverlayView(gridType: GridType(rawValue: gridType) ?? .thirds)
                     .ignoresSafeArea()
                     .allowsHitTesting(false)
             }
 
-            // ── Histogram (always shown when flag enabled) ───────────────────────
-            if FeatureFlags.histogram && !cameraViewModel.histogramRed.isEmpty {
+            // ── Histogram ────────────────────────────────────────────────────────
+            if showHistogram && !cameraViewModel.histogramRed.isEmpty {
                 HistogramView(
                     red:   cameraViewModel.histogramRed,
                     green: cameraViewModel.histogramGreen,
@@ -49,8 +61,8 @@ struct CameraView: View {
                 .allowsHitTesting(false)
             }
 
-            // ── Level indicator (flagged) ────────────────────────────────────────
-            if FeatureFlags.levelIndicator {
+            // ── Level indicator ──────────────────────────────────────────────────
+            if showLevelIndicator {
                 LevelIndicatorView()
                     .frame(maxHeight: .infinity, alignment: .bottom)
                     .padding(.bottom, 160)
@@ -61,25 +73,19 @@ struct CameraView: View {
             VStack(spacing: 0) {
                 Spacer()
 
-                // Style picker (flagged)
-                if FeatureFlags.stylePicker {
+                if showStylePicker {
                     StylePickerView(stylesViewModel: stylesViewModel, isExpanded: false)
                         .padding(.bottom, 8)
                 }
 
-                // Shooting mode label
-                if FeatureFlags.shootingModes {
+                if showShootingModes {
                     shootingModeLabel
                         .padding(.bottom, 8)
                 }
 
-                // Lens switcher
-                if FeatureFlags.lensSwitch {
-                    lensSwitcherRow
-                        .padding(.bottom, 14)
-                }
+                lensSwitcherRow
+                    .padding(.bottom, 14)
 
-                // Shutter row
                 shutterRow
                     .padding(.horizontal, 32)
                     .padding(.bottom, max(34, 0))
@@ -89,7 +95,10 @@ struct CameraView: View {
             if cameraViewModel.isPanelExpanded {
                 VStack {
                     Spacer()
-                    ManualControlsPanel(cameraManager: cameraManager) {
+                    ManualControlsPanel(
+                        cameraManager: cameraManager,
+                        onSettings: { showSettings = true }
+                    ) {
                         cameraViewModel.handleSwipeDown()
                     }
                     .frame(height: 330)
@@ -112,25 +121,32 @@ struct CameraView: View {
         .persistentSystemOverlays(.hidden)
         .preferredColorScheme(.dark)
         .gesture(swipeUpGesture)
+        .sheet(isPresented: $showSettings) {
+            SettingsView(cameraManager: cameraManager, stylesManager: stylesManager)
+                .environment(appState)
+        }
         .onAppear {
             cameraManager.startSession()
-            cameraViewModel.syncOverlaysToProcessor()
+            syncProcessor()
             UIApplication.shared.isIdleTimerDisabled = true
+            Task { await appState.permissionsManager.requestPhotoLibraryAccess() }
+            appState.permissionsManager.requestLocationAccess()
         }
         .onDisappear {
             cameraManager.stopSession()
             UIApplication.shared.isIdleTimerDisabled = false
         }
-        .onChange(of: stylesManager.activeStyle)    { cameraViewModel.syncOverlaysToProcessor() }
-        .onChange(of: stylesManager.styleIntensity) { cameraViewModel.syncOverlaysToProcessor() }
+        .onChange(of: stylesManager.activeStyle)    { syncProcessor() }
+        .onChange(of: stylesManager.styleIntensity) { syncProcessor() }
+        .onChange(of: showFocusPeaking)             { syncProcessor() }
+        .onChange(of: showZebra)                    { syncProcessor() }
     }
 
     // MARK: - Shutter row
 
     private var shutterRow: some View {
         HStack {
-            // Gallery peek (flagged)
-            if FeatureFlags.galleryView {
+            if showGallery {
                 Button { appState.currentScreen = .gallery } label: {
                     RoundedRectangle(cornerRadius: 8)
                         .fill(.white.opacity(0.15))
@@ -142,26 +158,18 @@ struct CameraView: View {
             }
 
             Spacer()
-
-            // Shutter button
             shutterButton
-
             Spacer()
 
-            // Flip camera
-            if FeatureFlags.cameraFlip {
-                Button {
-                    cameraManager.flipCamera()
-                    HapticManager.medium()
-                } label: {
-                    Image(systemName: "arrow.triangle.2.circlepath.camera")
-                        .font(.system(size: 22))
-                        .foregroundStyle(.white)
-                        .frame(width: 52, height: 52)
-                        .background(.white.opacity(0.15), in: Circle())
-                }
-            } else {
-                Spacer().frame(width: 52, height: 52)
+            Button {
+                cameraManager.flipCamera()
+                HapticManager.medium()
+            } label: {
+                Image(systemName: "arrow.triangle.2.circlepath.camera")
+                    .font(.system(size: 22))
+                    .foregroundStyle(.white)
+                    .frame(width: 52, height: 52)
+                    .background(.white.opacity(0.15), in: Circle())
             }
         }
     }
@@ -173,7 +181,6 @@ struct CameraView: View {
         let fraction = CGFloat((ev + 3) / 6)
 
         return ZStack {
-            // EV ring
             Circle()
                 .trim(from: 0, to: fraction)
                 .stroke(fraction < 0.5 ? Color.blue : Color.orange, lineWidth: 3)
@@ -227,7 +234,7 @@ struct CameraView: View {
         factor < 1 ? "0.5×" : factor == 1 ? "1×" : "\(Int(factor))×"
     }
 
-    // MARK: - Shooting mode label (flagged)
+    // MARK: - Shooting mode label
 
     private var shootingModeLabel: some View {
         Text(cameraViewModel.activeMode.rawValue.uppercased())
@@ -236,7 +243,7 @@ struct CameraView: View {
             .tracking(2)
     }
 
-    // MARK: - Swipe up gesture (only for manual controls)
+    // MARK: - Swipe gesture
 
     private var swipeUpGesture: some Gesture {
         DragGesture(minimumDistance: 40)
@@ -250,11 +257,29 @@ struct CameraView: View {
             }
     }
 
-    // MARK: - Capture delegate
+    // MARK: - Helpers
+
+    private func syncProcessor() {
+        cameraViewModel.syncOverlaysToProcessor(focusPeaking: showFocusPeaking, zebra: showZebra)
+    }
 
     private func makeCaptureDelegate() -> CapturePhotoDelegate {
-        CapturePhotoDelegate { photo in
-            guard let data = photo.fileDataRepresentation() else { return }
+        // Snapshot mutable state at shutter-press time so the closure uses the correct values
+        let captureLocation = appState.permissionsManager.currentLocation
+        let activeStyle = stylesManager.activeStyle
+        let styleIntensity = stylesManager.styleIntensity
+        let captureSettings = cameraManager.captureSettings
+
+        return CapturePhotoDelegate { [cameraManager] photo in
+            guard let rawData = photo.fileDataRepresentation() else { return }
+
+            // Embed applied style name into XMP metadata without re-encoding the pixels
+            let dataToSave: Data
+            if let style = activeStyle, !photo.isRawPhoto {
+                dataToSave = ExifReader.embedStyleTag(in: rawData, styleName: style.name) ?? rawData
+            } else {
+                dataToSave = rawData
+            }
 
             PHPhotoLibrary.shared().performChanges({
                 let request = PHAssetCreationRequest.forAsset()
@@ -262,14 +287,20 @@ struct CameraView: View {
                 options.uniformTypeIdentifier = photo.isRawPhoto
                     ? AVFileType.dng.rawValue
                     : UTType.jpeg.identifier
-                request.addResource(with: .photo, data: data, options: options)
-            }, completionHandler: nil)
+                request.addResource(with: .photo, data: dataToSave, options: options)
+                request.location = captureLocation
+            }) { success, error in
+                if !success, let error {
+                    print("[fexer] Photo save failed: \(error.localizedDescription)")
+                }
+            }
 
             let captured = CapturedPhoto(
-                jpegData: data,
-                captureSettings: cameraManager.captureSettings,
-                appliedStyle: stylesManager.activeStyle,
-                styleIntensity: stylesManager.styleIntensity,
+                jpegData: rawData,
+                captureSettings: captureSettings,
+                appliedStyle: activeStyle,
+                styleIntensity: styleIntensity,
+                location: captureLocation,
                 exifMetadata: photo.metadata
             )
             Task { @MainActor in

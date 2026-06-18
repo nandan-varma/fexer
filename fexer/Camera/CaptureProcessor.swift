@@ -59,7 +59,7 @@ extension CaptureProcessor: AVCaptureVideoDataOutputSampleBufferDelegate {
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
 
         frameCount += 1
-        zebraTime += 1.0 / 60.0
+        zebraTime = (zebraTime + 1.0 / 60.0).truncatingRemainder(dividingBy: 100.0)
 
         var image = CIImage(cvPixelBuffer: pixelBuffer)
 

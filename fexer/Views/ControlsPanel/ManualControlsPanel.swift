@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ManualControlsPanel: View {
     @Bindable var cameraManager: CameraManager
+    var onSettings: (() -> Void)?
     var onDismiss: (() -> Void)?
 
     var body: some View {
@@ -19,51 +20,52 @@ struct ManualControlsPanel: View {
                 .padding(.horizontal, 20)
 
             // ── Sliders ──────────────────────────────────────────────────────────
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(alignment: .top, spacing: 16) {
-                    ISOSlider(
-                        iso: $cameraManager.captureSettings.isoValue,
-                        isAuto: $cameraManager.captureSettings.isAutoISO
-                    ) { cameraManager.setISO(cameraManager.captureSettings.isoValue) }
-                    .onChange(of: cameraManager.captureSettings.isAutoISO) { _, isAuto in
-                        if isAuto { cameraManager.setAutoExposure() }
-                    }
-
-                    divider
-
-                    ShutterSlider(
-                        shutterSpeed: $cameraManager.captureSettings.shutterSpeed,
-                        isAuto: $cameraManager.captureSettings.isAutoShutter
-                    ) { cameraManager.setShutterSpeed(cameraManager.captureSettings.shutterSpeed) }
-                    .onChange(of: cameraManager.captureSettings.isAutoShutter) { _, isAuto in
-                        if isAuto { cameraManager.setAutoExposure() }
-                    }
-
-                    divider
-
-                    WhiteBalanceSlider(
-                        kelvin: $cameraManager.captureSettings.whiteBalance,
-                        isAuto: $cameraManager.captureSettings.isAutoWhiteBalance
-                    ) { cameraManager.setWhiteBalance(kelvin: cameraManager.captureSettings.whiteBalance) }
-                    .onChange(of: cameraManager.captureSettings.isAutoWhiteBalance) { _, isAuto in
-                        if isAuto { cameraManager.setAutoWhiteBalance() }
-                    }
-
-                    if FeatureFlags.focusSlider {
-                        divider
-                        FocusSlider(
-                            lensPosition: $cameraManager.captureSettings.focusDistance,
-                            isAuto: $cameraManager.captureSettings.isAutoFocus
-                        ) { cameraManager.setFocus(lensPosition: cameraManager.captureSettings.focusDistance) }
-                        .onChange(of: cameraManager.captureSettings.isAutoFocus) { _, isAuto in
-                            if isAuto { cameraManager.setAutoFocus() }
-                        }
-                    }
+            HStack(alignment: .top, spacing: 0) {
+                ISOSlider(
+                    iso: $cameraManager.captureSettings.isoValue,
+                    isAuto: $cameraManager.captureSettings.isAutoISO
+                ) { cameraManager.setISO(cameraManager.captureSettings.isoValue) }
+                .onChange(of: cameraManager.captureSettings.isAutoISO) { _, isAuto in
+                    if isAuto { cameraManager.setAutoExposure() }
                 }
-                .padding(.horizontal, 28)
-                .padding(.vertical, 20)
+                .frame(maxWidth: .infinity)
+
+                divider
+
+                ShutterSlider(
+                    shutterSpeed: $cameraManager.captureSettings.shutterSpeed,
+                    isAuto: $cameraManager.captureSettings.isAutoShutter
+                ) { cameraManager.setShutterSpeed(cameraManager.captureSettings.shutterSpeed) }
+                .onChange(of: cameraManager.captureSettings.isAutoShutter) { _, isAuto in
+                    if isAuto { cameraManager.setAutoExposure() }
+                }
+                .frame(maxWidth: .infinity)
+
+                divider
+
+                WhiteBalanceSlider(
+                    kelvin: $cameraManager.captureSettings.whiteBalance,
+                    isAuto: $cameraManager.captureSettings.isAutoWhiteBalance
+                ) { cameraManager.setWhiteBalance(kelvin: cameraManager.captureSettings.whiteBalance) }
+                .onChange(of: cameraManager.captureSettings.isAutoWhiteBalance) { _, isAuto in
+                    if isAuto { cameraManager.setAutoWhiteBalance() }
+                }
+                .frame(maxWidth: .infinity)
+
+                if FeatureFlags.focusSlider {
+                    divider
+                    FocusSlider(
+                        lensPosition: $cameraManager.captureSettings.focusDistance,
+                        isAuto: $cameraManager.captureSettings.isAutoFocus
+                    ) { cameraManager.setFocus(lensPosition: cameraManager.captureSettings.focusDistance) }
+                    .onChange(of: cameraManager.captureSettings.isAutoFocus) { _, isAuto in
+                        if isAuto { cameraManager.setAutoFocus() }
+                    }
+                    .frame(maxWidth: .infinity)
+                }
             }
-            .scrollBounceBehavior(.basedOnSize)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 20)
         }
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
         .overlay(
@@ -77,14 +79,27 @@ struct ManualControlsPanel: View {
     }
 
     private var handle: some View {
-        RoundedRectangle(cornerRadius: 2.5)
-            .fill(.white.opacity(0.3))
-            .frame(width: 36, height: 5)
-            .padding(.top, 10)
-            .padding(.bottom, 14)
-            .frame(maxWidth: .infinity)
-            .contentShape(Rectangle())
-            .onTapGesture { onDismiss?() }
+        ZStack(alignment: .trailing) {
+            // Center pill — tapping it dismisses the panel
+            RoundedRectangle(cornerRadius: 2.5)
+                .fill(.white.opacity(0.3))
+                .frame(width: 36, height: 5)
+                .frame(maxWidth: .infinity)
+                .contentShape(Rectangle())
+                .onTapGesture { onDismiss?() }
+
+            // Settings gear — top-right corner
+            Button { onSettings?() } label: {
+                Image(systemName: "gearshape")
+                    .font(.system(size: 16))
+                    .foregroundStyle(.white.opacity(0.55))
+                    .frame(width: 36, height: 36)
+                    .contentShape(Rectangle())
+            }
+            .padding(.trailing, 14)
+        }
+        .padding(.top, 6)
+        .padding(.bottom, 10)
     }
 
     private var divider: some View {

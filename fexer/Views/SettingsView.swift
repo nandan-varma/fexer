@@ -5,60 +5,85 @@ struct SettingsView: View {
     @Bindable var cameraManager: CameraManager
     @Bindable var stylesManager: StylesManager
 
+    // Capture
     @AppStorage("defaultCaptureFormat") private var defaultFormat = "JPEG"
-    @AppStorage("isProRAWEnabled") private var isProRAW = false
-    @AppStorage("isLocationEnabled") private var isLocationEnabled = true
+    @AppStorage("isProRAWEnabled")      private var isProRAW = false
+    @AppStorage("isLocationEnabled")    private var isLocationEnabled = true
     @AppStorage("volumeButtonBehavior") private var volumeButtonBehavior = "Shutter"
-    @AppStorage("defaultGridType") private var defaultGridType = "Thirds"
-    @AppStorage("histogramPosition") private var histogramPosition = "Top Left"
-    @AppStorage("showLevelAlways") private var showLevelAlways = true
+
+    // Viewfinder overlays (shared keys with CameraView)
+    @AppStorage("showHistogram")      private var showHistogram      = true
+    @AppStorage("showGrid")           private var showGrid           = false
+    @AppStorage("gridType")           private var gridType           = "Thirds"
+    @AppStorage("showFocusPeaking")   private var showFocusPeaking   = false
+    @AppStorage("showZebra")          private var showZebra          = false
+    @AppStorage("showLevelIndicator") private var showLevelIndicator = false
+
+    // Interface visibility
+    @AppStorage("showStylePicker")    private var showStylePicker    = false
+    @AppStorage("showShootingModes")  private var showShootingModes  = false
+    @AppStorage("showGallery")        private var showGallery        = true
+
+    // Watermark
     @AppStorage("watermarkText") private var watermarkText = ""
 
     var body: some View {
         NavigationStack {
             Form {
+                // MARK: Capture
                 Section("Capture") {
                     Picker("Default Format", selection: $defaultFormat) {
                         ForEach(["JPEG", "RAW", "RAW+JPEG"], id: \.self) { Text($0) }
                     }
-
                     Toggle("ProRAW (iPhone 12 Pro+)", isOn: $isProRAW)
-
                     Toggle("Save Location", isOn: $isLocationEnabled)
-
                     Picker("Volume Button", selection: $volumeButtonBehavior) {
                         ForEach(["Shutter", "Zoom", "Disabled"], id: \.self) { Text($0) }
                     }
                 }
 
-                Section("Display") {
-                    Picker("Grid", selection: $defaultGridType) {
-                        ForEach(["None", "Thirds", "Phi", "Square", "Diagonal"], id: \.self) { Text($0) }
+                // MARK: Viewfinder overlays
+                Section("Viewfinder") {
+                    Toggle("Histogram", isOn: $showHistogram)
+                    Toggle("Level Indicator", isOn: $showLevelIndicator)
+
+                    Toggle("Grid", isOn: $showGrid)
+                    if showGrid {
+                        Picker("Grid Style", selection: $gridType) {
+                            ForEach(GridType.allCases.filter { $0 != .none }, id: \.rawValue) {
+                                Text($0.rawValue).tag($0.rawValue)
+                            }
+                        }
+                        .pickerStyle(.menu)
                     }
 
-                    Picker("Histogram Position", selection: $histogramPosition) {
-                        ForEach(["Top Left", "Top Right", "Draggable"], id: \.self) { Text($0) }
-                    }
-
-                    Toggle("Always Show Level", isOn: $showLevelAlways)
+                    Toggle("Focus Peaking", isOn: $showFocusPeaking)
+                    Toggle("Zebra Stripes", isOn: $showZebra)
                 }
 
+                // MARK: Interface
+                Section("Interface") {
+                    Toggle("Style Picker", isOn: $showStylePicker)
+                    Toggle("Shooting Modes", isOn: $showShootingModes)
+                    Toggle("Gallery Button", isOn: $showGallery)
+                }
+
+                // MARK: Styles
                 Section("Styles") {
                     Toggle("Smart Styles (AI)", isOn: Binding(
                         get: { stylesManager.isSmartStylesEnabled },
                         set: { stylesManager.isSmartStylesEnabled = $0 }
                     ))
-
                     if let active = stylesManager.activeStyle {
                         HStack {
                             Text("Current Style")
                             Spacer()
-                            Text(active.name)
-                                .foregroundStyle(.secondary)
+                            Text(active.name).foregroundStyle(.secondary)
                         }
                     }
                 }
 
+                // MARK: Quick Access Bar
                 Section("Quick Access Bar") {
                     ForEach(appState.quickAccessItems) { item in
                         HStack {
@@ -74,17 +99,18 @@ struct SettingsView: View {
                     }
                 }
 
+                // MARK: Watermark
                 Section("Watermark") {
                     TextField("Watermark text (empty = none)", text: $watermarkText)
                         .autocorrectionDisabled()
                 }
 
+                // MARK: About
                 Section("About") {
                     HStack {
                         Text("fexer")
                         Spacer()
-                        Text("1.0")
-                            .foregroundStyle(.secondary)
+                        Text("1.0").foregroundStyle(.secondary)
                     }
                     HStack {
                         Text("Build")

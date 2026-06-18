@@ -64,6 +64,10 @@ struct CameraPreview: UIViewRepresentable {
                       options: [.useSoftwareRenderer: false])
         }()
 
+        private lazy var commandQueue: MTLCommandQueue? = {
+            MTLCreateSystemDefaultDevice()?.makeCommandQueue()
+        }()
+
         init(cameraManager: CameraManager) {
             self.cameraManager = cameraManager
         }
@@ -72,8 +76,7 @@ struct CameraPreview: UIViewRepresentable {
 
         func draw(in view: MTKView) {
             guard let drawable = view.currentDrawable,
-                  let device = view.device,
-                  let commandQueue = device.makeCommandQueue(),
+                  let commandQueue,
                   let commandBuffer = commandQueue.makeCommandBuffer(),
                   let image = cameraManager.processor.getLatestImage()
             else { return }

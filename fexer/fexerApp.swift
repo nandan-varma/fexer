@@ -32,17 +32,11 @@ struct RootView: View {
             CameraView()
                 .environment(appState)
         case .gallery:
-            if FeatureFlags.galleryView {
-                GalleryView()
-            } else {
-                CameraView().environment(appState)
-            }
+            GalleryView()
+                .environment(appState)
         case .settings:
-            if FeatureFlags.settingsView {
-                Text("Settings")
-            } else {
-                CameraView().environment(appState)
-            }
+            CameraView()
+                .environment(appState)
         }
     }
 }

@@ -24,10 +24,7 @@ final class GalleryViewModel: NSObject {
         isLoading = true
         let options = PHFetchOptions()
         options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
-        options.predicate = NSPredicate(
-            format: "creatorBundleID == %@",
-            Bundle.main.bundleIdentifier ?? ""
-        )
+        options.fetchLimit = 300
 
         let result = PHAsset.fetchAssets(with: .image, options: options)
         fetchResult = result

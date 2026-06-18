@@ -1,23 +1,19 @@
-/// Flip a flag to `true` to unlock the feature in the UI.
-/// All flags default to false except the core capture pipeline.
+/// All features are enabled. Visibility is now controlled at runtime via Settings.
 enum FeatureFlags {
-    // Core — always on
-    static let manualControls = true   // ISO, shutter, WB, EV panel
-    static let histogram      = true   // RGB+Luma color graph
-    static let cameraFlip     = true   // Front / back toggle
-    static let lensSwitch     = true   // 0.5× / 1× / 3× lens buttons
+    static let manualControls = true
+    static let histogram      = true
+    static let cameraFlip     = true
+    static let lensSwitch     = true
     static let tapToFocus     = true
     static let pinchToZoom    = true
-
-    // Disabled for v1 — flip to true to test
-    static let shootingModes  = false
-    static let stylePicker    = false
-    static let gridOverlay    = false
-    static let focusPeaking   = false
-    static let zebraStripes   = false
-    static let levelIndicator = false
-    static let galleryView    = false
-    static let settingsView   = false
-    static let quickAccessBar = false
+    static let shootingModes  = true
+    static let stylePicker    = true
+    static let gridOverlay    = true
+    static let focusPeaking   = true
+    static let zebraStripes   = true
+    static let levelIndicator = true
+    static let galleryView    = true
+    static let settingsView   = true
+    static let quickAccessBar = true
     static let focusSlider    = true
 }

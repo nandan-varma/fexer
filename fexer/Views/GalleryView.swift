@@ -2,6 +2,7 @@ import SwiftUI
 import Photos
 
 struct GalleryView: View {
+    @Environment(AppState.self) var appState
     @State private var galleryViewModel = GalleryViewModel()
     @State private var selectedPhoto: UIImage?
     @State private var showDetail = false
@@ -26,6 +27,14 @@ struct GalleryView: View {
             .navigationTitle("Library")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button {
+                        appState.currentScreen = .camera
+                    } label: {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 16, weight: .semibold))
+                    }
+                }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Text("\(galleryViewModel.photos.count)")
                         .font(.system(size: 12, weight: .medium))

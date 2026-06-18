@@ -10,13 +10,18 @@ final class PermissionsManager: NSObject {
     var photoLibraryStatus: PHAuthorizationStatus = PHPhotoLibrary.authorizationStatus(for: .addOnly)
     var locationStatus: CLAuthorizationStatus = .notDetermined
     var motionAvailable: Bool = CMMotionManager().isDeviceMotionAvailable
+    var currentLocation: CLLocation?
 
     private let locationManager = CLLocationManager()
 
     override init() {
         super.init()
         locationManager.delegate = self
+        locationManager.desiredAccuracy = kCLLocationAccuracyBest
         locationStatus = locationManager.authorizationStatus
+        if locationStatus == .authorizedWhenInUse || locationStatus == .authorizedAlways {
+            locationManager.startUpdatingLocation()
+        }
     }
 
     var allGranted: Bool {
@@ -42,6 +47,10 @@ final class PermissionsManager: NSObject {
         locationManager.requestWhenInUseAuthorization()
     }
 
+    func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+        currentLocation = locations.last
+    }
+
     func requestAllPermissions() async {
         await requestCameraAccess()
         await requestPhotoLibraryAccess()
@@ -52,5 +61,8 @@ final class PermissionsManager: NSObject {
 extension PermissionsManager: CLLocationManagerDelegate {
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         locationStatus = manager.authorizationStatus
+        if manager.authorizationStatus == .authorizedWhenInUse || manager.authorizationStatus == .authorizedAlways {
+            manager.startUpdatingLocation()
+        }
     }
 }
