@@ -19,6 +19,9 @@ struct SettingsView: View {
     @AppStorage("showZebra")          private var showZebra          = false
     @AppStorage("showLevelIndicator") private var showLevelIndicator = false
 
+    // Crop ratio
+    @AppStorage("cropRatio")          private var cropRatioRaw       = CropRatio.full.rawValue
+
     // Interface visibility
     @AppStorage("showStylePicker")    private var showStylePicker    = false
     @AppStorage("showShootingModes")  private var showShootingModes  = false
@@ -59,6 +62,12 @@ struct SettingsView: View {
 
                     Toggle("Focus Peaking", isOn: $showFocusPeaking)
                     Toggle("Zebra Stripes", isOn: $showZebra)
+
+                    Picker("Crop Ratio", selection: $cropRatioRaw) {
+                        ForEach(CropRatio.allCases) { ratio in
+                            Text(ratio.rawValue).tag(ratio.rawValue)
+                        }
+                    }
                 }
 
                 // MARK: Interface

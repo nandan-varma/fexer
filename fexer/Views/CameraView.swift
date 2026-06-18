@@ -24,6 +24,9 @@ struct CameraView: View {
     @AppStorage("showStylePicker")    private var showStylePicker    = false
     @AppStorage("showShootingModes")  private var showShootingModes  = false
     @AppStorage("showGallery")        private var showGallery        = true
+    @AppStorage("cropRatio")          private var cropRatioRaw       = CropRatio.full.rawValue
+
+    private var cropRatio: CropRatio { CropRatio(rawValue: cropRatioRaw) ?? .full }
 
     init() {
         let cm = CameraManager()
@@ -37,8 +40,20 @@ struct CameraView: View {
     var body: some View {
         ZStack {
             // ── Viewfinder ──────────────────────────────────────────────────────
-            ViewfinderView(cameraViewModel: cameraViewModel)
+            ViewfinderView(cameraViewModel: cameraViewModel, cropRatio: cropRatio)
                 .ignoresSafeArea()
+
+            // ── Crop letterbox bars (solid black — hide sensor content outside crop) ──
+            if let barH = letterboxBarHeight {
+                VStack(spacing: 0) {
+                    Color.black.frame(height: barH)
+                    Spacer()
+                    Color.black.frame(height: barH)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
+            }
 
             // ── Grid overlay ─────────────────────────────────────────────────────
             if showGrid {
@@ -257,6 +272,18 @@ struct CameraView: View {
             }
     }
 
+    // MARK: - Crop helpers
+
+    /// Height of each letterbox bar for the selected crop ratio, or nil for Full.
+    /// Bars are placed at top and bottom; content fills the full screen width.
+    private var letterboxBarHeight: CGFloat? {
+        guard let aspect = cropRatio.portraitAspect else { return nil }
+        let screen = UIScreen.main.bounds
+        let contentH = screen.width / aspect
+        let barH = (screen.height - contentH) / 2
+        return barH > 1 ? barH : nil
+    }
+
     // MARK: - Helpers
 
     private func syncProcessor() {
@@ -264,53 +291,72 @@ struct CameraView: View {
     }
 
     private func makeCaptureDelegate() -> CapturePhotoDelegate {
-        // Snapshot mutable state at shutter-press time so the closure uses the correct values
+        // Snapshot all mutable state at shutter-press time
         let captureLocation = appState.permissionsManager.currentLocation
         let activeStyle = stylesManager.activeStyle
         let styleIntensity = stylesManager.styleIntensity
         let captureSettings = cameraManager.captureSettings
 
-        return CapturePhotoDelegate { [cameraManager] photo in
-            guard let rawData = photo.fileDataRepresentation() else { return }
-
-            // Embed applied style name into XMP metadata without re-encoding the pixels
-            let dataToSave: Data
-            if let style = activeStyle, !photo.isRawPhoto {
-                dataToSave = ExifReader.embedStyleTag(in: rawData, styleName: style.name) ?? rawData
-            } else {
-                dataToSave = rawData
-            }
-
-            PHPhotoLibrary.shared().performChanges({
-                let request = PHAssetCreationRequest.forAsset()
-                let options = PHAssetResourceCreationOptions()
-                options.uniformTypeIdentifier = photo.isRawPhoto
-                    ? AVFileType.dng.rawValue
-                    : UTType.jpeg.identifier
-                request.addResource(with: .photo, data: dataToSave, options: options)
-                request.location = captureLocation
-            }) { success, error in
-                if !success, let error {
-                    print("[fexer] Photo save failed: \(error.localizedDescription)")
+        return CapturePhotoDelegate(
+            onProcessed: { photo in
+                guard let rawData = photo.fileDataRepresentation() else {
+                    print("[fexer] fileDataRepresentation returned nil")
+                    return
                 }
-            }
 
-            let captured = CapturedPhoto(
-                jpegData: rawData,
-                captureSettings: captureSettings,
-                appliedStyle: activeStyle,
-                styleIntensity: styleIntensity,
-                location: captureLocation,
-                exifMetadata: photo.metadata
-            )
-            Task { @MainActor in
-                capturedPhoto = captured
-                withAnimation(.easeInOut(duration: 0.3)) {
-                    showReview = true
-                    cameraManager.isCapturing = false
+                let dataToSave: Data
+                if let style = activeStyle, !photo.isRawPhoto {
+                    dataToSave = ExifReader.embedStyleTag(in: rawData, styleName: style.name) ?? rawData
+                } else {
+                    dataToSave = rawData
                 }
+
+                let save = {
+                    PHPhotoLibrary.shared().performChanges({
+                        let request = PHAssetCreationRequest.forAsset()
+                        let options = PHAssetResourceCreationOptions()
+                        options.uniformTypeIdentifier = photo.isRawPhoto
+                            ? AVFileType.dng.rawValue
+                            : UTType.jpeg.identifier
+                        request.addResource(with: .photo, data: dataToSave, options: options)
+                        request.location = captureLocation
+                    }) { _, error in
+                        if let error { print("[fexer] Photo save failed: \(error.localizedDescription)") }
+                    }
+                }
+
+                // Request authorization inline if the user hasn't been asked yet,
+                // then save. Handles both first-launch and already-authorized paths.
+                let status = PHPhotoLibrary.authorizationStatus(for: .addOnly)
+                if status == .notDetermined {
+                    PHPhotoLibrary.requestAuthorization(for: .addOnly) { granted in
+                        if granted == .authorized || granted == .limited { save() }
+                    }
+                } else if status == .authorized || status == .limited {
+                    save()
+                } else {
+                    print("[fexer] Photo library access denied — cannot save")
+                }
+
+                let captured = CapturedPhoto(
+                    jpegData: rawData,
+                    captureSettings: captureSettings,
+                    appliedStyle: activeStyle,
+                    styleIntensity: styleIntensity,
+                    location: captureLocation,
+                    exifMetadata: photo.metadata
+                )
+                Task { @MainActor in
+                    capturedPhoto = captured
+                    withAnimation(.easeInOut(duration: 0.3)) { showReview = true }
+                }
+            },
+            onCaptureDone: { [cameraManager] in
+                // didFinishCaptureFor is guaranteed to fire even on errors,
+                // so this is the only safe place to reset isCapturing.
+                Task { @MainActor in cameraManager.isCapturing = false }
             }
-        }
+        )
     }
 }
 
@@ -325,13 +371,29 @@ struct ShutterButtonStyle: ButtonStyle {
 }
 
 final class CapturePhotoDelegate: NSObject, AVCapturePhotoCaptureDelegate {
-    let onComplete: (AVCapturePhoto) -> Void
-    init(onComplete: @escaping (AVCapturePhoto) -> Void) { self.onComplete = onComplete }
+    private let onProcessed: (AVCapturePhoto) -> Void
+    private let onCaptureDone: () -> Void
+
+    init(onProcessed: @escaping (AVCapturePhoto) -> Void,
+         onCaptureDone: @escaping () -> Void) {
+        self.onProcessed = onProcessed
+        self.onCaptureDone = onCaptureDone
+    }
 
     func photoOutput(_ output: AVCapturePhotoOutput,
                      didFinishProcessingPhoto photo: AVCapturePhoto,
                      error: Error?) {
-        guard error == nil else { return }
-        onComplete(photo)
+        if let error {
+            print("[fexer] Capture error: \(error.localizedDescription)")
+            return
+        }
+        onProcessed(photo)
+    }
+
+    // Always fires as the final step — use this to reset isCapturing unconditionally.
+    func photoOutput(_ output: AVCapturePhotoOutput,
+                     didFinishCaptureFor resolvedSettings: AVCaptureResolvedPhotoSettings,
+                     error: Error?) {
+        onCaptureDone()
     }
 }

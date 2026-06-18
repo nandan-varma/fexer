@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ViewfinderView: View {
     @Bindable var cameraViewModel: CameraViewModel
+    var cropRatio: CropRatio = .full
     @State private var focusSquareScale: CGFloat = 1.0
     @State private var focusSquareOpacity: Double = 0.0
     @State private var pinchBaseZoom: CGFloat = 1.0
@@ -12,6 +13,7 @@ struct ViewfinderView: View {
                 // Camera preview (fills entire screen)
                 CameraPreview(
                     cameraManager: cameraViewModel.cameraManager,
+                    cropRatio: cropRatio,
                     onTapToFocus: { normalizedPoint, _ in
                         let screenPoint = CGPoint(
                             x: normalizedPoint.x * geo.size.width,

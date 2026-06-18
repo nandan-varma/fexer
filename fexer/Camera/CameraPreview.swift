@@ -5,6 +5,7 @@ import CoreImage
 /// MTKView-based camera preview that runs the full CI filter pipeline.
 struct CameraPreview: UIViewRepresentable {
     let cameraManager: CameraManager
+    var cropRatio: CropRatio = .full
     var onTapToFocus: ((CGPoint, CGSize) -> Void)?
     var onPinchZoom: ((CGFloat, CGFloat) -> Void)?
     var onSwipeBrightness: ((CGFloat) -> Void)?
@@ -41,6 +42,7 @@ struct CameraPreview: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: MTKView, context: Context) {
+        context.coordinator.cropRatio = cropRatio
         context.coordinator.onTapToFocus = onTapToFocus
         context.coordinator.onPinchZoom = onPinchZoom
         context.coordinator.onSwipeBrightness = onSwipeBrightness
@@ -52,6 +54,7 @@ struct CameraPreview: UIViewRepresentable {
 
     final class Coordinator: NSObject, MTKViewDelegate {
         let cameraManager: CameraManager
+        var cropRatio: CropRatio = .full
         var onTapToFocus: ((CGPoint, CGSize) -> Void)?
         var onPinchZoom: ((CGFloat, CGFloat) -> Void)?
         var onSwipeBrightness: ((CGFloat) -> Void)?
@@ -82,28 +85,44 @@ struct CameraPreview: UIViewRepresentable {
             else { return }
 
             let drawableSize = view.drawableSize
-            let imageExtent = image.extent
+            let imageExtent  = image.extent
+            let sRGB = CGColorSpace(name: CGColorSpace.sRGB)!
 
-            // Aspect-fill: scale so the image fully covers the drawable.
             let scaleX = drawableSize.width  / imageExtent.width
             let scaleY = drawableSize.height / imageExtent.height
-            let scale  = max(scaleX, scaleY)
 
-            let scaledImage = image.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+            if cropRatio == .full {
+                // Aspect-fit: show the entire sensor output, letterboxed with black bars.
+                let scale = min(scaleX, scaleY)
+                let scaled = image.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+                let dx = (drawableSize.width  - scaled.extent.width)  / 2
+                let dy = (drawableSize.height - scaled.extent.height) / 2
+                let centered = scaled.transformed(by: CGAffineTransform(translationX: dx, y: dy))
 
-            // Center-crop: offset into the scaled image so we sample from the middle.
-            let scaledExtent = scaledImage.extent
-            let cropOrigin = CGPoint(
-                x: scaledExtent.origin.x + (scaledExtent.width  - drawableSize.width)  / 2,
-                y: scaledExtent.origin.y + (scaledExtent.height - drawableSize.height) / 2
-            )
-            let renderBounds = CGRect(origin: cropOrigin, size: drawableSize)
+                let bg = CIImage(color: CIColor(red: 0, green: 0, blue: 0))
+                    .cropped(to: CGRect(origin: .zero, size: drawableSize))
+                let composite = centered.composited(over: bg)
 
-            ciContext.render(scaledImage,
-                             to: drawable.texture,
-                             commandBuffer: commandBuffer,
-                             bounds: renderBounds,
-                             colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!)
+                ciContext.render(composite,
+                                 to: drawable.texture,
+                                 commandBuffer: commandBuffer,
+                                 bounds: CGRect(origin: .zero, size: drawableSize),
+                                 colorSpace: sRGB)
+            } else {
+                // Aspect-fill: image covers the drawable; SwiftUI adds crop-guide bars.
+                let scale = max(scaleX, scaleY)
+                let scaled = image.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+                let cropOrigin = CGPoint(
+                    x: scaled.extent.origin.x + (scaled.extent.width  - drawableSize.width)  / 2,
+                    y: scaled.extent.origin.y + (scaled.extent.height - drawableSize.height) / 2
+                )
+                ciContext.render(scaled,
+                                 to: drawable.texture,
+                                 commandBuffer: commandBuffer,
+                                 bounds: CGRect(origin: cropOrigin, size: drawableSize),
+                                 colorSpace: sRGB)
+            }
+
             commandBuffer.present(drawable)
             commandBuffer.commit()
         }
