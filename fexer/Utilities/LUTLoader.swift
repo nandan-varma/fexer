@@ -3,7 +3,13 @@ import Foundation
 final class LUTLoader {
     static let shared = LUTLoader()
 
-    private let cache = NSCache<NSString, NSData>()
+    private final class LUTEntry: NSObject {
+        let data: NSData
+        let dimension: Int
+        init(_ data: NSData, _ dimension: Int) { self.data = data; self.dimension = dimension }
+    }
+
+    private let cache = NSCache<NSString, LUTEntry>()
 
     private init() {
         cache.countLimit = 10
@@ -12,9 +18,8 @@ final class LUTLoader {
     /// Returns RGBA Float32 data suitable for CIColorCubeWithColorSpace, plus cube dimension.
     func load(filename: String) -> (data: NSData, dimension: Int)? {
         let key = filename as NSString
-        if let cached = cache.object(forKey: key) {
-            let dim = dimensionCache[filename] ?? 33
-            return (cached, dim)
+        if let entry = cache.object(forKey: key) {
+            return (entry.data, entry.dimension)
         }
 
         guard let url = Bundle.main.url(forResource: (filename as NSString).deletingPathExtension,
@@ -24,13 +29,9 @@ final class LUTLoader {
 
         guard let (data, dim) = parseCube(content: content) else { return nil }
 
-        let nsData = data as NSData
-        cache.setObject(nsData, forKey: key)
-        dimensionCache[filename] = dim
-        return (nsData, dim)
+        cache.setObject(LUTEntry(data as NSData, dim), forKey: key)
+        return (data as NSData, dim)
     }
-
-    private var dimensionCache: [String: Int] = [:]
 
     private func parseCube(content: String) -> (Data, Int)? {
         var dimension = 33

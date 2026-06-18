@@ -22,12 +22,23 @@ final class CaptureProcessor: NSObject {
     private var _lutFilter: LUTFilter?
     private let lutFilterLock = NSLock()
 
-    var isFocusPeakingEnabled = false
-    var isZebraEnabled = false
+    private let flagsLock = NSLock()
+    private var _isFocusPeakingEnabled = false
+    private var _isZebraEnabled = false
+    var isFocusPeakingEnabled: Bool {
+        get { flagsLock.withLock { _isFocusPeakingEnabled } }
+        set { flagsLock.withLock { _isFocusPeakingEnabled = newValue } }
+    }
+    var isZebraEnabled: Bool {
+        get { flagsLock.withLock { _isZebraEnabled } }
+        set { flagsLock.withLock { _isZebraEnabled = newValue } }
+    }
+    // zebraTime is only ever read and written on sessionQueue — no lock needed
     var zebraTime: Float = 0
 
     private let focusPeakingFilter = FocusPeakingFilter()
     private let zebraFilter = ZebraFilter()
+    private lazy var histogramFilter: CIFilter = CIFilter(name: "CIAreaHistogram")!
 
     private var frameCount = 0
     private lazy var ciContext: CIContext = {
@@ -62,6 +73,7 @@ extension CaptureProcessor: AVCaptureVideoDataOutputSampleBufferDelegate {
         zebraTime = (zebraTime + 1.0 / 60.0).truncatingRemainder(dividingBy: 100.0)
 
         var image = CIImage(cvPixelBuffer: pixelBuffer)
+        let rawImage = image  // snapshot before filter chain for histogram
 
         // LUT
         lutFilterLock.lock()
@@ -94,7 +106,7 @@ extension CaptureProcessor: AVCaptureVideoDataOutputSampleBufferDelegate {
 
         // Histogram every 3rd frame (~20fps at 60fps session)
         if frameCount % 3 == 0 {
-            computeHistogram(from: CIImage(cvPixelBuffer: pixelBuffer))
+            computeHistogram(from: rawImage)
         }
     }
 
@@ -102,15 +114,12 @@ extension CaptureProcessor: AVCaptureVideoDataOutputSampleBufferDelegate {
         let extent = image.extent
         let count = 256
 
-        guard let histogramFilter = CIFilter(name: "CIAreaHistogram",
-                                              parameters: [
-                                                "inputImage": image,
-                                                "inputExtent": CIVector(cgRect: extent),
-                                                "inputCount": count,
-                                                "inputScale": 1.0
-                                              ]),
-              let histogramImage = histogramFilter.outputImage
-        else { return }
+        histogramFilter.setValue(image, forKey: "inputImage")
+        histogramFilter.setValue(CIVector(cgRect: extent), forKey: "inputExtent")
+        histogramFilter.setValue(count, forKey: "inputCount")
+        histogramFilter.setValue(1.0, forKey: "inputScale")
+
+        guard let histogramImage = histogramFilter.outputImage else { return }
 
         let bitmapSize = count * 4 * MemoryLayout<Float>.size
         var bitmap = [Float](repeating: 0, count: count * 4)
@@ -136,8 +145,11 @@ extension CaptureProcessor: AVCaptureVideoDataOutputSampleBufferDelegate {
             luma[i]  = 0.299 * r + 0.587 * g + 0.114 * b
         }
 
-        // Normalize to 0–1
-        let maxVal = max((red + green + blue + luma).max() ?? 1, 0.001)
+        // Normalize to 0–1 without allocating a concatenated array
+        var maxVal: Float = 0.001
+        for arr in [red, green, blue, luma] {
+            if let m = arr.max(), m > maxVal { maxVal = m }
+        }
         red   = red.map   { $0 / maxVal }
         green = green.map { $0 / maxVal }
         blue  = blue.map  { $0 / maxVal }

@@ -2,6 +2,13 @@ import SwiftUI
 import AVFoundation
 import Observation
 
+struct HistogramData {
+    var red:   [Float] = []
+    var green: [Float] = []
+    var blue:  [Float] = []
+    var luma:  [Float] = []
+}
+
 @Observable
 final class CameraViewModel {
     let cameraManager: CameraManager
@@ -15,14 +22,13 @@ final class CameraViewModel {
     var showFocusIndicator = false
     var zoomLevel: CGFloat = 1.0
 
-    // Histogram data
-    var histogramRed:   [Float] = []
-    var histogramGreen: [Float] = []
-    var histogramBlue:  [Float] = []
-    var histogramLuma:  [Float] = []
+    // Histogram data — single property update fires one SwiftUI notification per frame
+    var histogram = HistogramData()
 
     // Exposure compensation (driven by right-side swipe)
     private var accumulatedExposureBias: Float = 0
+
+    private var focusTask: Task<Void, Never>?
 
     var activeMode: ShootingMode { ShootingMode.allCases[activeModeIndex] }
 
@@ -32,10 +38,7 @@ final class CameraViewModel {
 
         cameraManager.processor.onHistogramUpdate = { [weak self] r, g, b, l in
             Task { @MainActor in
-                self?.histogramRed   = r
-                self?.histogramGreen = g
-                self?.histogramBlue  = b
-                self?.histogramLuma  = l
+                self?.histogram = HistogramData(red: r, green: g, blue: b, luma: l)
             }
         }
     }
@@ -48,14 +51,16 @@ final class CameraViewModel {
         showFocusIndicator = true
         isFocusLocked = false
 
-        // Simulate focus lock after a brief delay
-        Task {
+        focusTask?.cancel()
+        focusTask = Task {
             try? await Task.sleep(nanoseconds: 700_000_000)
+            guard !Task.isCancelled else { return }
             await MainActor.run {
                 self.isFocusLocked = true
                 HapticManager.focusLocked()
             }
             try? await Task.sleep(nanoseconds: 2_000_000_000)
+            guard !Task.isCancelled else { return }
             await MainActor.run {
                 self.showFocusIndicator = false
                 self.isFocusLocked = false

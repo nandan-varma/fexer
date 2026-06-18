@@ -62,13 +62,17 @@ struct CameraPreview: UIViewRepresentable {
         private var lastPinchScale: CGFloat = 1.0
         private var panIsVerticalRight = false
 
+        private let mtlDevice: MTLDevice = MTLCreateSystemDefaultDevice()!
+        private let sRGB = CGColorSpace(name: CGColorSpace.sRGB)!
+        private var cachedBlackBG: CIImage?
+        private var cachedBlackBGSize: CGSize = .zero
+
         private lazy var ciContext: CIContext = {
-            CIContext(mtlDevice: MTLCreateSystemDefaultDevice()!,
-                      options: [.useSoftwareRenderer: false])
+            CIContext(mtlDevice: mtlDevice, options: [.useSoftwareRenderer: false])
         }()
 
         private lazy var commandQueue: MTLCommandQueue? = {
-            MTLCreateSystemDefaultDevice()?.makeCommandQueue()
+            mtlDevice.makeCommandQueue()
         }()
 
         init(cameraManager: CameraManager) {
@@ -86,7 +90,6 @@ struct CameraPreview: UIViewRepresentable {
 
             let drawableSize = view.drawableSize
             let imageExtent  = image.extent
-            let sRGB = CGColorSpace(name: CGColorSpace.sRGB)!
 
             let scaleX = drawableSize.width  / imageExtent.width
             let scaleY = drawableSize.height / imageExtent.height
@@ -99,9 +102,12 @@ struct CameraPreview: UIViewRepresentable {
                 let dy = (drawableSize.height - scaled.extent.height) / 2
                 let centered = scaled.transformed(by: CGAffineTransform(translationX: dx, y: dy))
 
-                let bg = CIImage(color: CIColor(red: 0, green: 0, blue: 0))
-                    .cropped(to: CGRect(origin: .zero, size: drawableSize))
-                let composite = centered.composited(over: bg)
+                if cachedBlackBGSize != drawableSize {
+                    cachedBlackBG = CIImage(color: CIColor(red: 0, green: 0, blue: 0))
+                        .cropped(to: CGRect(origin: .zero, size: drawableSize))
+                    cachedBlackBGSize = drawableSize
+                }
+                let composite = centered.composited(over: cachedBlackBG!)
 
                 ciContext.render(composite,
                                  to: drawable.texture,

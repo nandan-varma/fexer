@@ -8,6 +8,11 @@ final class LUTFilter: CIFilter {
     private var lutDimension: Int = 33
     private var styleName: String = ""
 
+    // Cached filter instances — created once, parameters updated per frame
+    private lazy var colorCubeFilter: CIFilter = CIFilter(name: "CIColorCubeWithColorSpace")!
+    private lazy var dissolveFilter: CIFilter  = CIFilter(name: "CIDissolveTransition")!
+    private static let sRGB = CGColorSpace(name: CGColorSpace.sRGB)!
+
     func setStyle(name: String, data: NSData, dimension: Int) {
         // Only update if style changed — keeps GPU texture cached by pointer identity
         if name != styleName {
@@ -26,30 +31,20 @@ final class LUTFilter: CIFilter {
         guard let input = inputImage else { return nil }
         guard let lut = lutData, inputIntensity > 0.001 else { return input }
 
-        let colorSpace = CGColorSpace(name: CGColorSpace.sRGB)!
+        colorCubeFilter.setValue(input, forKey: "inputImage")
+        colorCubeFilter.setValue(lutDimension, forKey: "inputCubeDimension")
+        colorCubeFilter.setValue(lut, forKey: "inputCubeData")
+        colorCubeFilter.setValue(LUTFilter.sRGB, forKey: "inputColorSpace")
 
-        guard let lutFilter = CIFilter(name: "CIColorCubeWithColorSpace",
-                                        parameters: [
-                                            "inputImage": input,
-                                            "inputCubeDimension": lutDimension,
-                                            "inputCubeData": lut,
-                                            "inputColorSpace": colorSpace
-                                        ]),
-              let lutOutput = lutFilter.outputImage
-        else { return input }
+        guard let lutOutput = colorCubeFilter.outputImage else { return input }
 
         if inputIntensity >= 0.999 { return lutOutput }
 
         // Blend between original and LUT-applied at the given intensity
-        guard let blendFilter = CIFilter(name: "CIDissolveTransition",
-                                          parameters: [
-                                            "inputImage": input,
-                                            "inputTargetImage": lutOutput,
-                                            "inputTime": inputIntensity
-                                          ]),
-              let blended = blendFilter.outputImage
-        else { return lutOutput }
+        dissolveFilter.setValue(input, forKey: "inputImage")
+        dissolveFilter.setValue(lutOutput, forKey: "inputTargetImage")
+        dissolveFilter.setValue(inputIntensity, forKey: "inputTime")
 
-        return blended
+        return dissolveFilter.outputImage ?? lutOutput
     }
 }

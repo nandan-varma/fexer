@@ -63,17 +63,12 @@ struct CameraView: View {
             }
 
             // ── Histogram ────────────────────────────────────────────────────────
-            if showHistogram && !cameraViewModel.histogramRed.isEmpty {
-                HistogramView(
-                    red:   cameraViewModel.histogramRed,
-                    green: cameraViewModel.histogramGreen,
-                    blue:  cameraViewModel.histogramBlue,
-                    luma:  cameraViewModel.histogramLuma
-                )
-                .padding(.top, 60)
-                .padding(.leading, 16)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .allowsHitTesting(false)
+            if showHistogram && !cameraViewModel.histogram.red.isEmpty {
+                HistogramView(data: cameraViewModel.histogram)
+                    .padding(.top, 60)
+                    .padding(.leading, 16)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .allowsHitTesting(false)
             }
 
             // ── Level indicator ──────────────────────────────────────────────────

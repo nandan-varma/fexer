@@ -14,8 +14,10 @@ struct ShutterSlider: View {
 
     private var displayString: String {
         let idx = Int(sliderIndex).fxClamped(to: 0...(stops.count - 1))
-        let time = stops[idx]
-        let seconds = CMTimeGetSeconds(time)
+        return formatShutterSpeed(CMTimeGetSeconds(stops[idx]))
+    }
+
+    private func formatShutterSpeed(_ seconds: Double) -> String {
         if seconds >= 1 {
             return seconds.truncatingRemainder(dividingBy: 1) == 0 ? "\(Int(seconds))\"" : String(format: "%.1f\"", seconds)
         } else {
@@ -25,7 +27,7 @@ struct ShutterSlider: View {
 
     var body: some View {
         VStack(spacing: 8) {
-            autoToggle
+            AutoToggleButton(isAuto: $isAuto)
 
             VerticalDialSlider(
                 label: "SHUTTER",
@@ -36,9 +38,7 @@ struct ShutterSlider: View {
                 isLogarithmic: false,
                 formatValue: { [stops] idx in
                     let i = Int(idx).fxClamped(to: 0...(stops.count - 1))
-                    let t = stops[i]
-                    let s = CMTimeGetSeconds(t)
-                    return s >= 1 ? (s.truncatingRemainder(dividingBy: 1) == 0 ? "\(Int(s))\"" : String(format: "%.1f\"", s)) : "1/\(Int(round(1/s)))"
+                    return formatShutterSpeed(CMTimeGetSeconds(stops[i]))
                 }
             ) {
                 let idx = Int(sliderIndex).fxClamped(to: 0...(stops.count - 1))
@@ -60,16 +60,4 @@ struct ShutterSlider: View {
         sliderIndex = Double(bestIdx)
     }
 
-    private var autoToggle: some View {
-        Button {
-            isAuto.toggle()
-            HapticManager.selectionChanged()
-        } label: {
-            Text(isAuto ? "A" : "M")
-                .font(.system(size: 10, weight: .bold))
-                .foregroundStyle(isAuto ? .black : .white)
-                .frame(width: 22, height: 22)
-                .background(isAuto ? Color.yellow : Color.white.opacity(0.2), in: Circle())
-        }
-    }
 }

@@ -1,17 +1,14 @@
 import SwiftUI
 
 struct HistogramView: View {
-    let red:   [Float]
-    let green: [Float]
-    let blue:  [Float]
-    let luma:  [Float]
+    let data: HistogramData
 
     var body: some View {
         Canvas { context, size in
-            drawChannel(context: context, size: size, values: luma,  color: .white.opacity(0.4))
-            drawChannel(context: context, size: size, values: red,   color: .red.opacity(0.55))
-            drawChannel(context: context, size: size, values: green, color: .green.opacity(0.55))
-            drawChannel(context: context, size: size, values: blue,  color: .blue.opacity(0.55))
+            drawChannel(context: context, size: size, values: data.luma,  color: .white.opacity(0.4))
+            drawChannel(context: context, size: size, values: data.red,   color: .red.opacity(0.55))
+            drawChannel(context: context, size: size, values: data.green, color: .green.opacity(0.55))
+            drawChannel(context: context, size: size, values: data.blue,  color: .blue.opacity(0.55))
         }
         .frame(width: 120, height: 60)
         .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 6))
@@ -39,7 +36,7 @@ struct HistogramView: View {
 
 #Preview {
     let values = (0..<256).map { Float($0) / 255.0 * Float.random(in: 0.5...1.0) }
-    return HistogramView(red: values, green: values.reversed(), blue: values, luma: values)
+    return HistogramView(data: HistogramData(red: values, green: Array(values.reversed()), blue: values, luma: values))
         .padding()
         .background(.black)
 }
