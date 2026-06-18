@@ -59,10 +59,10 @@ struct CameraPreview: UIViewRepresentable {
         private var lastPinchScale: CGFloat = 1.0
         private var panIsVerticalRight = false
 
-        private lazy var ciContext: CIContext = {
-            CIContext(mtlDevice: MTLCreateSystemDefaultDevice()!,
-                      options: [.useSoftwareRenderer: false])
-        }()
+        // Persistent GPU resources — created once on first draw, reused every frame.
+        private var commandQueue: MTLCommandQueue?
+        private var ciContext: CIContext?
+        private let sRGBColorSpace = CGColorSpace(name: CGColorSpace.sRGB)!
 
         init(cameraManager: CameraManager) {
             self.cameraManager = cameraManager
@@ -71,10 +71,15 @@ struct CameraPreview: UIViewRepresentable {
         func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {}
 
         func draw(in view: MTKView) {
+            guard let device = view.device else { return }
+            if commandQueue == nil { commandQueue = device.makeCommandQueue() }
+            if ciContext == nil {
+                ciContext = CIContext(mtlDevice: device, options: [.useSoftwareRenderer: false])
+            }
             guard let drawable = view.currentDrawable,
-                  let device = view.device,
-                  let commandQueue = device.makeCommandQueue(),
+                  let commandQueue,
                   let commandBuffer = commandQueue.makeCommandBuffer(),
+                  let ciContext,
                   let image = cameraManager.processor.getLatestImage()
             else { return }
 
@@ -100,7 +105,7 @@ struct CameraPreview: UIViewRepresentable {
                              to: drawable.texture,
                              commandBuffer: commandBuffer,
                              bounds: renderBounds,
-                             colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!)
+                             colorSpace: sRGBColorSpace)
             commandBuffer.present(drawable)
             commandBuffer.commit()
         }

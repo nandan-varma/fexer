@@ -4,6 +4,7 @@ struct ISOSlider: View {
     @Binding var iso: Float
     @Binding var isAuto: Bool
     var onChanged: (() -> Void)?
+    var onAutoChanged: ((Bool) -> Void)?
 
     @State private var doubleISO: Double = 200
 
@@ -35,6 +36,7 @@ struct ISOSlider: View {
     private var autoToggle: some View {
         Button {
             isAuto.toggle()
+            onAutoChanged?(isAuto)
             HapticManager.selectionChanged()
         } label: {
             Text(isAuto ? "A" : "M")

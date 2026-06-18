@@ -4,6 +4,7 @@ struct FocusSlider: View {
     @Binding var lensPosition: Float
     @Binding var isAuto: Bool
     var onChanged: (() -> Void)?
+    var onAutoChanged: ((Bool) -> Void)?
 
     @State private var doublePosition: Double = 0.5
 
@@ -38,6 +39,7 @@ struct FocusSlider: View {
     private var autoToggle: some View {
         Button {
             isAuto.toggle()
+            onAutoChanged?(isAuto)
             HapticManager.selectionChanged()
         } label: {
             Text(isAuto ? "A" : "M")

@@ -116,6 +116,7 @@ struct CameraView: View {
             cameraManager.startSession()
             cameraViewModel.syncOverlaysToProcessor()
             UIApplication.shared.isIdleTimerDisabled = true
+            Task { await appState.permissionsManager.requestPhotoLibraryAccess() }
         }
         .onDisappear {
             cameraManager.stopSession()
@@ -169,41 +170,18 @@ struct CameraView: View {
     // MARK: - Shutter button
 
     private var shutterButton: some View {
-        let ev = cameraManager.captureSettings.exposureCompensation
-        let fraction = CGFloat((ev + 3) / 6)
-
-        return ZStack {
-            // EV ring
-            Circle()
-                .trim(from: 0, to: fraction)
-                .stroke(fraction < 0.5 ? Color.blue : Color.orange, lineWidth: 3)
-                .frame(width: 76, height: 76)
-                .rotationEffect(.degrees(-90))
-                .animation(.easeInOut(duration: 0.1), value: ev)
-
-            Circle()
-                .stroke(.white, lineWidth: 3)
-                .frame(width: 76, height: 76)
-
-            Button {
-                HapticManager.shutter()
-                cameraManager.capturePhoto(delegate: makeCaptureDelegate())
-            } label: {
-                Circle()
-                    .fill(.white)
-                    .frame(width: 62, height: 62)
-            }
-            .buttonStyle(ShutterButtonStyle())
+        ShutterButtonView(cameraManager: cameraManager) {
+            HapticManager.shutter()
+            cameraManager.capturePhoto(delegate: makeCaptureDelegate())
         }
     }
 
     // MARK: - Lens switcher
 
+    @ViewBuilder
     private var lensSwitcherRow: some View {
         let factors = cameraManager.availableZoomFactors
-        guard !factors.isEmpty else { return AnyView(EmptyView()) }
-
-        return AnyView(
+        if !factors.isEmpty {
             HStack(spacing: 12) {
                 ForEach(factors, id: \.self) { factor in
                     let isActive = abs(cameraManager.currentZoomFactor - factor) < 0.3
@@ -220,11 +198,12 @@ struct CameraView: View {
                     }
                 }
             }
-        )
+        }
     }
 
     private func zoomLabel(_ factor: CGFloat) -> String {
-        factor < 1 ? "0.5×" : factor == 1 ? "1×" : "\(Int(factor))×"
+        if factor < 1 { return String(format: "%g×", factor) }
+        return "\(Int(factor.rounded()))×"
     }
 
     // MARK: - Shooting mode label (flagged)
@@ -253,37 +232,84 @@ struct CameraView: View {
     // MARK: - Capture delegate
 
     private func makeCaptureDelegate() -> CapturePhotoDelegate {
-        CapturePhotoDelegate { photo in
-            guard let data = photo.fileDataRepresentation() else { return }
-
-            PHPhotoLibrary.shared().performChanges({
-                let request = PHAssetCreationRequest.forAsset()
-                let options = PHAssetResourceCreationOptions()
-                options.uniformTypeIdentifier = photo.isRawPhoto
-                    ? AVFileType.dng.rawValue
-                    : UTType.jpeg.identifier
-                request.addResource(with: .photo, data: data, options: options)
-            }, completionHandler: nil)
-
-            let captured = CapturedPhoto(
-                jpegData: data,
-                captureSettings: cameraManager.captureSettings,
-                appliedStyle: stylesManager.activeStyle,
-                styleIntensity: stylesManager.styleIntensity,
-                exifMetadata: photo.metadata
-            )
-            Task { @MainActor in
-                capturedPhoto = captured
-                withAnimation(.easeInOut(duration: 0.3)) {
-                    showReview = true
-                    cameraManager.isCapturing = false
+        CapturePhotoDelegate(
+            onComplete: { [self] photo in
+                guard let data = photo.fileDataRepresentation() else {
+                    Task { @MainActor in cameraManager.isCapturing = false }
+                    return
                 }
+
+                Task {
+                    // requestAuthorization is instant if already determined.
+                    let status = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
+                    guard status == .authorized || status == .limited else {
+                        Task { @MainActor in cameraManager.isCapturing = false }
+                        return
+                    }
+                    try? await PHPhotoLibrary.shared().performChanges {
+                        let request = PHAssetCreationRequest.forAsset()
+                        let options = PHAssetResourceCreationOptions()
+                        options.uniformTypeIdentifier = photo.isRawPhoto
+                            ? AVFileType.dng.rawValue
+                            : UTType.jpeg.identifier
+                        request.addResource(with: .photo, data: data, options: options)
+                    }
+                }
+
+                let captured = CapturedPhoto(
+                    jpegData: data,
+                    captureSettings: cameraManager.captureSettings,
+                    appliedStyle: stylesManager.activeStyle,
+                    styleIntensity: stylesManager.styleIntensity,
+                    exifMetadata: photo.metadata
+                )
+                Task { @MainActor in
+                    capturedPhoto = captured
+                    withAnimation(.easeInOut(duration: 0.3)) {
+                        showReview = true
+                        cameraManager.isCapturing = false
+                    }
+                }
+            },
+            onError: { [self] in
+                Task { @MainActor in cameraManager.isCapturing = false }
             }
-        }
+        )
     }
 }
 
 // MARK: - Supporting types
+
+/// Isolated view so captureSettings changes only re-render this, not all of CameraView.
+private struct ShutterButtonView: View {
+    let cameraManager: CameraManager
+    let onCapture: () -> Void
+
+    var body: some View {
+        let ev = cameraManager.captureSettings.exposureCompensation
+        let fraction = CGFloat((ev + 3) / 6)
+
+        ZStack {
+            Circle()
+                .trim(from: 0, to: fraction)
+                .stroke(fraction < 0.5 ? Color.blue : Color.orange, lineWidth: 3)
+                .frame(width: 76, height: 76)
+                .rotationEffect(.degrees(-90))
+                .animation(.easeInOut(duration: 0.1), value: ev)
+
+            Circle()
+                .stroke(.white, lineWidth: 3)
+                .frame(width: 76, height: 76)
+
+            Button(action: onCapture) {
+                Circle()
+                    .fill(.white)
+                    .frame(width: 62, height: 62)
+            }
+            .buttonStyle(ShutterButtonStyle())
+        }
+    }
+}
 
 struct ShutterButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
@@ -295,12 +321,22 @@ struct ShutterButtonStyle: ButtonStyle {
 
 final class CapturePhotoDelegate: NSObject, AVCapturePhotoCaptureDelegate {
     let onComplete: (AVCapturePhoto) -> Void
-    init(onComplete: @escaping (AVCapturePhoto) -> Void) { self.onComplete = onComplete }
+    let onError: () -> Void
+
+    init(onComplete: @escaping (AVCapturePhoto) -> Void,
+         onError: @escaping () -> Void) {
+        self.onComplete = onComplete
+        self.onError = onError
+    }
 
     func photoOutput(_ output: AVCapturePhotoOutput,
                      didFinishProcessingPhoto photo: AVCapturePhoto,
                      error: Error?) {
-        guard error == nil else { return }
+        if let error {
+            print("[fexer] capture failed: \(error.localizedDescription)")
+            onError()
+            return
+        }
         onComplete(photo)
     }
 }

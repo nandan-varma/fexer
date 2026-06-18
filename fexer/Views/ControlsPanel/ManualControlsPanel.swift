@@ -23,29 +23,49 @@ struct ManualControlsPanel: View {
                 HStack(alignment: .top, spacing: 16) {
                     ISOSlider(
                         iso: $cameraManager.captureSettings.isoValue,
-                        isAuto: $cameraManager.captureSettings.isAutoISO
-                    ) { cameraManager.setISO(cameraManager.captureSettings.isoValue) }
+                        isAuto: $cameraManager.captureSettings.isAutoISO,
+                        onChanged: { cameraManager.setISO(cameraManager.captureSettings.isoValue) },
+                        onAutoChanged: { nowAuto in
+                            if nowAuto { cameraManager.setAutoExposure() }
+                            else { cameraManager.setISO(cameraManager.captureSettings.isoValue) }
+                        }
+                    )
 
                     divider
 
                     ShutterSlider(
                         shutterSpeed: $cameraManager.captureSettings.shutterSpeed,
-                        isAuto: $cameraManager.captureSettings.isAutoShutter
-                    ) { cameraManager.setShutterSpeed(cameraManager.captureSettings.shutterSpeed) }
+                        isAuto: $cameraManager.captureSettings.isAutoShutter,
+                        onChanged: { cameraManager.setShutterSpeed(cameraManager.captureSettings.shutterSpeed) },
+                        onAutoChanged: { nowAuto in
+                            if nowAuto { cameraManager.setAutoExposure() }
+                            else { cameraManager.setShutterSpeed(cameraManager.captureSettings.shutterSpeed) }
+                        }
+                    )
 
                     divider
 
                     WhiteBalanceSlider(
                         kelvin: $cameraManager.captureSettings.whiteBalance,
-                        isAuto: $cameraManager.captureSettings.isAutoWhiteBalance
-                    ) { cameraManager.setWhiteBalance(kelvin: cameraManager.captureSettings.whiteBalance) }
+                        isAuto: $cameraManager.captureSettings.isAutoWhiteBalance,
+                        onChanged: { cameraManager.setWhiteBalance(kelvin: cameraManager.captureSettings.whiteBalance) },
+                        onAutoChanged: { nowAuto in
+                            if nowAuto { cameraManager.setAutoWhiteBalance() }
+                            else { cameraManager.setWhiteBalance(kelvin: cameraManager.captureSettings.whiteBalance) }
+                        }
+                    )
 
                     if FeatureFlags.focusSlider {
                         divider
                         FocusSlider(
                             lensPosition: $cameraManager.captureSettings.focusDistance,
-                            isAuto: $cameraManager.captureSettings.isAutoFocus
-                        ) { cameraManager.setFocus(lensPosition: cameraManager.captureSettings.focusDistance) }
+                            isAuto: $cameraManager.captureSettings.isAutoFocus,
+                            onChanged: { cameraManager.setFocus(lensPosition: cameraManager.captureSettings.focusDistance) },
+                            onAutoChanged: { nowAuto in
+                                if nowAuto { cameraManager.setAutoFocus() }
+                                else { cameraManager.setFocus(lensPosition: cameraManager.captureSettings.focusDistance) }
+                            }
+                        )
                     }
                 }
                 .padding(.horizontal, 28)

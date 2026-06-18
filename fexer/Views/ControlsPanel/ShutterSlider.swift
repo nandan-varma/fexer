@@ -5,6 +5,7 @@ struct ShutterSlider: View {
     @Binding var shutterSpeed: CMTime
     @Binding var isAuto: Bool
     var onChanged: (() -> Void)?
+    var onAutoChanged: ((Bool) -> Void)?
 
     @State private var sliderIndex: Double = 5
 
@@ -63,6 +64,7 @@ struct ShutterSlider: View {
     private var autoToggle: some View {
         Button {
             isAuto.toggle()
+            onAutoChanged?(isAuto)
             HapticManager.selectionChanged()
         } label: {
             Text(isAuto ? "A" : "M")

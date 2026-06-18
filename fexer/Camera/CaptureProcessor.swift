@@ -30,6 +30,7 @@ final class CaptureProcessor: NSObject {
     private let zebraFilter = ZebraFilter()
 
     private var frameCount = 0
+    private let histogramFilter: CIFilter? = CIFilter(name: "CIAreaHistogram")
     private lazy var ciContext: CIContext = {
         let device = MTLCreateSystemDefaultDevice()!
         return CIContext(mtlDevice: device, options: [
@@ -99,18 +100,16 @@ extension CaptureProcessor: AVCaptureVideoDataOutputSampleBufferDelegate {
     }
 
     private func computeHistogram(from image: CIImage) {
+        guard let histogramFilter else { return }
         let extent = image.extent
         let count = 256
 
-        guard let histogramFilter = CIFilter(name: "CIAreaHistogram",
-                                              parameters: [
-                                                "inputImage": image,
-                                                "inputExtent": CIVector(cgRect: extent),
-                                                "inputCount": count,
-                                                "inputScale": 1.0
-                                              ]),
-              let histogramImage = histogramFilter.outputImage
-        else { return }
+        histogramFilter.setValue(image, forKey: kCIInputImageKey)
+        histogramFilter.setValue(CIVector(cgRect: extent), forKey: "inputExtent")
+        histogramFilter.setValue(count, forKey: "inputCount")
+        histogramFilter.setValue(1.0, forKey: "inputScale")
+
+        guard let histogramImage = histogramFilter.outputImage else { return }
 
         let bitmapSize = count * 4 * MemoryLayout<Float>.size
         var bitmap = [Float](repeating: 0, count: count * 4)
@@ -136,8 +135,9 @@ extension CaptureProcessor: AVCaptureVideoDataOutputSampleBufferDelegate {
             luma[i]  = 0.299 * r + 0.587 * g + 0.114 * b
         }
 
-        // Normalize to 0–1
-        let maxVal = max((red + green + blue + luma).max() ?? 1, 0.001)
+        // Normalize to 0–1 without allocating a concatenated array
+        let peak = max(red.max() ?? 0, green.max() ?? 0, blue.max() ?? 0, luma.max() ?? 0)
+        let maxVal = max(peak, Float(0.001))
         red   = red.map   { $0 / maxVal }
         green = green.map { $0 / maxVal }
         blue  = blue.map  { $0 / maxVal }
