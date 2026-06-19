@@ -20,13 +20,15 @@ struct PhotoStyle: Identifiable, Hashable {
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
 
     static let none = PhotoStyle(
-        id: UUID(uuidString: "00000000-0000-0000-0000-000000000000")!,
+        id: UUID(uuidString: Self.noneUUID) ?? UUID(),
         name: "None",
         category: .custom,
         lutFileName: nil,
         baseIntensity: 1.0,
         description: "No style applied"
     )
+
+    private static let noneUUID = "00000000-0000-0000-0000-000000000000"
 
     static let catalog: [PhotoStyle] = [
         // Film

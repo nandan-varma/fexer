@@ -1,5 +1,6 @@
 import UIKit
 import CoreImage
+import Metal
 
 /// Generates style preview thumbnails from a bundled sample image.
 final class StylePreviewRenderer {
@@ -7,7 +8,12 @@ final class StylePreviewRenderer {
 
     private let cache = NSCache<NSString, UIImage>()
     private let renderQueue = DispatchQueue(label: "com.fexer.stylePreview", qos: .userInitiated, attributes: .concurrent)
-    private let ciContext: CIContext = CIContext(options: [.useSoftwareRenderer: false])
+    private let ciContext: CIContext = {
+        guard let device = MTLCreateSystemDefaultDevice() else {
+            fatalError("Metal is not available for StylePreviewRenderer")
+        }
+        return CIContext(mtlDevice: device, options: [.useSoftwareRenderer: false])
+    }()
     private let sampleImage: CIImage
 
     private init() {
@@ -29,18 +35,20 @@ final class StylePreviewRenderer {
         if let cached = cache.object(forKey: key) { completion(cached); return }
 
         let base = sampleImage
+        guard base.extent.width > 0 && base.extent.height > 0 else { completion(nil); return }
 
         renderQueue.async { [self] in
             var processed = base
 
+            guard let sRGB = CGColorSpace(name: CGColorSpace.sRGB) else { return }
             if let (data, dim) = LUTLoader.shared.effectiveLUT(for: style),
                let lutFilter = CIFilter(name: "CIColorCubeWithColorSpace",
-                                        parameters: [
-                                            "inputImage": base,
-                                            "inputCubeDimension": dim,
-                                            "inputCubeData": data,
-                                            "inputColorSpace": CGColorSpace(name: CGColorSpace.sRGB)!
-                                        ]),
+                                          parameters: [
+                                              "inputImage": base,
+                                              "inputCubeDimension": dim,
+                                              "inputCubeData": data,
+                                              "inputColorSpace": sRGB
+                                          ]),
                let output = lutFilter.outputImage {
                 processed = output
             }

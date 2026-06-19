@@ -3,7 +3,7 @@ import SwiftUI
 import Observation
 
 @Observable
-final class GalleryViewModel: NSObject {
+final class GalleryViewModel: NSObject, PHPhotoLibraryChangeObserver {
     var photos: [PHAsset] = []
     var isLoading = false
 
@@ -47,7 +47,7 @@ final class GalleryViewModel: NSObject {
             contentMode: .aspectFill,
             options: options
         ) { image, _ in
-            DispatchQueue.main.async { completion(image) }
+            Task { @MainActor in completion(image) }
         }
     }
 
@@ -56,7 +56,7 @@ final class GalleryViewModel: NSObject {
     }
 }
 
-extension GalleryViewModel: PHPhotoLibraryChangeObserver {
+extension GalleryViewModel {
     func photoLibraryDidChange(_ changeInstance: PHChange) {
         guard let result = fetchResult,
               let changes = changeInstance.changeDetails(for: result)

@@ -10,8 +10,10 @@ final class SceneClassifier {
     var suggestedStyle: PhotoStyle?
     var isEnabled = true
 
+    private let stateQueue = DispatchQueue(label: "com.fexer.sceneClassifier", qos: .utility)
     private var frameCounter = 0
-    private var pendingCategory: String?
+    private var pendingLabel: String?
+    private var pendingMatch: PhotoStyle?
     private var consecutiveCount = 0
     private let debounceThreshold = 3
 
@@ -58,20 +60,26 @@ final class SceneClassifier {
     }
 
     private func updateSuggestion(label: String) {
-        let matched = sceneMapping.first { label.contains($0.key) }?.value
+        stateQueue.async { [weak self] in
+            guard let self else { return }
+            let matched = self.sceneMapping.first { label.contains($0.key) }?.value
+            let matchedID = matched?.id
 
-        if matched?.id == pendingCategory.flatMap({ _ in suggestedStyle?.id }) {
-            consecutiveCount += 1
-        } else {
-            pendingCategory = label
-            consecutiveCount = 1
-        }
-
-        if consecutiveCount >= debounceThreshold {
-            Task { @MainActor in
-                self.suggestedStyle = matched
+            if matchedID == self.pendingMatch?.id {
+                self.consecutiveCount += 1
+            } else {
+                self.pendingLabel = label
+                self.pendingMatch = matched
+                self.consecutiveCount = 1
             }
-            consecutiveCount = 0
+
+            if self.consecutiveCount >= self.debounceThreshold {
+                let style = matched
+                Task { @MainActor in
+                    self.suggestedStyle = style
+                }
+                self.consecutiveCount = 0
+            }
         }
     }
 }

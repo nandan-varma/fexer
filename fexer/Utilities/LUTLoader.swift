@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 
 final class LUTLoader {
     static let shared = LUTLoader()
@@ -23,11 +24,21 @@ final class LUTLoader {
         }
 
         guard let url = Bundle.main.url(forResource: (filename as NSString).deletingPathExtension,
-                                         withExtension: "cube") ?? Bundle.main.url(forResource: filename, withExtension: nil),
-              let content = try? String(contentsOf: url, encoding: .utf8)
-        else { return nil }
+                                          withExtension: "cube") ?? Bundle.main.url(forResource: filename, withExtension: nil)
+        else {
+            Logger.camera.error("LUT file not found: \(filename)")
+            return nil
+        }
 
-        guard let (data, dim) = parseCube(content: content) else { return nil }
+        guard let content = try? String(contentsOf: url, encoding: .utf8) else {
+            Logger.camera.error("Failed to read LUT file: \(url.path)")
+            return nil
+        }
+
+        guard let (data, dim) = parseCube(content: content) else {
+            Logger.camera.error("Failed to parse LUT file: \(filename)")
+            return nil
+        }
 
         cache.setObject(LUTEntry(data as NSData, dim), forKey: key)
         return (data as NSData, dim)
@@ -59,7 +70,13 @@ final class LUTLoader {
                 }
             }
         }
-        let data = floats.withUnsafeBytes { NSData(bytes: $0.baseAddress!, length: $0.count) }
+        let data = floats.withUnsafeBytes { ptr -> NSData in
+            guard let base = ptr.baseAddress else {
+                Logger.camera.error("Failed to create procedural LUT data for \(name)")
+                return NSData()
+            }
+            return NSData(bytes: base, length: ptr.count)
+        }
         cache.setObject(LUTEntry(data, d), forKey: cacheKey)
         return (data, d)
     }

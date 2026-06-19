@@ -57,6 +57,22 @@ enum CropRatio: String, CaseIterable, Identifiable {
         case .r4_5:  return 4.0 / 5.0
         }
     }
+
+    /// Height of each letterbox bar (top and bottom) in points for the given view size.
+    /// When using `.full`, `imageAspect` (width/height of the camera sensor) must be provided.
+    func letterboxBarHeight(viewSize: CGSize, imageAspect: CGFloat? = nil) -> CGFloat {
+        let contentH: CGFloat
+        if self == .full {
+            guard let aspect = imageAspect, aspect > 0 else { return 0 }
+            let viewAspect = viewSize.width / viewSize.height
+            guard viewAspect < aspect else { return 0 }
+            contentH = viewSize.width / aspect
+        } else {
+            guard let aspect = portraitAspect else { return 0 }
+            contentH = viewSize.width / aspect
+        }
+        return max(0, (viewSize.height - contentH) / 2)
+    }
 }
 
 enum MeteringMode: String, CaseIterable {

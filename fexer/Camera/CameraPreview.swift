@@ -2,7 +2,8 @@ import SwiftUI
 import MetalKit
 import CoreImage
 
-/// MTKView-based camera preview that runs the full CI filter pipeline.
+/// MTKView-based camera preview that renders the CI filter pipeline output
+/// at continuous 60fps. Handles tap-to-focus, pinch-to-zoom, and brightness swipe.
 struct CameraPreview: UIViewRepresentable {
     let cameraManager: CameraManager
     var cropRatio: CropRatio = .full
@@ -13,31 +14,13 @@ struct CameraPreview: UIViewRepresentable {
     func makeUIView(context: Context) -> MTKView {
         let view = MTKView(frame: .zero, device: MTLCreateSystemDefaultDevice())
         view.framebufferOnly = false
-        // Continuous rendering — MTKViewDelegate.draw fires at 60fps automatically.
-        // enableSetNeedsDisplay = false + isPaused = false is the continuous mode.
         view.enableSetNeedsDisplay = false
         view.isPaused = false
         view.preferredFramesPerSecond = 60
         view.clearColor = MTLClearColorMake(0, 0, 0, 1)
         view.delegate = context.coordinator
-
-        if FeatureFlags.tapToFocus {
-            let tap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleTap))
-            view.addGestureRecognizer(tap)
-        }
-
-        if FeatureFlags.pinchToZoom {
-            let pinch = UIPinchGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handlePinch))
-            view.addGestureRecognizer(pinch)
-        }
-
-        let pan = UIPanGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handlePan))
-        pan.minimumNumberOfTouches = 1
-        pan.maximumNumberOfTouches = 1
-        view.addGestureRecognizer(pan)
-
-        // No onFrameAvailable needed — MTKView renders continuously.
-
+        // Gesture recognizers deferred via setupGestures to avoid
+        // "Assuming sourceView is not nil" (they need the view in the hierarchy).
         return view
     }
 
@@ -46,6 +29,7 @@ struct CameraPreview: UIViewRepresentable {
         context.coordinator.onTapToFocus = onTapToFocus
         context.coordinator.onPinchZoom = onPinchZoom
         context.coordinator.onSwipeBrightness = onSwipeBrightness
+        context.coordinator.setupGesturesIfNeeded(on: uiView)
     }
 
     func makeCoordinator() -> Coordinator {
@@ -61,15 +45,44 @@ struct CameraPreview: UIViewRepresentable {
 
         private var lastPinchScale: CGFloat = 1.0
         private var panIsVerticalRight = false
+        private var gesturesSetup = false
 
-        private let mtlDevice: MTLDevice = MTLCreateSystemDefaultDevice()!
-        private let sRGB = CGColorSpace(name: CGColorSpace.sRGB)!
+        /// Adds gesture recognizers on the first call. Must be called when the view
+        /// is already in the window hierarchy to suppress "Assuming sourceView is not nil".
+        func setupGesturesIfNeeded(on view: MTKView) {
+            guard !gesturesSetup else { return }
+            gesturesSetup = true
+
+            if FeatureFlags.tapToFocus {
+                let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap))
+                view.addGestureRecognizer(tap)
+            }
+            if FeatureFlags.pinchToZoom {
+                let pinch = UIPinchGestureRecognizer(target: self, action: #selector(handlePinch))
+                view.addGestureRecognizer(pinch)
+            }
+            let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePan))
+            pan.minimumNumberOfTouches = 1
+            pan.maximumNumberOfTouches = 1
+            view.addGestureRecognizer(pan)
+        }
+
+        private let mtlDevice: MTLDevice = {
+            guard let device = MTLCreateSystemDefaultDevice() else {
+                fatalError("Metal is not available on this device")
+            }
+            return device
+        }()
+        private let sRGB: CGColorSpace = {
+            guard let cs = CGColorSpace(name: CGColorSpace.sRGB) else {
+                fatalError("sRGB color space unavailable")
+            }
+            return cs
+        }()
         private var cachedBlackBG: CIImage?
         private var cachedBlackBGSize: CGSize = .zero
 
-        private lazy var ciContext: CIContext = {
-            CIContext(mtlDevice: mtlDevice, options: [.useSoftwareRenderer: false])
-        }()
+        private lazy var ciContext: CIContext = CIContext.shared
 
         private lazy var commandQueue: MTLCommandQueue? = {
             mtlDevice.makeCommandQueue()
@@ -107,7 +120,8 @@ struct CameraPreview: UIViewRepresentable {
                         .cropped(to: CGRect(origin: .zero, size: drawableSize))
                     cachedBlackBGSize = drawableSize
                 }
-                let composite = centered.composited(over: cachedBlackBG!)
+                guard let bg = cachedBlackBG else { return }
+                let composite = centered.composited(over: bg)
 
                 ciContext.render(composite,
                                  to: drawable.texture,
@@ -149,19 +163,9 @@ struct CameraPreview: UIViewRepresentable {
 
         /// Height of each letterbox bar in the view's points coordinate system.
         private func previewBarHeight(viewSize: CGSize) -> CGFloat {
-            if cropRatio == .full {
-                let imageSize = cameraManager.previewImageSize
-                guard imageSize.width > 0 && imageSize.height > 0 else { return 0 }
-                let imageAspect = imageSize.width / imageSize.height
-                let viewAspect  = viewSize.width  / viewSize.height
-                guard viewAspect < imageAspect else { return 0 }
-                let scaledH = viewSize.width / imageAspect
-                return max(0, (viewSize.height - scaledH) / 2)
-            } else {
-                guard let aspect = cropRatio.portraitAspect else { return 0 }
-                let contentH = viewSize.width / aspect
-                return max(0, (viewSize.height - contentH) / 2)
-            }
+            let imageSize = cameraManager.previewImageSize
+            let imageAspect = imageSize.width > 0 && imageSize.height > 0 ? imageSize.width / imageSize.height : nil
+            return cropRatio.letterboxBarHeight(viewSize: viewSize, imageAspect: imageAspect)
         }
 
         @objc func handlePinch(_ gesture: UIPinchGestureRecognizer) {

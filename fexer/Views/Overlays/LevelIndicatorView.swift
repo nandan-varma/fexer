@@ -1,9 +1,14 @@
 import SwiftUI
 import CoreMotion
 
+private let sharedMotionManager: CMMotionManager = {
+    let manager = CMMotionManager()
+    manager.deviceMotionUpdateInterval = 1.0 / 30.0
+    return manager
+}()
+
 struct LevelIndicatorView: View {
     @State private var roll: Double = 0
-    @State private var motionManager = CMMotionManager()
 
     var body: some View {
         ZStack {
@@ -36,16 +41,15 @@ struct LevelIndicatorView: View {
     }
 
     private func startMotion() {
-        guard motionManager.isDeviceMotionAvailable else { return }
-        motionManager.deviceMotionUpdateInterval = 1.0 / 30.0
-        motionManager.startDeviceMotionUpdates(to: .main) { motion, _ in
+        guard sharedMotionManager.isDeviceMotionAvailable else { return }
+        sharedMotionManager.startDeviceMotionUpdates(to: .main) { motion, _ in
             guard let m = motion else { return }
             roll = m.attitude.roll
         }
     }
 
     private func stopMotion() {
-        motionManager.stopDeviceMotionUpdates()
+        sharedMotionManager.stopDeviceMotionUpdates()
     }
 }
 

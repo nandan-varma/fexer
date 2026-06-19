@@ -1,7 +1,6 @@
 import SwiftUI
 import AVFoundation
-import Photos
-import UniformTypeIdentifiers
+import OSLog
 
 struct CameraView: View {
     @State private var cameraManager: CameraManager
@@ -11,7 +10,7 @@ struct CameraView: View {
     @State private var showReview = false
     @State private var capturedPhoto: CapturedPhoto?
     @State private var showSettings = false
-    @State private var activeDelegates: [CapturePhotoDelegate] = []
+    @State private var activeDelegates: [UUID: CapturePhotoDelegate] = [:]
 
     @Environment(AppState.self) var appState
 
@@ -33,13 +32,11 @@ struct CameraView: View {
 
     private var cropRatio: CropRatio { CropRatio(rawValue: cropRatioRaw) ?? .full }
 
-    init() {
-        let cm = CameraManager()
-        let sm = StylesManager()
-        _cameraManager = State(initialValue: cm)
-        _stylesManager = State(initialValue: sm)
-        _cameraViewModel = State(initialValue: CameraViewModel(cameraManager: cm, stylesManager: sm))
-        _stylesViewModel = State(initialValue: StylesViewModel(stylesManager: sm))
+    init(cameraManager: CameraManager, stylesManager: StylesManager) {
+        _cameraManager = State(initialValue: cameraManager)
+        _stylesManager = State(initialValue: stylesManager)
+        _cameraViewModel = State(initialValue: CameraViewModel(cameraManager: cameraManager, stylesManager: stylesManager))
+        _stylesViewModel = State(initialValue: StylesViewModel(stylesManager: stylesManager))
     }
 
     var body: some View {
@@ -127,23 +124,23 @@ struct CameraView: View {
             }
 
             // ── Manual controls panel ────────────────────────────────────────────
-            if cameraViewModel.isPanelExpanded {
-                VStack {
-                    Spacer()
-                    ManualControlsPanel(
-                        cameraManager: cameraManager,
-                        onSettings: { showSettings = true }
-                    ) {
-                        cameraViewModel.handleSwipeDown()
-                    }
-                    .frame(height: cameraManager.captureSettings.isAutoWhiteBalance ? 330 : 376)
-                    .animation(.spring(response: 0.3, dampingFraction: 0.85),
-                               value: cameraManager.captureSettings.isAutoWhiteBalance)
-                    .transition(.move(edge: .bottom))
-                    .padding(.bottom, 8)
+            // Always rendered (not `if`) so Canvas/Metal pipeline compilation
+            // happens at launch, not on first swipe-up gesture.
+            VStack {
+                Spacer()
+                ManualControlsPanel(
+                    cameraManager: cameraManager,
+                    onSettings: { showSettings = true }
+                ) {
+                    cameraViewModel.handleSwipeDown()
                 }
-                .ignoresSafeArea(edges: .bottom)
+                .frame(height: cameraManager.captureSettings.isAutoWhiteBalance ? 330 : 376)
+                .offset(y: cameraViewModel.isPanelExpanded ? 0 : 420)
+                .opacity(cameraViewModel.isPanelExpanded ? 1 : 0)
+                .allowsHitTesting(cameraViewModel.isPanelExpanded)
+                .padding(.bottom, 8)
             }
+            .ignoresSafeArea(edges: .bottom)
 
             // ── Review ───────────────────────────────────────────────────────────
             if showReview, let photo = capturedPhoto {
@@ -163,6 +160,7 @@ struct CameraView: View {
                 .environment(appState)
         }
         .onAppear {
+            HapticManager.warmUp()
             cameraManager.startSession()
             syncProcessor()
             // Feed live frames to StylePreviewRenderer so thumbnails can be generated
@@ -288,7 +286,7 @@ struct CameraView: View {
     private func performCapture() {
         HapticManager.shutter()
         let delegate = makeCaptureDelegate()
-        activeDelegates.append(delegate)
+        activeDelegates[delegate.id] = delegate
         if isBracketingEnabled {
             cameraManager.capturePhotoBracketed(evStep: Float(bracketEVStep), delegate: delegate)
         } else {
@@ -354,22 +352,11 @@ struct CameraView: View {
     /// Height of each letterbox bar (top and bottom) in screen points, or nil when the preview fills edge-to-edge.
     /// Covers both crop-ratio bars (SwiftUI black bars) and the aspect-fit empty area in "Full" mode.
     private var letterboxBarHeight: CGFloat? {
-        let screen = UIScreen.main.bounds
-        if cropRatio == .full {
-            let imageSize = cameraManager.previewImageSize
-            guard imageSize.width > 0 && imageSize.height > 0 else { return nil }
-            let imageAspect = imageSize.width / imageSize.height
-            let viewAspect  = screen.width  / screen.height
-            guard viewAspect < imageAspect else { return nil }
-            let scaledH = screen.width / imageAspect
-            let barH = (screen.height - scaledH) / 2
-            return barH > 1 ? barH : nil
-        } else {
-            guard let aspect = cropRatio.portraitAspect else { return nil }
-            let contentH = screen.width / aspect
-            let barH = (screen.height - contentH) / 2
-            return barH > 1 ? barH : nil
-        }
+        let screen = UIScreen.main
+        let imageSize = cameraManager.previewImageSize
+        let imageAspect = imageSize.width > 0 && imageSize.height > 0 ? imageSize.width / imageSize.height : nil
+        let barH = cropRatio.letterboxBarHeight(viewSize: screen.bounds.size, imageAspect: imageAspect)
+        return barH > 1 ? barH : nil
     }
 
     // MARK: - Helpers
@@ -379,16 +366,19 @@ struct CameraView: View {
     }
 
     private func makeCaptureDelegate() -> CapturePhotoDelegate {
-        // Snapshot all mutable state at shutter-press time
         let captureLocation = appState.permissionsManager.currentLocation
         let activeStyle = stylesManager.activeStyle
         let styleIntensity = stylesManager.styleIntensity
         let captureSettings = cameraManager.captureSettings
+        let onShowReview: (CapturedPhoto) -> Void = { [self] photo in
+            capturedPhoto = photo
+            withAnimation(.easeInOut(duration: 0.3)) { showReview = true }
+        }
 
         return CapturePhotoDelegate(
             onProcessed: { photo, shouldShowReview in
                 guard let rawData = photo.fileDataRepresentation() else {
-                    print("[fexer] fileDataRepresentation returned nil")
+                    Logger.camera.error("fileDataRepresentation returned nil")
                     return
                 }
 
@@ -399,30 +389,7 @@ struct CameraView: View {
                     dataToSave = rawData
                 }
 
-                let save = {
-                    PHPhotoLibrary.shared().performChanges({
-                        let request = PHAssetCreationRequest.forAsset()
-                        let options = PHAssetResourceCreationOptions()
-                        options.uniformTypeIdentifier = photo.isRawPhoto
-                            ? AVFileType.dng.rawValue
-                            : UTType.jpeg.identifier
-                        request.addResource(with: .photo, data: dataToSave, options: options)
-                        request.location = captureLocation
-                    }) { _, error in
-                        if let error { print("[fexer] Photo save failed: \(error.localizedDescription)") }
-                    }
-                }
-
-                let status = PHPhotoLibrary.authorizationStatus(for: .addOnly)
-                if status == .notDetermined {
-                    PHPhotoLibrary.requestAuthorization(for: .addOnly) { granted in
-                        if granted == .authorized || granted == .limited { save() }
-                    }
-                } else if status == .authorized || status == .limited {
-                    save()
-                } else {
-                    print("[fexer] Photo library access denied — cannot save")
-                }
+                saveToPhotoLibrary(data: dataToSave, photo: photo, location: captureLocation)
 
                 guard shouldShowReview else { return }
 
@@ -434,21 +401,22 @@ struct CameraView: View {
                     location: captureLocation,
                     exifMetadata: photo.metadata
                 )
-                Task { @MainActor in
-                    capturedPhoto = captured
-                    withAnimation(.easeInOut(duration: 0.3)) { showReview = true }
-                }
+                onShowReview(captured)
             },
-            onCaptureDone: { [cameraManager] in
-                // didFinishCaptureFor is guaranteed to fire even on errors,
-                // so this is the only safe place to reset isCapturing.
-                Task { @MainActor in
+            onCaptureDone: { [cameraManager] delegateID in
+                Task { @MainActor [self] in
                     cameraManager.isCapturing = false
-                    activeDelegates.removeFirst()
+                    activeDelegates.removeValue(forKey: delegateID)
                 }
             }
         )
     }
+}
+
+// MARK: - Logger
+
+extension Logger {
+    static let camera = Logger(subsystem: "com.nandanvarma.fexer", category: "camera")
 }
 
 // MARK: - Supporting types
@@ -462,11 +430,14 @@ struct ShutterButtonStyle: ButtonStyle {
 }
 
 final class CapturePhotoDelegate: NSObject, AVCapturePhotoCaptureDelegate {
+    let id: UUID
     private let onProcessed: (AVCapturePhoto, Bool) -> Void
-    private let onCaptureDone: () -> Void
+    private let onCaptureDone: (UUID) -> Void
 
-    init(onProcessed: @escaping (AVCapturePhoto, Bool) -> Void,
-         onCaptureDone: @escaping () -> Void) {
+    init(id: UUID = UUID(),
+         onProcessed: @escaping (AVCapturePhoto, Bool) -> Void,
+         onCaptureDone: @escaping (UUID) -> Void) {
+        self.id = id
         self.onProcessed = onProcessed
         self.onCaptureDone = onCaptureDone
     }
@@ -475,7 +446,7 @@ final class CapturePhotoDelegate: NSObject, AVCapturePhotoCaptureDelegate {
                      didFinishProcessingPhoto photo: AVCapturePhoto,
                      error: Error?) {
         if let error {
-            print("[fexer] Capture error: \(error.localizedDescription)")
+            Logger.camera.error("Capture error: \(error.localizedDescription)")
             return
         }
         var shouldShowReview = true
@@ -494,6 +465,6 @@ final class CapturePhotoDelegate: NSObject, AVCapturePhotoCaptureDelegate {
     func photoOutput(_ output: AVCapturePhotoOutput,
                      didFinishCaptureFor resolvedSettings: AVCaptureResolvedPhotoSettings,
                      error: Error?) {
-        onCaptureDone()
+        onCaptureDone(id)
     }
 }

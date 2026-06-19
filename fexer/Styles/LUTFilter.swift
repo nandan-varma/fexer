@@ -17,13 +17,25 @@ final class LUTFilter: CIFilter {
     private var lutDimension: Int = 33
     private var styleName: String = ""
 
-    private lazy var colorCubeFilter: CIFilter    = CIFilter(name: "CIColorCubeWithColorSpace")!
-    private lazy var dissolveFilter: CIFilter      = CIFilter(name: "CIDissolveTransition")!
-    private lazy var exposureFilter: CIFilter      = CIFilter(name: "CIExposureAdjust")!
-    private lazy var colorControlsFilter: CIFilter = CIFilter(name: "CIColorControls")!
-    private lazy var tempTintFilter: CIFilter      = CIFilter(name: "CITemperatureAndTint")!
+    private lazy var colorCubeFilter: CIFilter    = Self.makeFilter("CIColorCubeWithColorSpace")
+    private lazy var dissolveFilter: CIFilter      = Self.makeFilter("CIDissolveTransition")
+    private lazy var exposureFilter: CIFilter      = Self.makeFilter("CIExposureAdjust")
+    private lazy var colorControlsFilter: CIFilter = Self.makeFilter("CIColorControls")
+    private lazy var tempTintFilter: CIFilter      = Self.makeFilter("CITemperatureAndTint")
 
-    private static let sRGB = CGColorSpace(name: CGColorSpace.sRGB)!
+    private static let sRGB: CGColorSpace = {
+        guard let cs = CGColorSpace(name: CGColorSpace.sRGB) else {
+            fatalError("sRGB color space unavailable")
+        }
+        return cs
+    }()
+
+    private static func makeFilter(_ name: String) -> CIFilter {
+        guard let filter = CIFilter(name: name) else {
+            fatalError("CIFilter \(name) is not available on this device")
+        }
+        return filter
+    }
     // D65 reference neutral for CITemperatureAndTint
     private static let neutralD65 = CIVector(x: 6500, y: 0)
 

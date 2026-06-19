@@ -10,7 +10,7 @@ struct CapturedPhoto: Identifiable {
     let styleIntensity: Float
     let captureDate: Date
     let location: CLLocation?
-    var exifMetadata: [String: Any]
+    let exifMetadata: [String: Any]
 
     init(
         jpegData: Data? = nil,
@@ -31,5 +31,15 @@ struct CapturedPhoto: Identifiable {
         self.captureDate = captureDate
         self.location = location
         self.exifMetadata = exifMetadata
+    }
+}
+
+extension CapturedPhoto: Hashable {
+    static func == (lhs: CapturedPhoto, rhs: CapturedPhoto) -> Bool {
+        lhs.id == rhs.id
+    }
+
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
     }
 }

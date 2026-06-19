@@ -9,7 +9,7 @@ enum CaptureFormat: String, CaseIterable {
 
 struct CaptureSettings {
     var isoValue: Float = 200
-    var shutterSpeed: CMTime = CMTimeMake(value: 1, timescale: 250)
+    var shutterSpeed: CMTime = CMTime(value: 1, timescale: 250)
     var whiteBalance: Float = 5500
     var whiteBalanceTint: Float = 0        // -150 (green) … +150 (magenta)
     var focusDistance: Float = 0.5
@@ -26,7 +26,10 @@ struct CaptureSettings {
     var isProRAW: Bool = false
 
     var shutterSpeedDisplayString: String {
-        let seconds = CMTimeGetSeconds(shutterSpeed)
+        CaptureSettings.formatShutterSpeed(CMTimeGetSeconds(shutterSpeed))
+    }
+
+    static func formatShutterSpeed(_ seconds: Double) -> String {
         if seconds >= 1 {
             return seconds.truncatingRemainder(dividingBy: 1) == 0
                 ? "\(Int(seconds))\""
@@ -39,24 +42,24 @@ struct CaptureSettings {
 
     static let isoStops: [Float] = [25, 50, 100, 200, 400, 800, 1600, 3200, 6400]
     static let shutterStops: [CMTime] = [
-        CMTimeMake(value: 1, timescale: 8000),
-        CMTimeMake(value: 1, timescale: 4000),
-        CMTimeMake(value: 1, timescale: 2000),
-        CMTimeMake(value: 1, timescale: 1000),
-        CMTimeMake(value: 1, timescale: 500),
-        CMTimeMake(value: 1, timescale: 250),
-        CMTimeMake(value: 1, timescale: 125),
-        CMTimeMake(value: 1, timescale: 60),
-        CMTimeMake(value: 1, timescale: 30),
-        CMTimeMake(value: 1, timescale: 15),
-        CMTimeMake(value: 1, timescale: 8),
-        CMTimeMake(value: 1, timescale: 4),
-        CMTimeMake(value: 1, timescale: 2),
-        CMTimeMake(value: 1, timescale: 1),
-        CMTimeMake(value: 2, timescale: 1),
-        CMTimeMake(value: 4, timescale: 1),
-        CMTimeMake(value: 8, timescale: 1),
-        CMTimeMake(value: 15, timescale: 1),
-        CMTimeMake(value: 30, timescale: 1)
+        CMTime(value: 1, timescale: 8000),
+        CMTime(value: 1, timescale: 4000),
+        CMTime(value: 1, timescale: 2000),
+        CMTime(value: 1, timescale: 1000),
+        CMTime(value: 1, timescale: 500),
+        CMTime(value: 1, timescale: 250),
+        CMTime(value: 1, timescale: 125),
+        CMTime(value: 1, timescale: 60),
+        CMTime(value: 1, timescale: 30),
+        CMTime(value: 1, timescale: 15),
+        CMTime(value: 1, timescale: 8),
+        CMTime(value: 1, timescale: 4),
+        CMTime(value: 1, timescale: 2),
+        CMTime(value: 1, timescale: 1),
+        CMTime(value: 2, timescale: 1),
+        CMTime(value: 4, timescale: 1),
+        CMTime(value: 8, timescale: 1),
+        CMTime(value: 15, timescale: 1),
+        CMTime(value: 30, timescale: 1)
     ]
 }

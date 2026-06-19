@@ -14,15 +14,7 @@ struct ShutterSlider: View {
 
     private var displayString: String {
         let idx = Int(sliderIndex).fxClamped(to: 0...(stops.count - 1))
-        return formatShutterSpeed(CMTimeGetSeconds(stops[idx]))
-    }
-
-    private func formatShutterSpeed(_ seconds: Double) -> String {
-        if seconds >= 1 {
-            return seconds.truncatingRemainder(dividingBy: 1) == 0 ? "\(Int(seconds))\"" : String(format: "%.1f\"", seconds)
-        } else {
-            return "1/\(Int(round(1/seconds)))"
-        }
+        return CaptureSettings.formatShutterSpeed(CMTimeGetSeconds(stops[idx]))
     }
 
     var body: some View {
@@ -38,7 +30,7 @@ struct ShutterSlider: View {
                 isLogarithmic: false,
                 formatValue: { [stops] idx in
                     let i = Int(idx).fxClamped(to: 0...(stops.count - 1))
-                    return formatShutterSpeed(CMTimeGetSeconds(stops[i]))
+                    return CaptureSettings.formatShutterSpeed(CMTimeGetSeconds(stops[i]))
                 }
             ) {
                 let idx = Int(sliderIndex).fxClamped(to: 0...(stops.count - 1))

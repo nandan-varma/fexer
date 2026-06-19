@@ -170,6 +170,7 @@ private struct TintStrip: View {
             }
 
             GeometryReader { geo in
+                let trackWidth = geo.size.width
                 ZStack(alignment: .leading) {
                     LinearGradient(
                         colors: [
@@ -197,22 +198,23 @@ private struct TintStrip: View {
                         .offset(x: fraction * geo.size.width - 7, y: -4)
                         .animation(.easeOut(duration: 0.08), value: tint)
                 }
+                .frame(height: 14)
+                .contentShape(Rectangle())
+                .gesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { g in
+                            guard trackWidth > 0 else { return }
+                            let fraction = Float((g.location.x / trackWidth).fxClamped(to: 0...1))
+                            let newTint = (fraction * 300 - 150).fxClamped(to: -150...150)
+                            cameraManager.captureSettings.whiteBalanceTint = newTint
+                            cameraManager.setWhiteBalance(
+                                kelvin: cameraManager.captureSettings.whiteBalance,
+                                tint: newTint
+                            )
+                        }
+                )
             }
             .frame(height: 14)
-            .contentShape(Rectangle())
-            .gesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { g in
-                        let trackWidth = UIScreen.main.bounds.width - 48
-                        let fraction = Float((g.location.x / trackWidth).clamped(to: 0...1))
-                        let newTint = (fraction * 300 - 150).fxClamped(to: -150...150)
-                        cameraManager.captureSettings.whiteBalanceTint = newTint
-                        cameraManager.setWhiteBalance(
-                            kelvin: cameraManager.captureSettings.whiteBalance,
-                            tint: newTint
-                        )
-                    }
-            )
         }
     }
 }
@@ -255,6 +257,7 @@ private struct EVStrip: View {
 
             // Track
             GeometryReader { geo in
+                let trackWidth = geo.size.width
                 ZStack(alignment: .leading) {
                     // Background
                     RoundedRectangle(cornerRadius: 3)
@@ -279,20 +282,19 @@ private struct EVStrip: View {
                         .frame(width: 2, height: 14)
                         .offset(x: center - 1, y: -4)
                 }
+                .frame(height: 14)
+                .contentShape(Rectangle())
+                .gesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { g in
+                            guard trackWidth > 0 else { return }
+                            let fraction = Float((g.location.x / trackWidth).fxClamped(to: 0...1))
+                            let newEV = (fraction * 6 - 3).fxClamped(to: -3...3)
+                            cameraManager.setExposureCompensation(newEV)
+                        }
+                )
             }
             .frame(height: 14)
-            .contentShape(Rectangle())
-            .gesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { g in
-                        // Use GeometryReader width via the tracked frame — gesture .location is in local coords
-                        // We reconstruct via screen width minus padding (48pt each side)
-                        let trackWidth = UIScreen.main.bounds.width - 48
-                        let fraction = Float((g.location.x / trackWidth).clamped(to: 0...1))
-                        let newEV = (fraction * 6 - 3).fxClamped(to: -3...3)
-                        cameraManager.setExposureCompensation(newEV)
-                    }
-            )
         }
     }
 
@@ -307,8 +309,4 @@ private struct EVStrip: View {
     }
 }
 
-private extension CGFloat {
-    func clamped(to range: ClosedRange<CGFloat>) -> CGFloat {
-        Swift.min(Swift.max(self, range.lowerBound), range.upperBound)
-    }
-}
+

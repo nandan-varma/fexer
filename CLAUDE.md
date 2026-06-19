@@ -14,7 +14,7 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
 ... build 2>&1 | grep -E "error:|BUILD SUCCEEDED|BUILD FAILED"
 ```
 
-**Camera does not work in Simulator.** All meaningful testing requires a physical iOS device. There are no unit tests in this project yet.
+**Camera does not work in Simulator.** All meaningful testing requires a physical iOS device. Unit tests for models/utilities (no camera dependency) are in `Tests/fexerTests/`. Add the test target in Xcode: File → New → Target → iOS Unit Testing Bundle, select fexer as the target to test, and point the source files to `Tests/fexerTests/`.
 
 SourceKit shows many false-positive errors (UIKit types "unavailable in macOS", cross-file references "not found") because it indexes against the macOS SDK. Ignore them; `xcodebuild` against the iOS SDK is the truth.
 
@@ -151,11 +151,24 @@ LUTLoader.effectiveLUT(for: style)
 
 ### `fxClamped` extension
 
-`Comparable.fxClamped(to:)` is defined in `CameraManager.swift`. It exists because Swift 6 added a `package`-scoped `clamped` to the stdlib, making the common name inaccessible. Use `fxClamped` everywhere in this codebase.
+`Comparable.fxClamped(to:)` is defined in `CameraManager.swift`. It exists because Swift 6 added a `package`-scoped `clamped` to the stdlib, making the common name inaccessible. Use `fxClamped` everywhere in this codebase. Do not define type-specific duplicates (e.g. on `Double` or `CGFloat`) — the generic version covers all numeric types.
+
+### AVCaptureDevice.withLock helper
+
+`AVCaptureDevice.withLock(_:)` (defined in `CameraManager.swift`) wraps `lockForConfiguration()`/`unlockForConfiguration()` with proper error handling. All device configuration in this codebase uses it. Never call `lockForConfiguration()` or `unlockForConfiguration()` directly.
+
+### Logging
+
+Use `Logger` from `OSLog` instead of `print`. The app defines per-category loggers (e.g. `Logger.camera`). Check `CameraView.swift` for the pattern.
 
 ### LUT files
 
 `.cube` files belong in `fexer/Resources/LUTs/`. Filenames must match `PhotoStyle.catalog` entries in `Models/PhotoStyle.swift`. `LUTLoader` parses `.cube` format (plain text, B-major order) and pads RGB→RGBA for `CIColorCubeWithColorSpace`. Generated procedural LUT data is cached by `"__proc_<name>_<dim>"` key in the same `NSCache`.
+
+### CIFilter / Metal safety
+
+CIFilter lookups and `MTLCreateSystemDefaultDevice()` use `fatalError` with descriptive messages rather than force-unwraps. These are programmer errors (missing filter name, no Metal support) that should fail catastrophically — never silently.
+
 
 ### Orientation lock
 

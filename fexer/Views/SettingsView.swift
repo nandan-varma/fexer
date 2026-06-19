@@ -141,7 +141,8 @@ struct SettingsView: View {
                     HStack {
                         Text("fexer")
                         Spacer()
-                        Text("1.0").foregroundStyle(.secondary)
+                        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "–"
+                        Text(version).foregroundStyle(.secondary)
                     }
                     HStack {
                         Text("Build")

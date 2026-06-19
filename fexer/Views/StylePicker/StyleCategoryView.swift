@@ -20,15 +20,22 @@ struct StyleCategoryView: View {
     }
 
     private func categoryChip(label: String, systemImage: String, category: StyleCategory?, isAI: Bool = false) -> some View {
-        let isSelected = category == selectedCategory
+        let isSelected: Bool = {
+            guard let cat = category else { return false }
+            return cat == selectedCategory
+        }()
 
         return Button {
             if let cat = category {
                 withAnimation(.easeInOut(duration: 0.15)) {
                     selectedCategory = cat
                 }
-                HapticManager.selectionChanged()
+            } else {
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    selectedCategory = .film
+                }
             }
+            HapticManager.selectionChanged()
         } label: {
             HStack(spacing: 4) {
                 if isAI {

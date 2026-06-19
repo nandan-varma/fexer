@@ -25,17 +25,19 @@ struct fexerApp: App {
 
 struct RootView: View {
     @Environment(AppState.self) var appState
+    @State private var cameraManager = CameraManager()
+    @State private var stylesManager = StylesManager()
 
     var body: some View {
         switch appState.currentScreen {
         case .camera:
-            CameraView()
+            CameraView(cameraManager: cameraManager, stylesManager: stylesManager)
                 .environment(appState)
         case .gallery:
             GalleryView()
                 .environment(appState)
         case .settings:
-            CameraView()
+            SettingsView(cameraManager: cameraManager, stylesManager: stylesManager)
                 .environment(appState)
         }
     }

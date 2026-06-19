@@ -16,7 +16,7 @@ final class ZebraFilter: CIFilter {
             bool isOver  = luma > overThreshold;
             bool isUnder = luma < underThreshold;
             if (isOver || isUnder) {
-                float stripe = mod(d.x + d.y + time * 60.0, stripeWidth * 2.0);
+                float stripe = mod(d.x + d.y + time, stripeWidth * 2.0);
                 vec4 warningColor = isOver ? vec4(1.0, 0.0, 0.0, 1.0) : vec4(0.0, 0.4, 1.0, 1.0);
                 vec4 altColor = vec4(0.0, 0.0, 0.0, 1.0);
                 return stripe < stripeWidth ? warningColor : altColor;

@@ -76,8 +76,7 @@ struct ReviewView: View {
 
                     // Share
                     if let data = photo.jpegData {
-                        ShareLink(item: Image(uiImage: UIImage(data: data) ?? UIImage()),
-                                  preview: SharePreview("Photo", image: Image(uiImage: UIImage(data: data) ?? UIImage()))) {
+                        ShareLink(item: data, preview: SharePreview("Photo")) {
                             Image(systemName: "square.and.arrow.up")
                                 .font(.system(size: 20))
                                 .foregroundStyle(.white)
@@ -154,35 +153,7 @@ struct ReviewView: View {
         Task.detached(priority: .utility) {
             let ciImage = CIImage(cgImage: cgImage)
             let context = CIContext()
-            let count = 256
-
-            guard let filter = CIFilter(name: "CIAreaHistogram") else { return }
-            filter.setValue(ciImage, forKey: "inputImage")
-            filter.setValue(CIVector(cgRect: ciImage.extent), forKey: "inputExtent")
-            filter.setValue(count, forKey: "inputCount")
-            filter.setValue(1.0, forKey: "inputScale")
-            guard let output = filter.outputImage else { return }
-
-            let bitmapSize = count * 4 * MemoryLayout<Float>.size
-            var bitmap = [Float](repeating: 0, count: count * 4)
-            context.render(output, toBitmap: &bitmap, rowBytes: bitmapSize,
-                           bounds: CGRect(x: 0, y: 0, width: count, height: 1),
-                           format: .RGBAf, colorSpace: nil)
-
-            var r = [Float](repeating: 0, count: count)
-            var g = [Float](repeating: 0, count: count)
-            var b = [Float](repeating: 0, count: count)
-            var l = [Float](repeating: 0, count: count)
-            for i in 0..<count {
-                r[i] = bitmap[i*4]; g[i] = bitmap[i*4+1]; b[i] = bitmap[i*4+2]
-                l[i] = 0.299*r[i] + 0.587*g[i] + 0.114*b[i]
-            }
-            var maxV: Float = 0.001
-            for arr in [r, g, b, l] { if let m = arr.max(), m > maxV { maxV = m } }
-            let hist = HistogramData(
-                red: r.map { $0/maxV }, green: g.map { $0/maxV },
-                blue: b.map { $0/maxV }, luma: l.map { $0/maxV }
-            )
+            let hist = HistogramCalculator.compute(from: ciImage, context: context)
             await MainActor.run { self.reviewHistogram = hist }
         }
     }

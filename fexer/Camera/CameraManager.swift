@@ -1,13 +1,23 @@
 import AVFoundation
 import CoreImage
 import Observation
+import OSLog
+import Foundation
 
-@Observable
-final class CameraManager: NSObject {
+    /// Owns the AVCaptureSession and all camera hardware configuration.
+    /// @Observable properties are read from MainActor; all session mutations
+    /// are dispatched to sessionQueue for thread safety.
+    ///
+    /// This class provides a high-level interface for camera configuration and capture,
+    /// abstracting away the complexity of AVFoundation's session management and device
+    /// configuration. All public methods are thread-safe and can be called from any
+    /// context, though they execute on the sessionQueue for hardware operations.
+    @Observable
+    final class CameraManager: NSObject {
     // MARK: - Published state (MainActor)
     var isSessionRunning = false
     var currentISO: Float = 200
-    var currentShutterSpeed: CMTime = CMTimeMake(value: 1, timescale: 250)
+    var currentShutterSpeed: CMTime = CMTime(value: 1, timescale: 250)
     var currentWhiteBalance: Float = 5500
     var currentLensPosition: Float = 0.5
     var currentWhiteBalanceTint: Float = 0
@@ -29,21 +39,75 @@ final class CameraManager: NSObject {
 
     var captureSettings = CaptureSettings()
 
+    // MARK: - Notification observation token
+
+    private var sessionErrorObserver: NSObjectProtocol?
+
     // MARK: - Setup
 
+    /// Starts the camera session and begins capturing video frames.
+    ///
+    /// This method initializes the AVCaptureSession, configures the camera device,
+    /// and starts the video capture pipeline. It can be called multiple times safely
+    /// - if the session is already running, it will be a no-op.
     func startSession() {
         sessionQueue.async { [self] in
             guard !session.isRunning else { return }
             self.configureSession()
             self.session.startRunning()
             Task { @MainActor in self.isSessionRunning = true }
+            // Observe runtime errors for session recovery
+            self.sessionErrorObserver = NotificationCenter.default.addObserver(
+                forName: NSNotification.Name(rawValue: "AVCaptureSessionError"),
+                object: session,
+                queue: .main
+            ) { [weak self] notification in
+                self?.handleSessionError(notification)
+            }
+            // Defer video rotation so the connection stabilises after startRunning.
+            // Setting videoRotationAngle immediately can trigger Fig err=-12710.
+            self.sessionQueue.asyncAfter(deadline: .now() + 0.15) { [self] in
+                self.configureVideoRotation()
+            }
         }
     }
 
+    /// Stops the camera session and releases all resources.
+    ///
+    /// This method stops the video capture pipeline, removes all observers,
+    /// and cleans up the session. It can be called multiple times safely.
     func stopSession() {
         sessionQueue.async { [self] in
+            if let observer = sessionErrorObserver {
+                NotificationCenter.default.removeObserver(observer)
+                sessionErrorObserver = nil
+            }
             self.session.stopRunning()
             Task { @MainActor in self.isSessionRunning = false }
+        }
+    }
+
+    deinit {
+        if let observer = sessionErrorObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+    }
+
+    @objc private func handleSessionError(_ notification: Notification) {
+        guard let error = notification.userInfo?[AVCaptureSessionErrorKey] as? NSError else { return }
+        Logger.camera.error("Session runtime error: \(error.localizedDescription) (domain=\(error.domain) code=\(error.code))")
+
+        if error.code == -12710 {
+            Logger.camera.warning("err=-12710 suggests a connection/rotation configuration mismatch. Re-applying rotation in 0.5s.")
+            sessionQueue.asyncAfter(deadline: .now() + 0.5) { [self] in
+                configureVideoRotation()
+            }
+        }
+
+        sessionQueue.asyncAfter(deadline: .now() + 1.0) { [self] in
+            guard !session.isRunning else { return }
+            session.startRunning()
+            Task { @MainActor in self.isSessionRunning = session.isRunning }
         }
     }
 
@@ -76,14 +140,10 @@ final class CameraManager: NSObject {
         videoOutput.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
         if session.canAddOutput(videoOutput) { session.addOutput(videoOutput) }
 
-        photoOutput.isHighResolutionCaptureEnabled = true
-        photoOutput.maxPhotoQualityPrioritization = .quality
         if session.canAddOutput(photoOutput) { session.addOutput(photoOutput) }
 
         session.commitConfiguration()
 
-        // Rotate frames to portrait so CIImage arrives upright
-        configureVideoRotation()
         setupObservations(for: device)
 
         processor.onPreviewSizeKnown = { [weak self] size in
@@ -93,13 +153,23 @@ final class CameraManager: NSObject {
 
     // MARK: - Manual Controls (call on any thread; executes on sessionQueue)
 
+    /// Sets the camera ISO value.
+    ///
+    /// - Parameter iso: The desired ISO value. Will be clamped to the device's
+    ///   supported range (minISO to maxISO for the current active format).
+    ///
+    /// This method is thread-safe and can be called from any context. The actual
+    /// device configuration occurs on the sessionQueue.
     func setISO(_ iso: Float) {
         sessionQueue.async { [self] in
-            guard let device = currentDevice else { return }
+            guard let device = currentDevice else {
+                Logger.camera.error("Cannot set ISO: no camera device available")
+                return
+            }
             let clamped = iso.fxClamped(to: device.activeFormat.minISO...device.activeFormat.maxISO)
-            try? device.lockForConfiguration()
-            device.setExposureModeCustom(duration: device.exposureDuration, iso: clamped, completionHandler: nil)
-            device.unlockForConfiguration()
+            device.withLock {
+                device.setExposureModeCustom(duration: device.exposureDuration, iso: clamped)
+            }
         }
     }
 
@@ -109,22 +179,30 @@ final class CameraManager: NSObject {
             let min = device.activeFormat.minExposureDuration
             let max = device.activeFormat.maxExposureDuration
             let clamped = CMTimeClampToRange(duration, range: CMTimeRange(start: min, end: max))
-            try? device.lockForConfiguration()
-            device.setExposureModeCustom(duration: clamped, iso: device.iso, completionHandler: nil)
-            device.unlockForConfiguration()
+            device.withLock {
+                device.setExposureModeCustom(duration: clamped, iso: device.iso, completionHandler: nil)
+            }
         }
     }
 
+    /// Sets the camera white balance to the specified temperature and tint.
+    ///
+    /// - Parameters:
+    ///   - kelvin: The white balance temperature in Kelvin (typically 5500 for daylight)
+    ///   - tint: The white balance tint (-150 green to +150 magenta)
+    ///
+    /// The method automatically clamps the resulting color gains to ensure they stay
+    /// within the device's supported range (1.0 to maxWhiteBalanceGain) to prevent
+    /// crashes from invalid values.
     func setWhiteBalance(kelvin: Float, tint: Float = 0) {
         sessionQueue.async { [self] in
-            guard let device = currentDevice else { return }
+            guard let device = currentDevice else {
+                Logger.camera.error("Cannot set white balance: no camera device available")
+                return
+            }
             let tnt = AVCaptureDevice.WhiteBalanceTemperatureAndTintValues(temperature: kelvin, tint: tint)
             var gains = device.deviceWhiteBalanceGains(for: tnt)
             let maxGain = device.maxWhiteBalanceGain
-            // Ratiometric normalization: scale all channels so the minimum is 1.0,
-            // preserving inter-channel ratios. Per-channel clamping to 1.0 destroys
-            // the ratio (e.g. {R:0.85, G:1.0, B:1.5} → {1.0, 1.0, 1.5}) which
-            // makes WB look like a filter instead of a real color-temperature shift.
             let minGain = min(gains.redGain, gains.greenGain, gains.blueGain)
             if minGain < 1.0 {
                 let scale = 1.0 / minGain
@@ -139,109 +217,182 @@ final class CameraManager: NSObject {
                 gains.greenGain *= scale
                 gains.blueGain  *= scale
             }
-            // Safety clamp for floating-point edge cases after two scale passes
             gains.redGain   = gains.redGain.fxClamped(to: 1.0...maxGain)
             gains.greenGain = gains.greenGain.fxClamped(to: 1.0...maxGain)
             gains.blueGain  = gains.blueGain.fxClamped(to: 1.0...maxGain)
-            try? device.lockForConfiguration()
-            device.setWhiteBalanceModeLocked(with: gains, completionHandler: nil)
-            device.unlockForConfiguration()
+            device.withLock {
+                device.setWhiteBalanceModeLocked(with: gains)
+            }
         }
     }
 
+    /// Sets the camera focus distance using lens position.
+    ///
+    /// - Parameter lensPosition: The focus distance as a normalized value (0.0 to 1.0),
+    ///   where 0.0 is infinity and 1.0 is the closest focusing distance.
+    ///
+    /// This method is thread-safe and executes on the sessionQueue.
     func setFocus(lensPosition: Float) {
         sessionQueue.async { [self] in
-            guard let device = currentDevice else { return }
-            try? device.lockForConfiguration()
-            device.setFocusModeLocked(lensPosition: lensPosition.fxClamped(to: 0...1), completionHandler: nil)
-            device.unlockForConfiguration()
+            guard let device = currentDevice else {
+                Logger.camera.error("Cannot set focus: no camera device available")
+                return
+            }
+            device.withLock {
+                device.setFocusModeLocked(lensPosition: lensPosition.fxClamped(to: 0...1))
+            }
         }
     }
 
+    /// Sets the camera focus and exposure point of interest.
+    ///
+    /// - Parameter point: Normalized CGPoint (0.0 to 1.0) indicating the point of interest
+    ///   within the camera frame. (0,0) is top-left, (1,1) is bottom-right.
+    ///
+    /// This method is thread-safe and executes on the sessionQueue. The focus and exposure
+    /// will be locked to the specified point until changed or reset.
     func setFocusPoint(_ point: CGPoint) {
         sessionQueue.async { [self] in
-            guard let device = currentDevice else { return }
-            try? device.lockForConfiguration()
-            if device.isFocusPointOfInterestSupported {
-                device.focusPointOfInterest = point
-                device.focusMode = .autoFocus
+            guard let device = currentDevice else {
+                Logger.camera.error("Cannot set focus point: no camera device available")
+                return
             }
-            if device.isExposurePointOfInterestSupported {
-                device.exposurePointOfInterest = point
-                device.exposureMode = .autoExpose
+            device.withLock {
+                if device.isFocusPointOfInterestSupported {
+                    device.focusPointOfInterest = point
+                    device.focusMode = .autoFocus
+                }
+                if device.isExposurePointOfInterestSupported {
+                    device.exposurePointOfInterest = point
+                    device.exposureMode = .autoExpose
+                }
             }
-            device.unlockForConfiguration()
         }
     }
 
+    /// Sets the exposure compensation (EV) value.
+    ///
+    /// - Parameter bias: The exposure compensation value in EV stops (-3 to +3 typical).
+    ///
+    /// This method is thread-safe and executes on the sessionQueue. The exposure compensation
+    /// is stored in both the device and the captureSettings for UI consistency.
     func setExposureCompensation(_ bias: Float) {
         sessionQueue.async { [self] in
-            guard let device = currentDevice else { return }
+            guard let device = currentDevice else {
+                Logger.camera.error("Cannot set exposure compensation: no camera device available")
+                return
+            }
             let clamped = bias.fxClamped(to: device.minExposureTargetBias...device.maxExposureTargetBias)
-            try? device.lockForConfiguration()
-            device.setExposureTargetBias(clamped, completionHandler: nil)
-            device.unlockForConfiguration()
+            device.withLock {
+                device.setExposureTargetBias(clamped)
+            }
             Task { @MainActor in self.captureSettings.exposureCompensation = clamped }
         }
     }
 
+    /// Sets the camera zoom factor.
+    ///
+    /// - Parameter factor: The zoom factor (1.0 = no zoom, 2.0 = 2x zoom, etc.).
+    ///
+    /// This method is thread-safe and executes on the sessionQueue. The zoom factor
+    /// is clamped to the device's supported range and updated in the currentZoomFactor
+    /// property for UI binding.
     func setZoom(_ factor: CGFloat) {
         sessionQueue.async { [self] in
-            guard let device = currentDevice else { return }
+            guard let device = currentDevice else {
+                Logger.camera.error("Cannot set zoom: no camera device available")
+                return
+            }
             let clamped = factor.fxClamped(
                 to: device.minAvailableVideoZoomFactor...device.maxAvailableVideoZoomFactor
             )
-            try? device.lockForConfiguration()
-            device.videoZoomFactor = clamped
-            device.unlockForConfiguration()
+            device.withLock {
+                device.videoZoomFactor = clamped
+            }
             Task { @MainActor in self.currentZoomFactor = clamped }
         }
     }
 
+    /// Resets the camera to automatic exposure control.
+    ///
+    /// This method releases any manual exposure settings and returns the camera to
+    /// automatic exposure mode. It is thread-safe and executes on the sessionQueue.
     func setAutoExposure() {
         sessionQueue.async { [self] in
-            guard let device = currentDevice else { return }
-            try? device.lockForConfiguration()
-            device.exposureMode = .continuousAutoExposure
-            device.unlockForConfiguration()
+            guard let device = currentDevice else {
+                Logger.camera.error("Cannot set auto exposure: no camera device available")
+                return
+            }
+            device.withLock {
+                device.exposureMode = .continuousAutoExposure
+            }
             Task { @MainActor in self.captureSettings.isAELocked = false }
         }
     }
 
+    /// Resets the camera to automatic focus control.
+    ///
+    /// This method releases any manual focus settings and returns the camera to
+    /// automatic focus mode. It is thread-safe and executes on the sessionQueue.
     func setAutoFocus() {
         sessionQueue.async { [self] in
-            guard let device = currentDevice else { return }
-            try? device.lockForConfiguration()
-            device.focusMode = .continuousAutoFocus
-            device.unlockForConfiguration()
+            guard let device = currentDevice else {
+                Logger.camera.error("Cannot set auto focus: no camera device available")
+                return
+            }
+            device.withLock {
+                device.focusMode = .continuousAutoFocus
+            }
         }
     }
 
+    /// Resets the camera to automatic white balance control.
+    ///
+    /// This method releases any manual white balance settings and returns the camera to
+    /// automatic white balance mode. It is thread-safe and executes on the sessionQueue.
     func setAutoWhiteBalance() {
         sessionQueue.async { [self] in
-            guard let device = currentDevice else { return }
-            try? device.lockForConfiguration()
-            device.whiteBalanceMode = .continuousAutoWhiteBalance
-            device.unlockForConfiguration()
+            guard let device = currentDevice else {
+                Logger.camera.error("Cannot set auto white balance: no camera device available")
+                return
+            }
+            device.withLock {
+                device.whiteBalanceMode = .continuousAutoWhiteBalance
+            }
         }
     }
 
+    /// Locks the current auto exposure settings (AE Lock).
+    ///
+    /// This method freezes the current exposure settings (ISO and shutter speed) so
+    /// they remain constant regardless of lighting changes. It is thread-safe and
+    /// executes on the sessionQueue.
     func lockAutoExposure() {
         sessionQueue.async { [self] in
-            guard let device = currentDevice else { return }
-            try? device.lockForConfiguration()
-            device.setExposureModeCustom(duration: device.exposureDuration, iso: device.iso, completionHandler: nil)
-            device.unlockForConfiguration()
+            guard let device = currentDevice else {
+                Logger.camera.error("Cannot lock auto exposure: no camera device available")
+                return
+            }
+            device.withLock {
+                device.setExposureModeCustom(duration: device.exposureDuration, iso: device.iso)
+            }
             Task { @MainActor in self.captureSettings.isAELocked = true }
         }
     }
 
+    /// Unlocks auto exposure settings (release AE Lock).
+    ///
+    /// This method releases the frozen exposure settings and returns the camera to
+    /// automatic exposure control. It is thread-safe and executes on the sessionQueue.
     func unlockAutoExposure() {
         sessionQueue.async { [self] in
-            guard let device = currentDevice else { return }
-            try? device.lockForConfiguration()
-            device.exposureMode = .continuousAutoExposure
-            device.unlockForConfiguration()
+            guard let device = currentDevice else {
+                Logger.camera.error("Cannot unlock auto exposure: no camera device available")
+                return
+            }
+            device.withLock {
+                device.exposureMode = .continuousAutoExposure
+            }
             Task { @MainActor in self.captureSettings.isAELocked = false }
         }
     }
@@ -249,37 +400,49 @@ final class CameraManager: NSObject {
     func setMeteringMode(_ mode: MeteringMode) {
         sessionQueue.async { [self] in
             guard let device = currentDevice else { return }
-            try? device.lockForConfiguration()
-            if device.isExposurePointOfInterestSupported {
-                switch mode {
-                case .matrix, .center:
-                    device.exposurePointOfInterest = CGPoint(x: 0.5, y: 0.5)
-                    device.exposureMode = .continuousAutoExposure
-                case .spot:
-                    // Keep current tap point; just flag the mode
-                    device.exposureMode = .continuousAutoExposure
+            device.withLock {
+                if device.isExposurePointOfInterestSupported {
+                    switch mode {
+                    case .matrix, .center:
+                        device.exposurePointOfInterest = CGPoint(x: 0.5, y: 0.5)
+                        device.exposureMode = .continuousAutoExposure
+                    case .spot:
+                        device.exposureMode = .continuousAutoExposure
+                    }
                 }
             }
-            device.unlockForConfiguration()
             Task { @MainActor in self.captureSettings.meteringMode = mode }
         }
     }
 
+    /// Flips the camera between front and back positions.
+    ///
+    /// This method switches the active camera device and reconfigures the session.
+    /// It is thread-safe and executes on the sessionQueue. After flipping, the camera
+    /// will need a moment to stabilize before video frames are delivered.
     func flipCamera() {
         sessionQueue.async { [self] in
             let currentPosition = currentDevice?.position ?? .back
             let newPosition: AVCaptureDevice.Position = currentPosition == .back ? .front : .back
             guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: newPosition),
                   let newInput = try? AVCaptureDeviceInput(device: device)
-            else { return }
+            else {
+                Logger.camera.error("Failed to flip camera: cannot access device at position \(newPosition.rawValue)")
+                return
+            }
 
             session.beginConfiguration()
-            session.inputs.forEach { session.removeInput($0) }
+            for input in session.inputs.compactMap({ $0 as? AVCaptureDeviceInput }) {
+                session.removeInput(input)
+            }
             if session.canAddInput(newInput) { session.addInput(newInput) }
             currentDevice = device
             session.commitConfiguration()
-            configureVideoRotation()
+            cleanupObservers()
             setupObservations(for: device)
+            sessionQueue.asyncAfter(deadline: .now() + 0.15) { [self] in
+                configureVideoRotation()
+            }
         }
     }
 
@@ -370,43 +533,52 @@ final class CameraManager: NSObject {
         deviceObservations.forEach { $0.invalidate() }
         deviceObservations = [
             device.observe(\.iso, options: .new) { [weak self] d, _ in
+                guard let self else { return }
                 Task { @MainActor in
-                    self?.currentISO = d.iso
-                    // In auto mode, mirror live value into the binding so sliders show reality
-                    if self?.captureSettings.isAutoISO == true {
-                        self?.captureSettings.isoValue = d.iso
+                    self.currentISO = d.iso
+                    if self.captureSettings.isAutoISO == true {
+                        self.captureSettings.isoValue = d.iso
                     }
                 }
             },
             device.observe(\.exposureDuration, options: .new) { [weak self] d, _ in
+                guard let self else { return }
                 Task { @MainActor in
-                    self?.currentShutterSpeed = d.exposureDuration
-                    if self?.captureSettings.isAutoShutter == true {
-                        self?.captureSettings.shutterSpeed = d.exposureDuration
+                    self.currentShutterSpeed = d.exposureDuration
+                    if self.captureSettings.isAutoShutter == true {
+                        self.captureSettings.shutterSpeed = d.exposureDuration
                     }
                 }
             },
             device.observe(\.lensPosition, options: .new) { [weak self] d, _ in
+                guard let self else { return }
                 Task { @MainActor in
-                    self?.currentLensPosition = d.lensPosition
-                    if self?.captureSettings.isAutoFocus == true {
-                        self?.captureSettings.focusDistance = d.lensPosition
+                    self.currentLensPosition = d.lensPosition
+                    if self.captureSettings.isAutoFocus == true {
+                        self.captureSettings.focusDistance = d.lensPosition
                     }
                 }
             },
             device.observe(\.deviceWhiteBalanceGains, options: .new) { [weak self] d, _ in
+                guard let self else { return }
                 guard d.isAdjustingWhiteBalance == false else { return }
                 let tnt = d.temperatureAndTintValues(for: d.deviceWhiteBalanceGains)
                 Task { @MainActor in
-                    self?.currentWhiteBalance = tnt.temperature
-                    self?.currentWhiteBalanceTint = tnt.tint
-                    if self?.captureSettings.isAutoWhiteBalance == true {
-                        self?.captureSettings.whiteBalance = tnt.temperature
-                        self?.captureSettings.whiteBalanceTint = tnt.tint
+                    self.currentWhiteBalance = tnt.temperature
+                    self.currentWhiteBalanceTint = tnt.tint
+                    if self.captureSettings.isAutoWhiteBalance == true {
+                        self.captureSettings.whiteBalance = tnt.temperature
+                        self.captureSettings.whiteBalanceTint = tnt.tint
                     }
                 }
             }
         ]
+    }
+    
+    // Clean up all observers
+    func cleanupObservers() {
+        deviceObservations.forEach { $0.invalidate() }
+        deviceObservations.removeAll()
     }
 
     private func labelForDevice(_ device: AVCaptureDevice) -> String {
@@ -432,5 +604,15 @@ struct LensOption: Identifiable {
 extension Comparable {
     func fxClamped(to range: ClosedRange<Self>) -> Self {
         min(max(self, range.lowerBound), range.upperBound)
+    }
+}
+
+// MARK: - AVCaptureDevice lock helper
+
+extension AVCaptureDevice {
+    func withLock(_ body: () -> Void) {
+        guard (try? lockForConfiguration()) != nil else { return }
+        defer { unlockForConfiguration() }
+        body()
     }
 }

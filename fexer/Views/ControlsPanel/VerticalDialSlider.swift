@@ -219,8 +219,4 @@ struct VerticalDialSlider: View {
     }
 }
 
-private extension Double {
-    func fxClamped(to range: ClosedRange<Double>) -> Double {
-        Swift.min(Swift.max(self, range.lowerBound), range.upperBound)
-    }
-}
+
