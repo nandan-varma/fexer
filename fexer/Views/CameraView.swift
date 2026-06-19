@@ -30,6 +30,7 @@ struct CameraView: View {
     @AppStorage("bracketEVStep")       private var bracketEVStep: Double  = 1.0
     @AppStorage("selfTimerDelay")      private var selfTimerDelay: Int    = 0
     @AppStorage("focusPeakingColor")   private var focusPeakingColor: String = "red"
+    @AppStorage("timelapseInterval")   private var timelapseInterval: Double = 5.0
 
     private var cropRatio: CropRatio { CropRatio(rawValue: cropRatioRaw) ?? .full }
 
@@ -111,7 +112,7 @@ struct CameraView: View {
                 }
 
                 if showShootingModes {
-                    shootingModeLabel
+                    shootingModePicker
                         .padding(.bottom, 8)
                 }
 
@@ -168,6 +169,8 @@ struct CameraView: View {
             UIApplication.shared.isIdleTimerDisabled = true
             Task { await appState.permissionsManager.requestPhotoLibraryAccess() }
             appState.permissionsManager.requestLocationAccess()
+            // Sync persisted timelapse interval into view model
+            cameraViewModel.timelapseInterval = timelapseInterval
         }
         .onDisappear {
             cameraManager.stopSession()
@@ -179,6 +182,7 @@ struct CameraView: View {
         .onChange(of: showZebra)                    { syncProcessor() }
         .onChange(of: showFalseColor)               { syncProcessor() }
         .onChange(of: focusPeakingColor)            { syncProcessor() }
+        .onChange(of: timelapseInterval)            { cameraViewModel.timelapseInterval = timelapseInterval }
     }
 
     // MARK: - Shutter row
@@ -219,6 +223,12 @@ struct CameraView: View {
         let ev = cameraManager.captureSettings.exposureCompensation
         let fraction = CGFloat((ev + 3) / 6)
         let aelLocked = cameraViewModel.isAELocked
+        let activeMode = cameraViewModel.activeMode
+        let isTimelapseActive = cameraViewModel.isTimelapseActive
+        let isBurstActive = cameraViewModel.isBurstActive
+
+        // Timelapse: red fill when active, white when idle
+        let innerFill: Color = (activeMode == .timelapse && isTimelapseActive) ? .red : .white
 
         return ZStack {
             Circle()
@@ -233,17 +243,56 @@ struct CameraView: View {
                 .frame(width: 76, height: 76)
                 .animation(.easeInOut(duration: 0.15), value: aelLocked)
 
-            // Inner capture button — tap to shoot, long-press to toggle AEL
-            Button { captureAction() } label: {
+            // Inner capture button
+            // Burst: long-press starts burst, release stops it
+            // Timelapse: tap toggles start/stop
+            // Other modes: tap to shoot, long-press to toggle AEL
+            if activeMode == .burst {
+                // Burst shutter — long-press fires continuously
                 Circle()
-                    .fill(.white)
+                    .fill(isBurstActive ? Color.orange : .white)
                     .frame(width: 62, height: 62)
+                    .animation(.easeInOut(duration: 0.1), value: isBurstActive)
+                    .gesture(
+                        DragGesture(minimumDistance: 0)
+                            .onChanged { _ in
+                                if !cameraViewModel.isBurstActive {
+                                    let delegate = makeCaptureDelegate()
+                                    activeDelegates[delegate.id] = delegate
+                                    cameraViewModel.startBurst(delegate: delegate)
+                                }
+                            }
+                            .onEnded { _ in cameraViewModel.stopBurst() }
+                    )
+            } else if activeMode == .timelapse {
+                // Timelapse shutter — tap toggles
+                Button {
+                    if isTimelapseActive {
+                        cameraViewModel.stopTimelapse()
+                    } else {
+                        let delegate = makeCaptureDelegate()
+                        activeDelegates[delegate.id] = delegate
+                        cameraViewModel.startTimelapse(delegate: delegate)
+                    }
+                } label: {
+                    Circle()
+                        .fill(innerFill)
+                        .frame(width: 62, height: 62)
+                }
+                .buttonStyle(ShutterButtonStyle())
+            } else {
+                // Normal shutter — tap to shoot, long-press to toggle AEL
+                Button { captureAction() } label: {
+                    Circle()
+                        .fill(.white)
+                        .frame(width: 62, height: 62)
+                }
+                .buttonStyle(ShutterButtonStyle())
+                .highPriorityGesture(
+                    LongPressGesture(minimumDuration: 0.5)
+                        .onEnded { _ in cameraViewModel.toggleAELock() }
+                )
             }
-            .buttonStyle(ShutterButtonStyle())
-            .highPriorityGesture(
-                LongPressGesture(minimumDuration: 0.5)
-                    .onEnded { _ in cameraViewModel.toggleAELock() }
-            )
 
             // AEL badge
             if aelLocked {
@@ -256,8 +305,19 @@ struct CameraView: View {
                     .transition(.opacity.combined(with: .scale))
             }
 
+            // Burst count badge
+            if activeMode == .burst && isBurstActive {
+                Text("\(cameraViewModel.burstCount)/10")
+                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 5).padding(.vertical, 2)
+                    .background(.orange.opacity(0.85), in: Capsule())
+                    .offset(y: 48)
+                    .transition(.opacity.combined(with: .scale))
+            }
+
             // Bracket badge
-            if isBracketingEnabled {
+            if isBracketingEnabled && activeMode != .burst {
                 let stepLabel = bracketEVStep == 1.0 ? "1" : String(format: "%.1g", bracketEVStep)
                 Text("±\(stepLabel)")
                     .font(.system(size: 9, weight: .bold, design: .monospaced))
@@ -337,13 +397,115 @@ struct CameraView: View {
         String(format: "%.1f\u{00D7}", factor)
     }
 
-    // MARK: - Shooting mode label
+    // MARK: - Shooting mode picker + advisory
 
-    private var shootingModeLabel: some View {
-        Text(cameraViewModel.activeMode.rawValue.uppercased())
-            .font(.system(size: 11, weight: .semibold))
-            .foregroundStyle(.white.opacity(0.8))
-            .tracking(2)
+    /// Horizontally scrollable shooting mode selector with advisory label below.
+    private var shootingModePicker: some View {
+        VStack(spacing: 4) {
+            // Advisory / status line appears above the mode scroll
+            modeAdvisoryLine
+
+            // Scrollable mode tabs
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 0) {
+                    ForEach(Array(ShootingMode.allCases.enumerated()), id: \.offset) { idx, mode in
+                        let isActive = cameraViewModel.activeModeIndex == idx
+                        Button {
+                            cameraViewModel.selectMode(
+                                index: idx,
+                                cropRatioRaw: $cropRatioRaw,
+                                selfTimerDelay: $selfTimerDelay
+                            )
+                        } label: {
+                            VStack(spacing: 3) {
+                                HStack(spacing: 4) {
+                                    if mode == .night { // night moon badge
+                                        Image(systemName: "moon.fill")
+                                            .font(.system(size: 8))
+                                            .foregroundStyle(.yellow)
+                                            .opacity(isActive ? 1 : 0)
+                                    }
+                                    Text(mode.rawValue.uppercased())
+                                        .font(.system(size: 10, weight: isActive ? .bold : .medium))
+                                        .foregroundStyle(isActive ? .yellow : .white.opacity(0.5))
+                                        .tracking(1.5)
+                                }
+                                // Underline for active tab
+                                Capsule()
+                                    .fill(isActive ? Color.yellow : Color.clear)
+                                    .frame(height: 2)
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 4)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 12)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var modeIconBadge: some View {
+        switch cameraViewModel.activeMode {
+        case .night:
+            Image(systemName: "moon.fill")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(.yellow)
+        case .portrait:
+            Image(systemName: "person.crop.circle")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(.purple.opacity(0.9))
+        case .timelapse:
+            if cameraViewModel.isTimelapseActive {
+                Circle()
+                    .fill(.red)
+                    .frame(width: 8, height: 8)
+            }
+        default:
+            EmptyView()
+        }
+    }
+
+    @ViewBuilder
+    private var modeAdvisoryLine: some View {
+        switch cameraViewModel.activeMode {
+        case .longExposure:
+            Text("USE A TRIPOD")
+                .font(.system(size: 9, weight: .medium))
+                .foregroundStyle(.orange.opacity(0.85))
+                .tracking(1.5)
+        case .timelapse:
+            HStack(spacing: 8) {
+                if cameraViewModel.isTimelapseActive {
+                    Text("\(cameraViewModel.timelapseCount) FRAMES")
+                        .font(.system(size: 9, weight: .medium, design: .monospaced))
+                        .foregroundStyle(.red.opacity(0.9))
+                } else {
+                    Text("\(timelapseIntervalLabel) INTERVAL")
+                        .font(.system(size: 9, weight: .medium, design: .monospaced))
+                        .foregroundStyle(.white.opacity(0.5))
+                }
+            }
+            .tracking(1)
+        case .portrait:
+            Text("PORTRAIT")
+                .font(.system(size: 9, weight: .medium))
+                .foregroundStyle(.purple.opacity(0.7))
+                .tracking(1.5)
+        default:
+            EmptyView()
+        }
+    }
+
+    private var timelapseIntervalLabel: String {
+        let secs = cameraViewModel.timelapseInterval
+        if secs < 60 {
+            return "\(Int(secs))s"
+        } else {
+            return "\(Int(secs / 60))m"
+        }
     }
 
     // MARK: - Swipe gesture

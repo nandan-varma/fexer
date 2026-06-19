@@ -258,19 +258,29 @@ class CameraViewModelTests: XCTestCase {
     
     func testCameraViewModelModeSelection() {
         XCTAssertEqual(cameraViewModel.activeMode, ShootingMode.photo)
-        
-        cameraViewModel.selectMode(index: 1)
+
+        var crop = CropRatio.full.rawValue
+        var timer = 0
+        let cropBinding = Binding(get: { crop }, set: { crop = $0 })
+        let timerBinding = Binding(get: { timer }, set: { timer = $0 })
+
+        cameraViewModel.selectMode(index: 1, cropRatioRaw: cropBinding, selfTimerDelay: timerBinding)
         XCTAssertEqual(cameraViewModel.activeMode, ShootingMode.portrait)
-        
-        cameraViewModel.selectMode(index: 0)
+
+        cameraViewModel.selectMode(index: 0, cropRatioRaw: cropBinding, selfTimerDelay: timerBinding)
         XCTAssertEqual(cameraViewModel.activeMode, ShootingMode.photo)
     }
-    
+
     func testCameraViewModelSelectModeInvalidIndex() {
-        cameraViewModel.selectMode(index: -1)
+        var crop = CropRatio.full.rawValue
+        var timer = 0
+        let cropBinding = Binding(get: { crop }, set: { crop = $0 })
+        let timerBinding = Binding(get: { timer }, set: { timer = $0 })
+
+        cameraViewModel.selectMode(index: -1, cropRatioRaw: cropBinding, selfTimerDelay: timerBinding)
         XCTAssertEqual(cameraViewModel.activeMode, ShootingMode.photo)
-        
-        cameraViewModel.selectMode(index: 100)
+
+        cameraViewModel.selectMode(index: 100, cropRatioRaw: cropBinding, selfTimerDelay: timerBinding)
         XCTAssertEqual(cameraViewModel.activeMode, ShootingMode.photo)
     }
     

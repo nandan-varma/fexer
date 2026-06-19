@@ -37,24 +37,27 @@ enum GridType: String, CaseIterable {
 /// Portrait-oriented crop ratios for the viewfinder. "Full" shows the entire
 /// sensor frame letterboxed; the others apply crop guides with black bars.
 enum CropRatio: String, CaseIterable, Identifiable {
-    case full  = "Full"
-    case r16_9 = "16:9"
-    case r4_3  = "4:3"
-    case r3_2  = "3:2"
-    case r1_1  = "1:1"
-    case r4_5  = "4:5"
+    case full      = "Full"
+    case r16_9     = "16:9"
+    case r4_3      = "4:3"
+    case r3_2      = "3:2"
+    case r1_1      = "1:1"
+    case r4_5      = "4:5"
+    /// Anamorphic 2.39:1 widescreen (portrait: 100/239 ≈ 0.418 width/height)
+    case r239_100  = "2.39:1"
 
     var id: String { rawValue }
 
     /// Portrait width/height fraction (nil = show full sensor, no fixed ratio).
     var portraitAspect: CGFloat? {
         switch self {
-        case .full:  return nil
-        case .r16_9: return 9.0 / 16.0
-        case .r4_3:  return 3.0 / 4.0
-        case .r3_2:  return 2.0 / 3.0
-        case .r1_1:  return 1.0
-        case .r4_5:  return 4.0 / 5.0
+        case .full:     return nil
+        case .r16_9:    return 9.0 / 16.0
+        case .r4_3:     return 3.0 / 4.0
+        case .r3_2:     return 2.0 / 3.0
+        case .r1_1:     return 1.0
+        case .r4_5:     return 4.0 / 5.0
+        case .r239_100: return 100.0 / 239.0
         }
     }
 
