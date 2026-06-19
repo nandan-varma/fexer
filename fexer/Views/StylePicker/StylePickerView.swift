@@ -105,7 +105,7 @@ struct StylePickerView: View {
                             HapticManager.selectionChanged()
                         },
                         onLongPress: {
-                            stylesViewModel.isBeforeAfterActive = true
+                            stylesViewModel.beforeAfterStyle = style
                         }
                     )
                     .onAppear { stylesViewModel.requestThumbnail(for: style) }
