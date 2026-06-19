@@ -5,18 +5,23 @@ struct StyleCategoryView: View {
     let hasSmartStyle: Bool
 
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                if hasSmartStyle {
-                    categoryChip(label: "Smart", systemImage: "sparkles", category: nil, isAI: true)
-                }
+        GeometryReader { geo in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    if hasSmartStyle {
+                        categoryChip(label: "Smart", systemImage: "sparkles", category: nil, isAI: true)
+                    }
 
-                ForEach(StyleCategory.allCases) { category in
-                    categoryChip(label: category.rawValue, systemImage: systemImage(for: category), category: category)
+                    ForEach(StyleCategory.allCases) { category in
+                        categoryChip(label: category.rawValue, systemImage: systemImage(for: category), category: category)
+                    }
                 }
+                .padding(.horizontal, 16)
+                .frame(minWidth: geo.size.width, alignment: .center)
             }
-            .padding(.horizontal, 16)
+            .scrollBounceBehavior(.basedOnSize)
         }
+        .frame(height: 36)
     }
 
     private func categoryChip(label: String, systemImage: String, category: StyleCategory?, isAI: Bool = false) -> some View {

@@ -42,6 +42,7 @@ struct CameraView: View {
     @AppStorage("isProRAWEnabled")      private var isProRAWEnabled       = false
     @AppStorage("volumeButtonBehavior") private var volumeButtonBehavior  = "Shutter"
     @AppStorage("watermarkText")        private var watermarkText         = ""
+    @AppStorage("longExposureDuration") private var longExposureDuration: Double = 4.0
 
     @State private var volumeObservation: NSKeyValueObservation?
 
@@ -163,9 +164,41 @@ struct CameraView: View {
             // ── Histogram — stays inside preview area ────────────────────────────
             if showHistogram && !cameraViewModel.histogram.red.isEmpty {
                 HistogramView(data: cameraViewModel.histogram)
-                    .padding(.top, max(60, (letterboxBarHeight ?? 0) + 16) + CameraView.quickBarHeight)
+                    .padding(.top, CameraView.quickBarHeight + 8)
                     .padding(.leading, 16)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            }
+
+            // ── Scene classifier suggestion badge ────────────────────────────────
+            if let suggested = stylesManager.suggestedStyle, stylesManager.activeStyle == nil {
+                HStack(spacing: 6) {
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.yellow)
+                    Text(suggested.name)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.white)
+                    Button {
+                        stylesManager.activeStyle = suggested
+                        HapticManager.light()
+                    } label: {
+                        Text("Apply")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundStyle(.black)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(.yellow, in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(.black.opacity(0.6), in: Capsule())
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .padding(.top, CameraView.quickBarHeight + 76)
+                .padding(.leading, 16)
+                .transition(.opacity.combined(with: .scale(scale: 0.95)))
+                .allowsHitTesting(true)
             }
 
             // ── Level indicator — stays inside preview area ──────────────────────
@@ -221,8 +254,8 @@ struct CameraView: View {
                 ) {
                     cameraViewModel.handleSwipeDown()
                 }
-                .frame(height: cameraManager.captureSettings.isAutoWhiteBalance ? 330 : 376)
-                .offset(y: cameraViewModel.isPanelExpanded ? 0 : 420)
+                .frame(height: cameraManager.captureSettings.isAutoWhiteBalance ? 382 : 428)
+                .offset(y: cameraViewModel.isPanelExpanded ? 0 : 480)
                 .opacity(cameraViewModel.isPanelExpanded ? 1 : 0)
                 .allowsHitTesting(cameraViewModel.isPanelExpanded)
                 .padding(.bottom, 8)
@@ -506,7 +539,7 @@ struct CameraView: View {
         let capturedCropRatio = cropRatio
         let capturedWatermark = watermarkText
 
-        cameraManager.processor.beginLongExposureCapture(duration: 4.0) { ciImage in
+        cameraManager.processor.beginLongExposureCapture(duration: longExposureDuration) { ciImage in
             Task { @MainActor in
                 self.saveLongExposureImage(
                     ciImage, filter: captureFilter,
@@ -593,42 +626,47 @@ struct CameraView: View {
             modeAdvisoryLine
 
             // Scrollable mode tabs with frosted glass background
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 0) {
-                    ForEach(Array(ShootingMode.allCases.enumerated()), id: \.offset) { idx, mode in
-                        let isActive = cameraViewModel.activeModeIndex == idx
-                        Button {
-                            cameraViewModel.selectMode(
-                                index: idx,
-                                cropRatioRaw: $cropRatioRaw,
-                                selfTimerDelay: $selfTimerDelay
-                            )
-                        } label: {
-                            VStack(spacing: 3) {
-                                HStack(spacing: 4) {
-                                    if mode == .night {
-                                        Image(systemName: "moon.fill")
-                                            .font(.system(size: 8))
-                                            .foregroundStyle(.yellow)
-                                            .opacity(isActive ? 1 : 0)
+            GeometryReader { geo in
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 0) {
+                        ForEach(Array(ShootingMode.allCases.enumerated()), id: \.offset) { idx, mode in
+                            let isActive = cameraViewModel.activeModeIndex == idx
+                            Button {
+                                cameraViewModel.selectMode(
+                                    index: idx,
+                                    cropRatioRaw: $cropRatioRaw,
+                                    selfTimerDelay: $selfTimerDelay
+                                )
+                            } label: {
+                                VStack(spacing: 3) {
+                                    HStack(spacing: 4) {
+                                        if mode == .night {
+                                            Image(systemName: "moon.fill")
+                                                .font(.system(size: 8))
+                                                .foregroundStyle(.yellow)
+                                                .opacity(isActive ? 1 : 0)
+                                        }
+                                        Text(mode.rawValue.uppercased())
+                                            .font(.system(size: 10, weight: isActive ? .bold : .semibold))
+                                            .foregroundStyle(isActive ? .yellow : .white.opacity(0.45))
+                                            .tracking(1.2)
                                     }
-                                    Text(mode.rawValue.uppercased())
-                                        .font(.system(size: 10, weight: isActive ? .bold : .semibold))
-                                        .foregroundStyle(isActive ? .yellow : .white.opacity(0.45))
-                                        .tracking(1.2)
+                                    Capsule()
+                                        .fill(isActive ? Color.yellow : Color.clear)
+                                        .frame(height: 2)
                                 }
-                                Capsule()
-                                    .fill(isActive ? Color.yellow : Color.clear)
-                                    .frame(height: 2)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 5)
                             }
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 5)
+                            .buttonStyle(.plain)
                         }
-                        .buttonStyle(.plain)
                     }
+                    .padding(.horizontal, 8)
+                    .frame(minWidth: geo.size.width, alignment: .center)
                 }
-                .padding(.horizontal, 8)
+                .scrollBounceBehavior(.basedOnSize)
             }
+            .frame(height: 38)
             .background(.ultraThinMaterial.opacity(0.5), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
             .padding(.horizontal, 8)
         }
@@ -666,10 +704,21 @@ struct CameraView: View {
                     .foregroundStyle(.orange.opacity(0.9))
                     .tracking(1.5)
             } else {
-                Text("4 SEC BLEND — USE A TRIPOD")
-                    .font(.system(size: 9, weight: .medium))
-                    .foregroundStyle(.orange.opacity(0.85))
-                    .tracking(1.5)
+                VStack(spacing: 6) {
+                    HStack {
+                        Text("BLEND")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(.orange.opacity(0.7))
+                            .tracking(1.5)
+                        Spacer()
+                        Text("\(Int(longExposureDuration))S — USE A TRIPOD")
+                            .font(.system(size: 9, weight: .medium, design: .monospaced))
+                            .foregroundStyle(.orange.opacity(0.85))
+                    }
+                    Slider(value: $longExposureDuration, in: 1...30, step: 1)
+                        .tint(.orange)
+                }
+                .padding(.horizontal, 16)
             }
         case .timelapse:
             HStack(spacing: 8) {

@@ -110,6 +110,7 @@ enum QuickAccessItem: String, CaseIterable, Identifiable {
     case format = "Format"
     case falseColor = "FalseColor"
     case bracketAEB = "Bracket"
+    case afMode = "AFMode"
 
     var id: String { rawValue }
 
@@ -127,6 +128,62 @@ enum QuickAccessItem: String, CaseIterable, Identifiable {
         case .format: return "doc.badge.gearshape"
         case .falseColor: return "camera.filters"
         case .bracketAEB: return "plusminus"
+        case .afMode: return "viewfinder.circle"
         }
+    }
+}
+
+/// Named white-balance presets with fixed Kelvin temperature and tint values.
+enum WBPreset: String, CaseIterable, Identifiable {
+    case auto        = "Auto"
+    case daylight    = "Day"
+    case cloudy      = "Cloud"
+    case shade       = "Shade"
+    case tungsten    = "Bulb"
+    case fluorescent = "Fluor"
+    case flash       = "Flash"
+
+    var id: String { rawValue }
+
+    /// Returns nil for Auto (use device auto-WB), otherwise a fixed Kelvin value.
+    var kelvin: Float? {
+        switch self {
+        case .auto:         return nil
+        case .daylight:     return 5600
+        case .cloudy:       return 6500
+        case .shade:        return 7500
+        case .tungsten:     return 3200
+        case .fluorescent:  return 4000
+        case .flash:        return 5500
+        }
+    }
+
+    var tint: Float {
+        switch self {
+        case .auto:         return 0
+        case .daylight:     return 0
+        case .cloudy:       return 5
+        case .shade:        return 10
+        case .tungsten:     return -8
+        case .fluorescent:  return 20
+        case .flash:        return -3
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .auto:         return "a.circle"
+        case .daylight:     return "sun.max"
+        case .cloudy:       return "cloud.sun"
+        case .shade:        return "house"
+        case .tungsten:     return "lightbulb"
+        case .fluorescent:  return "lightbulb.led"
+        case .flash:        return "bolt"
+        }
+    }
+
+    var kelvinLabel: String {
+        guard let k = kelvin else { return "AUTO" }
+        return "\(Int(k))K"
     }
 }

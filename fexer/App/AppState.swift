@@ -17,7 +17,7 @@ final class AppState {
         if let saved = UserDefaults.standard.array(forKey: "quickAccessItems") as? [String] {
             return saved.compactMap { QuickAccessItem(rawValue: $0) }
         }
-        return [.flash, .timer, .grid, .histogram, .flipCamera]
+        return [.flash, .timer, .grid, .histogram, .flipCamera, .focusPeaking, .afMode]
     }
 
     func saveQuickAccessItems() {

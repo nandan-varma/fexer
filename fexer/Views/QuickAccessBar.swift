@@ -16,21 +16,26 @@ struct QuickAccessBar: View {
     @AppStorage("defaultCaptureFormat") private var defaultFormat        = "JPEG"
 
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 4) {
-                ForEach(appState.quickAccessItems) { item in
-                    itemButton(for: item)
+        GeometryReader { geo in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 4) {
+                    ForEach(appState.quickAccessItems) { item in
+                        itemButton(for: item)
+                    }
                 }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .frame(minWidth: geo.size.width, alignment: .center)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
+            .scrollBounceBehavior(.basedOnSize)
+            .background(.ultraThinMaterial.opacity(0.85))
+            .overlay(alignment: .bottom) {
+                Rectangle()
+                    .fill(.white.opacity(0.06))
+                    .frame(height: 0.5)
+            }
         }
-        .background(.ultraThinMaterial.opacity(0.85))
-        .overlay(alignment: .bottom) {
-            Rectangle()
-                .fill(.white.opacity(0.06))
-                .frame(height: 0.5)
-        }
+        .frame(height: 50)
     }
 
     @ViewBuilder
@@ -94,6 +99,7 @@ struct QuickAccessBar: View {
         case .format:         return defaultFormat != "JPEG"
         case .falseColor:     return showFalseColor
         case .bracketAEB:     return isBracketingEnabled
+        case .afMode:         return cameraManager.captureSettings.focusMode == .continuousAutoFocus
         }
     }
 
@@ -102,6 +108,9 @@ struct QuickAccessBar: View {
         case .flash:   return cameraManager.flashMode == .auto ? "A" : nil
         case .timer:   return selfTimerDelay > 0 ? "\(selfTimerDelay)s" : nil
         case .format:  return defaultFormat != "JPEG" ? defaultFormat : nil
+        case .afMode:
+            if !cameraManager.captureSettings.isAutoFocus { return "M" }
+            return cameraManager.captureSettings.focusMode == .continuousAutoFocus ? "C" : "S"
         default:       return nil
         }
     }
@@ -153,6 +162,12 @@ struct QuickAccessBar: View {
         case .bracketAEB:
             HapticManager.light()
             isBracketingEnabled.toggle()
+        case .afMode:
+            HapticManager.light()
+            let next: AVCaptureDevice.FocusMode = cameraManager.captureSettings.focusMode == .continuousAutoFocus
+                ? .autoFocus
+                : .continuousAutoFocus
+            cameraManager.setFocusMode(next)
         }
     }
 }

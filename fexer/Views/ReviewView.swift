@@ -57,7 +57,7 @@ struct ReviewView: View {
                     }
                 }
                 .padding(.horizontal, 20)
-                .padding(.top, 50)
+                .padding(.top, 12)
 
                 Spacer()
 

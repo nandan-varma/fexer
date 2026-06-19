@@ -325,10 +325,11 @@ import UIKit
                 Logger.camera.error("Cannot set focus point: no camera device available")
                 return
             }
+            let afMode = captureSettings.focusMode
             device.withLock {
                 if device.isFocusPointOfInterestSupported {
                     device.focusPointOfInterest = point
-                    device.focusMode = .autoFocus
+                    device.focusMode = device.isFocusModeSupported(afMode) ? afMode : .autoFocus
                 }
                 if adjustExposure && device.isExposurePointOfInterestSupported {
                     // Spot metering tracks the tap point; matrix/center stay at center
@@ -412,9 +413,24 @@ import UIKit
                 Logger.camera.error("Cannot set auto focus: no camera device available")
                 return
             }
+            let mode = captureSettings.focusMode
             device.withLock {
-                device.focusMode = .continuousAutoFocus
+                let target = device.isFocusModeSupported(mode) ? mode : .continuousAutoFocus
+                device.focusMode = target
             }
+        }
+    }
+
+    /// Switches between AF-C (continuous tracking) and AF-S (single-shot lock).
+    func setFocusMode(_ mode: AVCaptureDevice.FocusMode) {
+        sessionQueue.async { [self] in
+            guard let device = currentDevice else { return }
+            device.withLock {
+                if device.isFocusModeSupported(mode) {
+                    device.focusMode = mode
+                }
+            }
+            Task { @MainActor in self.captureSettings.focusMode = mode }
         }
     }
 

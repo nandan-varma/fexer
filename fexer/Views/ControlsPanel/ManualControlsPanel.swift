@@ -10,9 +10,14 @@ struct ManualControlsPanel: View {
             // ── Drag handle ──────────────────────────────────────────────────────
             handle
 
+            // ── WB Preset chips ──────────────────────────────────────────────────
+            WBPresetRow(cameraManager: cameraManager)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 8)
+
             // ── EV strip ────────────────────────────────────────────────────────
             EVStrip(cameraManager: cameraManager)
-                .padding(.horizontal, 24)
+                .padding(.horizontal, 16)
                 .padding(.bottom, 10)
                 .opacity(cameraManager.captureSettings.isAELocked ? 0.38 : 1.0)
                 .allowsHitTesting(!cameraManager.captureSettings.isAELocked)
@@ -20,14 +25,14 @@ struct ManualControlsPanel: View {
             // ── WB Tint strip (only when WB is in manual mode) ──────────────────
             if !cameraManager.captureSettings.isAutoWhiteBalance {
                 TintStrip(cameraManager: cameraManager)
-                    .padding(.horizontal, 24)
+                    .padding(.horizontal, 16)
                     .padding(.bottom, 10)
                     .transition(.opacity.combined(with: .move(edge: .top)))
             }
 
             Divider()
                 .background(.white.opacity(0.15))
-                .padding(.horizontal, 20)
+                .padding(.horizontal, 16)
 
             // ── Sliders ──────────────────────────────────────────────────────────
             HStack(alignment: .top, spacing: 0) {
@@ -73,7 +78,7 @@ struct ManualControlsPanel: View {
                 }
                 .frame(maxWidth: .infinity)
             }
-            .padding(.horizontal, 12)
+            .padding(.horizontal, 16)
             .padding(.vertical, 20)
         }
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
@@ -145,6 +150,60 @@ struct ManualControlsPanel: View {
             .fill(.white.opacity(0.08))
             .frame(width: 1, height: 120)
             .padding(.top, 38) // align with track area
+    }
+}
+
+// MARK: - WB Preset Row
+
+private struct WBPresetRow: View {
+    @Bindable var cameraManager: CameraManager
+
+    private var activePreset: WBPreset {
+        if cameraManager.captureSettings.isAutoWhiteBalance { return .auto }
+        let k = cameraManager.captureSettings.whiteBalance
+        let t = cameraManager.captureSettings.whiteBalanceTint
+        return WBPreset.allCases.first { preset in
+            guard let pk = preset.kelvin else { return false }
+            return abs(pk - k) < 200 && abs(preset.tint - t) < 15
+        } ?? .daylight
+    }
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                ForEach(WBPreset.allCases) { preset in
+                    let isActive = activePreset == preset
+                    Button {
+                        HapticManager.selectionChanged()
+                        if let kelvin = preset.kelvin {
+                            cameraManager.captureSettings.isAutoWhiteBalance = false
+                            cameraManager.captureSettings.whiteBalance = kelvin
+                            cameraManager.captureSettings.whiteBalanceTint = preset.tint
+                            cameraManager.setWhiteBalance(kelvin: kelvin, tint: preset.tint)
+                        } else {
+                            cameraManager.captureSettings.isAutoWhiteBalance = true
+                            cameraManager.setAutoWhiteBalance()
+                        }
+                    } label: {
+                        VStack(spacing: 3) {
+                            Image(systemName: preset.systemImage)
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(isActive ? .black : .white.opacity(0.75))
+                            Text(preset.kelvinLabel)
+                                .font(.system(size: 8, weight: .semibold, design: .monospaced))
+                                .foregroundStyle(isActive ? .black : .white.opacity(0.5))
+                        }
+                        .frame(width: 44, height: 36)
+                        .background(
+                            isActive ? Color.yellow : Color.white.opacity(0.08),
+                            in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        )
+                        .animation(.easeInOut(duration: 0.15), value: isActive)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
     }
 }
 
