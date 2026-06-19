@@ -14,6 +14,29 @@ struct ReviewView: View {
 
     var body: some View {
         ZStack {
+            if showEdit {
+                EditView(
+                    photo: editedPhoto ?? photo,
+                    onCancel: {
+                        withAnimation(.easeInOut(duration: 0.22)) { showEdit = false }
+                    },
+                    onSave: { updatedPhoto in
+                        editedPhoto = updatedPhoto
+                        withAnimation(.easeInOut(duration: 0.22)) { showEdit = false }
+                    }
+                )
+                .transition(.opacity)
+                .zIndex(1)
+            } else {
+                reviewContent
+                    .transition(.opacity)
+            }
+        }
+        .onAppear { computeReviewHistogram() }
+    }
+
+    private var reviewContent: some View {
+        ZStack {
             Color.black.ignoresSafeArea()
 
             // Photo display
@@ -51,7 +74,7 @@ struct ReviewView: View {
                     Spacer()
 
                     Button {
-                        showEdit = true
+                        withAnimation(.easeInOut(duration: 0.22)) { showEdit = true }
                     } label: {
                         Image(systemName: "slider.horizontal.3")
                             .font(.system(size: 20))
@@ -105,17 +128,10 @@ struct ReviewView: View {
                     if g.translation.height > 80 { onDismiss?() }
                 }
         )
-        .onAppear { computeReviewHistogram() }
         .onTapGesture(count: 2) {
             let target: CGFloat = magnification > 1.5 ? 1.0 : 2.0
             withAnimation(.spring()) { magnification = target }
             lastMagnification = target
-        }
-        .sheet(isPresented: $showEdit) {
-            EditView(photo: editedPhoto ?? photo) { updatedPhoto in
-                editedPhoto = updatedPhoto
-                showEdit = false
-            }
         }
     }
 
