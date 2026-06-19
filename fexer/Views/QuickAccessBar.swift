@@ -17,6 +17,7 @@ struct QuickAccessBar: View {
     @AppStorage("isWBBracketEnabled") private var isWBBracketEnabled = false
     @AppStorage("showWaveform")       private var showWaveform       = false
     @AppStorage("showVectorscope")    private var showVectorscope    = false
+    @AppStorage("isCleanViewActive")  private var isCleanViewActive  = false
 
     var body: some View {
         GeometryReader { geo in
@@ -106,6 +107,7 @@ struct QuickAccessBar: View {
         case .wbBracket:      return isWBBracketEnabled
         case .waveform:       return showWaveform
         case .vectorscope:    return showVectorscope
+        case .cleanView:      return isCleanViewActive
         }
     }
 
@@ -184,6 +186,9 @@ struct QuickAccessBar: View {
         case .vectorscope:
             HapticManager.light()
             showVectorscope.toggle()
+        case .cleanView:
+            HapticManager.light()
+            isCleanViewActive.toggle()
         }
     }
 }

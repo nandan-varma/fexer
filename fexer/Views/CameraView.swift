@@ -47,10 +47,17 @@ struct CameraView: View {
     @AppStorage("isWBBracketEnabled") private var isWBBracketEnabled   = false
     @AppStorage("wbBracketKStep")   private var wbBracketKStep: Double = 500.0
     @AppStorage("selfTimerRepeat")  private var selfTimerRepeat: Int   = 1
-    @AppStorage("showWaveform")     private var showWaveform           = false
-    @AppStorage("showVectorscope")  private var showVectorscope        = false
+    @AppStorage("showWaveform")       private var showWaveform         = false
+    @AppStorage("showVectorscope")    private var showVectorscope      = false
+    @AppStorage("isCleanViewActive")  private var isCleanViewActive    = false
+    @AppStorage("hintSwipeUpSeen")    private var hintSwipeUpSeen      = false
+    @AppStorage("hintBrightnessSeen") private var hintBrightnessSeen   = false
 
     @State private var volumeObservation: NSKeyValueObservation?
+    @State private var showSwipeUpHint = false
+    @State private var showBrightnessHint = false
+    @State private var aelToastText: String? = nil
+    @State private var aelToastTask: Task<Void, Never>?
 
     private var cropRatio: CropRatio { CropRatio(rawValue: cropRatioRaw) ?? .full }
 
@@ -62,315 +69,399 @@ struct CameraView: View {
     }
 
     var body: some View {
-        ZStack {
-            // Invisible MPVolumeView keeps the system volume HUD from appearing
-            // when volume buttons are used as shutter/zoom controls.
-            VolumeHUDSuppressor()
-                .frame(width: 0, height: 0)
-                .allowsHitTesting(false)
+        mainContent
+    }
 
-            // ── Viewfinder ──────────────────────────────────────────────────────
-            ViewfinderView(cameraViewModel: cameraViewModel, cropRatio: cropRatio)
-                .ignoresSafeArea()
-
-            // ── Crop letterbox bars (solid black — hide sensor content outside crop) ──
-            if let barH = letterboxBarHeight {
-                VStack(spacing: 0) {
-                    Color.black.frame(height: barH)
-                    Spacer()
-                    Color.black.frame(height: barH)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .ignoresSafeArea()
-                .allowsHitTesting(false)
-            }
-
-            // ── Timer countdown ──────────────────────────────────────────────────
-            if cameraViewModel.isTimerActive && cameraViewModel.timerCountdown > 0 {
-                let barH = letterboxBarHeight ?? 0
-                Text("\(cameraViewModel.timerCountdown)")
-                    .font(.system(size: 100, weight: .thin, design: .monospaced))
-                    .foregroundStyle(.white.opacity(0.9))
-                    .shadow(color: .black.opacity(0.7), radius: 12)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-                    .padding(.top, barH)
-                    .padding(.bottom, max(180, barH + 180))
-                    .allowsHitTesting(false)
-                    .transition(.scale.combined(with: .opacity))
-            }
-
-            // ── Grid overlay — constrained to the actual preview area ─────────────
-            if showGrid {
-                GeometryReader { geo in
-                    let barH = letterboxBarHeight ?? 0
-                    GridOverlayView(gridType: GridType(rawValue: gridType) ?? .thirds)
-                        .frame(width: geo.size.width, height: max(0, geo.size.height - 2 * barH))
-                        .offset(y: barH)
-                }
-                .ignoresSafeArea()
-                .allowsHitTesting(false)
-            }
-
-            // ── Quick-access bar — top of viewfinder ────────────────────────────
-            VStack {
-                QuickAccessBar(cameraManager: cameraManager)
+    private var mainContent: some View {
+        let z = ZStack {
+            AnyView(baseLayer)
+            AnyView(hudOverlayLayer)
+            AnyView(controlLayer)
+            AnyView(modalOverlayLayer)
+        }
+        let a = z
+            .statusBarHidden()
+            .persistentSystemOverlays(.hidden)
+            .preferredColorScheme(.dark)
+            .gesture(swipeUpGesture)
+        let b = a
+            .sheet(isPresented: $showSettings) {
+                SettingsView(cameraManager: cameraManager, stylesManager: stylesManager)
                     .environment(appState)
+            }
+        let c = b
+            .onAppear { onCameraViewAppear() }
+            .onDisappear { onCameraViewDisappear() }
+            .onChange(of: stylesManager.activeStyle)    { syncProcessor() }
+            .onChange(of: stylesManager.styleIntensity) { syncProcessor() }
+            .onChange(of: showFocusPeaking)             { syncProcessor() }
+            .onChange(of: showZebra)                    { syncProcessor() }
+            .onChange(of: showFalseColor)               { syncProcessor() }
+        let d = c
+            .onChange(of: focusPeakingColor)            { syncProcessor() }
+            .onChange(of: isCleanViewActive)            { syncProcessor() }
+            .onChange(of: cameraViewModel.isPanelExpanded) { _, expanded in
+                if expanded && !hintSwipeUpSeen {
+                    withAnimation { hintSwipeUpSeen = true }
+                }
+            }
+            .onChange(of: cameraViewModel.accumulatedExposureBias) { _, _ in
+                if !hintBrightnessSeen {
+                    hintBrightnessSeen = true
+                    withAnimation { showBrightnessHint = false }
+                }
+            }
+            .onChange(of: cameraViewModel.showFocusIndicator) { _, showing in
+                if showing && !hintBrightnessSeen && !showBrightnessHint {
+                    withAnimation(.easeIn(duration: 0.3)) { showBrightnessHint = true }
+                    Task {
+                        try? await Task.sleep(nanoseconds: 5_000_000_000)
+                        withAnimation(.easeOut(duration: 0.4)) { showBrightnessHint = false }
+                    }
+                }
+            }
+        let e = d
+            .onChange(of: cameraViewModel.isAELocked) { _, locked in
+                aelToastTask?.cancel()
+                withAnimation(.easeIn(duration: 0.15)) {
+                    aelToastText = locked ? "EXPOSURE LOCKED" : "EXPOSURE UNLOCKED"
+                }
+                aelToastTask = Task {
+                    try? await Task.sleep(nanoseconds: 1_500_000_000)
+                    withAnimation(.easeOut(duration: 0.3)) { aelToastText = nil }
+                }
+            }
+            .onChange(of: timelapseInterval)            { cameraViewModel.timelapseInterval = timelapseInterval }
+            .onChange(of: cameraManager.isRecording) { _, recording in
+                if recording { recordingBlink.toggle() }
+            }
+            .onChange(of: defaultCaptureFormat) { _, v in
+                cameraManager.captureSettings.captureFormat = CaptureFormat(rawValue: v) ?? .jpeg
+            }
+            .onChange(of: isProRAWEnabled) { _, v in
+                cameraManager.setProRAWEnabled(v)
+            }
+            .onChange(of: volumeButtonBehavior) { _, _ in
+                volumeObservation?.invalidate()
+                volumeObservation = nil
+                setupVolumeButtonObserver()
+            }
+        let f = e
+            .onChange(of: videoFrameRate) { _, fps in
+                cameraManager.configureVideoFrameRate(fps)
+            }
+        return f
+    }
+
+    // MARK: - Body sub-layers (type-checker optimization)
+
+    @ViewBuilder
+    private var baseLayer: some View {
+        // Invisible MPVolumeView keeps the system volume HUD from appearing
+        // when volume buttons are used as shutter/zoom controls.
+        VolumeHUDSuppressor()
+            .frame(width: 0, height: 0)
+            .allowsHitTesting(false)
+
+        // ── Viewfinder ──────────────────────────────────────────────────────
+        ViewfinderView(cameraViewModel: cameraViewModel, cropRatio: cropRatio)
+            .ignoresSafeArea()
+
+        // ── Crop letterbox bars (solid black — hide sensor content outside crop) ──
+        if let barH = letterboxBarHeight {
+            VStack(spacing: 0) {
+                Color.black.frame(height: barH)
                 Spacer()
+                Color.black.frame(height: barH)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .ignoresSafeArea()
+            .allowsHitTesting(false)
+        }
+    }
+
+    @ViewBuilder
+    private var hudOverlayLayer: some View {
+        // ── Timer countdown ──────────────────────────────────────────────────
+        if cameraViewModel.isTimerActive && cameraViewModel.timerCountdown > 0 {
+            let barH = letterboxBarHeight ?? 0
+            Text("\(cameraViewModel.timerCountdown)")
+                .font(.system(size: 100, weight: .thin, design: .monospaced))
+                .foregroundStyle(.white.opacity(0.9))
+                .shadow(color: .black.opacity(0.7), radius: 12)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                .padding(.top, barH)
+                .padding(.bottom, max(180, barH + 180))
+                .allowsHitTesting(false)
+                .transition(.scale.combined(with: .opacity))
+        }
+
+        // ── Grid overlay — constrained to the actual preview area ─────────────
+        if showGrid {
+            GeometryReader { geo in
+                let barH = letterboxBarHeight ?? 0
+                GridOverlayView(gridType: GridType(rawValue: gridType) ?? .thirds)
+                    .frame(width: geo.size.width, height: max(0, geo.size.height - 2 * barH))
+                    .offset(y: barH)
+            }
+            .ignoresSafeArea()
+            .allowsHitTesting(false)
+        }
+
+        // ── Quick-access bar — top of viewfinder ────────────────────────────
+        VStack {
+            QuickAccessBar(cameraManager: cameraManager)
+                .environment(appState)
+            Spacer()
+        }
+
+        // ── Recording indicator — blinking red dot + elapsed time ────────────
+        if cameraManager.isRecording {
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(Color.red)
+                    .frame(width: 8, height: 8)
+                    .opacity(recordingBlink ? 1 : 0.2)
+                    .animation(.easeInOut(duration: 0.6).repeatForever(), value: recordingBlink)
+                Text(formatRecordingTime(cameraManager.recordingDuration))
+                    .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(.white)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(.black.opacity(0.55), in: Capsule())
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .padding(.top, CameraView.quickBarHeight + 8)
+            .allowsHitTesting(false)
+            .transition(.opacity)
+        }
+
+        // ── Metering mode button + tooltip ───────────────────────────────────
+        VStack(alignment: .trailing, spacing: 4) {
+            Button {
+                let next = cameraManager.captureSettings.meteringMode.next
+                cameraManager.setMeteringMode(next)
+                HapticManager.light()
+                showMeteringTooltipBriefly()
+            } label: {
+                Image(systemName: cameraManager.captureSettings.meteringMode.systemImage)
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundStyle(.white)
+                    .frame(width: 32, height: 32)
+                    .background(.black.opacity(0.45), in: Circle())
             }
 
-            // ── Recording indicator — blinking red dot + elapsed time ────────────
-            if cameraManager.isRecording {
-                HStack(spacing: 6) {
-                    Circle()
-                        .fill(Color.red)
-                        .frame(width: 8, height: 8)
-                        .opacity(recordingBlink ? 1 : 0.2)
-                        .animation(.easeInOut(duration: 0.6).repeatForever(), value: recordingBlink)
-                    Text(formatRecordingTime(cameraManager.recordingDuration))
-                        .font(.system(size: 13, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(.white)
-                }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .background(.black.opacity(0.55), in: Capsule())
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            if showMeteringTooltip {
+                Text(cameraManager.captureSettings.meteringMode.rawValue)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 8).padding(.vertical, 4)
+                    .background(.black.opacity(0.6), in: Capsule())
+                    .transition(.opacity)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+        .padding(.top, CameraView.quickBarHeight + 10)
+        .padding(.trailing, 12)
+
+        // ── Macro proximity indicator ─────────────────────────────────────────
+        if cameraManager.isMacroSupported && cameraManager.currentZoomFactor < 0.8 {
+            Text("MACRO")
+                .font(.system(size: 9, weight: .bold))
+                .foregroundStyle(.black)
+                .padding(.horizontal, 7).padding(.vertical, 3)
+                .background(Color.yellow, in: Capsule())
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                .padding(.top, CameraView.quickBarHeight + 10)
+                .padding(.trailing, 52)
+                .allowsHitTesting(false)
+        }
+
+        // ── Histogram — stays inside preview area ────────────────────────────
+        if showHistogram && !isCleanViewActive && !cameraViewModel.histogram.red.isEmpty {
+            HistogramView(data: cameraViewModel.histogram)
                 .padding(.top, CameraView.quickBarHeight + 8)
+                .padding(.leading, 16)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }
+
+        // ── Waveform monitor ──────────────────────────────────────────────────
+        if showWaveform && !isCleanViewActive && !cameraViewModel.histogram.luma.isEmpty {
+            WaveformView(data: cameraViewModel.histogram)
+                .padding(.top, CameraView.quickBarHeight + 8)
+                .padding(.leading, showHistogram ? 152 : 16)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .allowsHitTesting(false)
+        }
+
+        // ── Vectorscope ───────────────────────────────────────────────────────
+        if showVectorscope && !isCleanViewActive {
+            VectorscopeView()
+                .padding(.top, CameraView.quickBarHeight + 8)
+                .padding(.trailing, 16)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                .allowsHitTesting(false)
+        }
+
+        // ── Scene classifier suggestion badge ────────────────────────────────
+        if let suggested = stylesManager.suggestedStyle, stylesManager.activeStyle == nil {
+            HStack(spacing: 6) {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.yellow)
+                Text(suggested.name)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.white)
+                Button {
+                    stylesManager.activeStyle = suggested
+                    HapticManager.light()
+                } label: {
+                    Text("Apply")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(.black)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(.yellow, in: Capsule())
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(.black.opacity(0.6), in: Capsule())
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .padding(.top, CameraView.quickBarHeight + 76)
+            .padding(.leading, 16)
+            .transition(.opacity.combined(with: .scale(scale: 0.95)))
+            .allowsHitTesting(true)
+        }
+
+        // ── Level indicator — stays inside preview area ──────────────────────
+        if showLevelIndicator && !isCleanViewActive {
+            LevelIndicatorView()
+                .frame(maxHeight: .infinity, alignment: .bottom)
+                .padding(.bottom, max(160, (letterboxBarHeight ?? 0) + 12))
+                .allowsHitTesting(false)
+        }
+
+        // ── AEL toast notification ───────────────────────────────────────────
+        if let msg = aelToastText {
+            Text(msg)
+                .font(.system(size: 11, weight: .semibold))
+                .tracking(1.5)
+                .foregroundStyle(cameraViewModel.isAELocked ? .yellow : .white)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 7)
+                .background(.black.opacity(0.65), in: Capsule())
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .padding(.top, CameraView.quickBarHeight + 52)
+                .allowsHitTesting(false)
+                .transition(.opacity.combined(with: .scale(scale: 0.92)))
+        }
+
+        // ── Live EV indicator (brightness swipe) ─────────────────────────────
+        if cameraViewModel.isBrightnessAdjusting {
+            BrightnessEVIndicator(ev: cameraViewModel.accumulatedExposureBias)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
+                .padding(.trailing, 16)
                 .allowsHitTesting(false)
                 .transition(.opacity)
-            }
+        }
 
-            // ── Metering mode button + tooltip ───────────────────────────────────
-            VStack(alignment: .trailing, spacing: 4) {
-                Button {
-                    let next = cameraManager.captureSettings.meteringMode.next
-                    cameraManager.setMeteringMode(next)
-                    HapticManager.light()
-                    showMeteringTooltipBriefly()
-                } label: {
-                    Image(systemName: cameraManager.captureSettings.meteringMode.systemImage)
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundStyle(.white)
-                        .frame(width: 32, height: 32)
-                        .background(.black.opacity(0.45), in: Circle())
-                }
-
-                if showMeteringTooltip {
-                    Text(cameraManager.captureSettings.meteringMode.rawValue)
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 8).padding(.vertical, 4)
-                        .background(.black.opacity(0.6), in: Capsule())
-                        .transition(.opacity)
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-            .padding(.top, CameraView.quickBarHeight + 10)
-            .padding(.trailing, 12)
-
-            // ── Macro proximity indicator ─────────────────────────────────────────
-            if cameraManager.isMacroSupported && cameraManager.currentZoomFactor < 0.8 {
-                Text("MACRO")
-                    .font(.system(size: 9, weight: .bold))
-                    .foregroundStyle(.black)
-                    .padding(.horizontal, 7).padding(.vertical, 3)
-                    .background(Color.yellow, in: Capsule())
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-                    .padding(.top, CameraView.quickBarHeight + 10)
-                    .padding(.trailing, 52)
-                    .allowsHitTesting(false)
-            }
-
-            // ── Histogram — stays inside preview area ────────────────────────────
-            if showHistogram && !cameraViewModel.histogram.red.isEmpty {
-                HistogramView(data: cameraViewModel.histogram)
-                    .padding(.top, CameraView.quickBarHeight + 8)
-                    .padding(.leading, 16)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            }
-
-            // ── Waveform monitor ──────────────────────────────────────────────────
-            if showWaveform && !cameraViewModel.histogram.luma.isEmpty {
-                WaveformView(data: cameraViewModel.histogram)
-                    .padding(.top, CameraView.quickBarHeight + 8)
-                    .padding(.leading, showHistogram ? 152 : 16)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                    .allowsHitTesting(false)
-            }
-
-            // ── Vectorscope ───────────────────────────────────────────────────────
-            if showVectorscope {
-                VectorscopeView()
-                    .padding(.top, CameraView.quickBarHeight + 8)
-                    .padding(.trailing, 16)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-                    .allowsHitTesting(false)
-            }
-
-            // ── Scene classifier suggestion badge ────────────────────────────────
-            if let suggested = stylesManager.suggestedStyle, stylesManager.activeStyle == nil {
-                HStack(spacing: 6) {
-                    Image(systemName: "sparkles")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(.yellow)
-                    Text(suggested.name)
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(.white)
-                    Button {
-                        stylesManager.activeStyle = suggested
-                        HapticManager.light()
-                    } label: {
-                        Text("Apply")
-                            .font(.system(size: 10, weight: .bold))
-                            .foregroundStyle(.black)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(.yellow, in: Capsule())
-                    }
-                    .buttonStyle(.plain)
-                }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(.black.opacity(0.6), in: Capsule())
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .padding(.top, CameraView.quickBarHeight + 76)
-                .padding(.leading, 16)
-                .transition(.opacity.combined(with: .scale(scale: 0.95)))
-                .allowsHitTesting(true)
-            }
-
-            // ── Level indicator — stays inside preview area ──────────────────────
-            if showLevelIndicator {
-                LevelIndicatorView()
-                    .frame(maxHeight: .infinity, alignment: .bottom)
-                    .padding(.bottom, max(160, (letterboxBarHeight ?? 0) + 12))
-                    .allowsHitTesting(false)
-            }
-
-            // ── Bottom controls ──────────────────────────────────────────────────
-            VStack(spacing: 0) {
-                Spacer()
-
-                // Gradient backdrop starts above the lens/shutter row for legibility
-                VStack(spacing: 0) {
-                    if showStylePicker {
-                        StylePickerView(stylesViewModel: stylesViewModel, isExpanded: true,
-                                       onAdjust: { syncProcessor() })
-                            .padding(.bottom, 6)
-                    }
-
-                    if showShootingModes {
-                        shootingModePicker
-                            .padding(.bottom, 8)
-                    }
-
-                    lensSwitcherRow
-                        .padding(.bottom, 16)
-
-                    shutterRow
-                        .padding(.horizontal, 28)
-                        .padding(.bottom, max(34, 0))
-                }
-                .background(
-                    LinearGradient(
-                        colors: [.clear, .black.opacity(0.55)],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                    .ignoresSafeArea(edges: .bottom)
-                )
-            }
-
-            // ── Manual controls panel ────────────────────────────────────────────
-            // Always rendered (not `if`) so Canvas/Metal pipeline compilation
-            // happens at launch, not on first swipe-up gesture.
-            VStack {
-                Spacer()
-                ManualControlsPanel(
-                    cameraManager: cameraManager,
-                    onSettings: { showSettings = true }
-                ) {
-                    cameraViewModel.handleSwipeDown()
-                }
-                .frame(height: cameraManager.captureSettings.isAutoWhiteBalance ? 382 : 428)
-                .offset(y: cameraViewModel.isPanelExpanded ? 0 : 480)
-                .opacity(cameraViewModel.isPanelExpanded ? 1 : 0)
-                .allowsHitTesting(cameraViewModel.isPanelExpanded)
-                .padding(.bottom, 8)
-            }
-            .ignoresSafeArea(edges: .bottom)
-
-            // ── Review ───────────────────────────────────────────────────────────
-            if showReview, let photo = capturedPhoto {
-                ReviewView(photo: photo) {
-                    withAnimation(.easeInOut(duration: 0.3)) { showReview = false }
-                }
-                .transition(.move(edge: .trailing).combined(with: .opacity))
-                .zIndex(10)
-            }
-
-            // ── Before / After style preview (long-press on style thumbnail) ────
-            if let style = stylesViewModel.beforeAfterStyle {
-                StyleBeforeAfterView(style: style) {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        stylesViewModel.beforeAfterStyle = nil
-                    }
-                }
+        // ── Brightness zone hint (right-side drag) ───────────────────────────
+        if showBrightnessHint {
+            BrightnessHintView()
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .centerLastTextBaseline)
+                .padding(.trailing, 28)
+                .allowsHitTesting(false)
                 .transition(.opacity)
-                .zIndex(11)
+        }
+
+        // ── Swipe-up hint ────────────────────────────────────────────────────
+        if showSwipeUpHint && !hintSwipeUpSeen && !cameraViewModel.isPanelExpanded {
+            SwipeUpHintView()
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                .padding(.bottom, 180)
+                .allowsHitTesting(false)
+                .transition(.opacity)
+        }
+    }
+
+    @ViewBuilder
+    private var controlLayer: some View {
+        // ── Bottom controls ──────────────────────────────────────────────────
+        VStack(spacing: 0) {
+            Spacer()
+
+            // Gradient backdrop starts above the lens/shutter row for legibility
+            VStack(spacing: 0) {
+                if showStylePicker {
+                    StylePickerView(stylesViewModel: stylesViewModel, isExpanded: true,
+                                   onAdjust: { syncProcessor() })
+                        .padding(.bottom, 6)
+                }
+
+                if showShootingModes {
+                    shootingModePicker
+                        .padding(.bottom, 8)
+                }
+
+                lensSwitcherRow
+                    .padding(.bottom, 16)
+
+                shutterRow
+                    .padding(.horizontal, 28)
+                    .padding(.bottom, max(34, 0))
             }
+            .background(
+                LinearGradient(
+                    colors: [.clear, .black.opacity(0.55)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .ignoresSafeArea(edges: .bottom)
+            )
         }
-        .statusBarHidden()
-        .persistentSystemOverlays(.hidden)
-        .preferredColorScheme(.dark)
-        .gesture(swipeUpGesture)
-        .sheet(isPresented: $showSettings) {
-            SettingsView(cameraManager: cameraManager, stylesManager: stylesManager)
-                .environment(appState)
+
+        // ── Manual controls panel ────────────────────────────────────────────
+        // Always rendered (not `if`) so Canvas/Metal pipeline compilation
+        // happens at launch, not on first swipe-up gesture.
+        VStack {
+            Spacer()
+            ManualControlsPanel(
+                cameraManager: cameraManager,
+                onSettings: { showSettings = true }
+            ) {
+                cameraViewModel.handleSwipeDown()
+            }
+            .frame(height: cameraManager.captureSettings.isAutoWhiteBalance ? 382 : 428)
+            .offset(y: cameraViewModel.isPanelExpanded ? 0 : 480)
+            .opacity(cameraViewModel.isPanelExpanded ? 1 : 0)
+            .allowsHitTesting(cameraViewModel.isPanelExpanded)
+            .padding(.bottom, 8)
         }
-        .onAppear {
-            HapticManager.warmUp()
-            cameraManager.startSession()
-            syncProcessor()
-            cameraManager.processor.onPixelBuffer = stylesViewModel.onFrameAvailable
-            UIApplication.shared.isIdleTimerDisabled = true
-            Task { await appState.permissionsManager.requestPhotoLibraryAccess() }
-            Task { await appState.permissionsManager.requestMicrophoneAccess() }
-            appState.permissionsManager.requestLocationAccess()
-            cameraViewModel.timelapseInterval = timelapseInterval
-            // Wire persisted capture settings
-            cameraManager.captureSettings.captureFormat = CaptureFormat(rawValue: defaultCaptureFormat) ?? .jpeg
-            cameraManager.setProRAWEnabled(isProRAWEnabled)
-            setupVolumeButtonObserver()
+        .ignoresSafeArea(edges: .bottom)
+    }
+
+    @ViewBuilder
+    private var modalOverlayLayer: some View {
+        // ── Review ───────────────────────────────────────────────────────────
+        if showReview, let photo = capturedPhoto {
+            ReviewView(photo: photo) {
+                withAnimation(.easeInOut(duration: 0.3)) { showReview = false }
+            }
+            .transition(.move(edge: .trailing).combined(with: .opacity))
+            .zIndex(10)
         }
-        .onDisappear {
-            volumeObservation?.invalidate()
-            volumeObservation = nil
-            cameraManager.stopSession()
-            UIApplication.shared.isIdleTimerDisabled = false
-        }
-        .onChange(of: stylesManager.activeStyle)    { syncProcessor() }
-        .onChange(of: stylesManager.styleIntensity) { syncProcessor() }
-        .onChange(of: showFocusPeaking)             { syncProcessor() }
-        .onChange(of: showZebra)                    { syncProcessor() }
-        .onChange(of: showFalseColor)               { syncProcessor() }
-        .onChange(of: focusPeakingColor)            { syncProcessor() }
-        .onChange(of: timelapseInterval)            { cameraViewModel.timelapseInterval = timelapseInterval }
-        .onChange(of: cameraManager.isRecording) { _, recording in
-            if recording { recordingBlink.toggle() }
-        }
-        .onChange(of: defaultCaptureFormat) { _, v in
-            cameraManager.captureSettings.captureFormat = CaptureFormat(rawValue: v) ?? .jpeg
-        }
-        .onChange(of: isProRAWEnabled) { _, v in
-            cameraManager.setProRAWEnabled(v)
-        }
-        .onChange(of: volumeButtonBehavior) { _, _ in
-            volumeObservation?.invalidate()
-            volumeObservation = nil
-            setupVolumeButtonObserver()
-        }
-        .onChange(of: videoFrameRate) { _, fps in
-            cameraManager.configureVideoFrameRate(fps)
+
+        // ── Before / After style preview (long-press on style thumbnail) ────
+        if let style = stylesViewModel.beforeAfterStyle {
+            StyleBeforeAfterView(style: style) {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    stylesViewModel.beforeAfterStyle = nil
+                }
+            }
+            .transition(.opacity)
+            .zIndex(11)
         }
     }
 
@@ -891,11 +982,42 @@ struct CameraView: View {
 
     private func syncProcessor() {
         cameraViewModel.syncOverlaysToProcessor(
-            focusPeaking: showFocusPeaking,
-            zebra: showZebra,
-            falseColor: showFalseColor,
+            focusPeaking: showFocusPeaking && !isCleanViewActive,
+            zebra: showZebra && !isCleanViewActive,
+            falseColor: showFalseColor && !isCleanViewActive,
             peakingColorName: focusPeakingColor
         )
+    }
+
+    private func onCameraViewDisappear() {
+        volumeObservation?.invalidate()
+        volumeObservation = nil
+        cameraManager.stopSession()
+        UIApplication.shared.isIdleTimerDisabled = false
+    }
+
+    private func onCameraViewAppear() {
+        HapticManager.warmUp()
+        cameraManager.startSession()
+        syncProcessor()
+        cameraManager.processor.onPixelBuffer = stylesViewModel.onFrameAvailable
+        UIApplication.shared.isIdleTimerDisabled = true
+        Task { await appState.permissionsManager.requestPhotoLibraryAccess() }
+        Task { await appState.permissionsManager.requestMicrophoneAccess() }
+        appState.permissionsManager.requestLocationAccess()
+        cameraViewModel.timelapseInterval = timelapseInterval
+        cameraManager.captureSettings.captureFormat = CaptureFormat(rawValue: defaultCaptureFormat) ?? .jpeg
+        cameraManager.setProRAWEnabled(isProRAWEnabled)
+        setupVolumeButtonObserver()
+        if !hintSwipeUpSeen { scheduleSwipeUpHint() }
+    }
+
+    private func scheduleSwipeUpHint() {
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 4_000_000_000)
+            guard !hintSwipeUpSeen else { return }
+            withAnimation(.easeIn(duration: 0.4)) { showSwipeUpHint = true }
+        }
     }
 
     private func formatRecordingTime(_ seconds: TimeInterval) -> String {

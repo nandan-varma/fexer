@@ -52,7 +52,9 @@ final class CameraViewModel {
     var histogram = HistogramData()
 
     // Exposure compensation (driven by right-side swipe)
-    private var accumulatedExposureBias: Float = 0
+    var accumulatedExposureBias: Float = 0
+    var isBrightnessAdjusting = false
+    private var brightnessHideTask: Task<Void, Never>?
 
     // Previous crop ratio to restore when leaving anamorphic mode
     private var preModeRaw: String = CropRatio.full.rawValue
@@ -147,10 +149,11 @@ final class CameraViewModel {
     func toggleAELock() {
         if isAELocked {
             cameraManager.unlockAutoExposure()
+            HapticManager.light()
         } else {
             cameraManager.lockAutoExposure()
+            HapticManager.focusLocked()
         }
-        HapticManager.medium()
     }
 
     // MARK: - Self-timer
@@ -197,6 +200,12 @@ final class CameraViewModel {
     func handleBrightnessSwipe(delta: CGFloat) {
         accumulatedExposureBias = (accumulatedExposureBias + Float(delta)).fxClamped(to: -3...3)
         cameraManager.setExposureCompensation(accumulatedExposureBias)
+        isBrightnessAdjusting = true
+        brightnessHideTask?.cancel()
+        brightnessHideTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            self.isBrightnessAdjusting = false
+        }
     }
 
     // MARK: - Overlay Sync

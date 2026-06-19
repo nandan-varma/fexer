@@ -118,6 +118,7 @@ enum QuickAccessItem: String, CaseIterable, Identifiable {
     case wbBracket   = "WBBracket"
     case waveform    = "Waveform"
     case vectorscope = "Vectorscope"
+    case cleanView   = "Clean View"
 
     var id: String { rawValue }
 
@@ -139,6 +140,7 @@ enum QuickAccessItem: String, CaseIterable, Identifiable {
         case .wbBracket:   return "thermometer.sun"
         case .waveform:    return "waveform"
         case .vectorscope: return "circle.grid.cross"
+        case .cleanView:   return "eye.slash"
         }
     }
 }
