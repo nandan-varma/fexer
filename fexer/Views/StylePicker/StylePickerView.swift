@@ -49,7 +49,7 @@ struct StylePickerView: View {
                                 HapticManager.selectionChanged()
                             },
                             onLongPress: {
-                                // TODO: full-screen before/after preview
+                                stylesViewModel.beforeAfterStyle = style
                             }
                         )
                         .onAppear { stylesViewModel.requestThumbnail(for: style) }

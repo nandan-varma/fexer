@@ -11,6 +11,9 @@ struct CameraView: View {
     @State private var capturedPhoto: CapturedPhoto?
     @State private var showSettings = false
     @State private var activeDelegates: [UUID: CapturePhotoDelegate] = [:]
+    @State private var showMeteringTooltip = false
+    @State private var meteringTooltipTask: Task<Void, Never>?
+    @State private var recordingBlink = true
 
     @Environment(AppState.self) var appState
 
@@ -83,10 +86,66 @@ struct CameraView: View {
                 .allowsHitTesting(false)
             }
 
+            // ── Quick-access bar — top of viewfinder ────────────────────────────
+            VStack {
+                QuickAccessBar(cameraManager: cameraManager)
+                    .environment(appState)
+                Spacer()
+            }
+
+            // ── Recording indicator — blinking red dot + elapsed time ────────────
+            if cameraManager.isRecording {
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(Color.red)
+                        .frame(width: 8, height: 8)
+                        .opacity(recordingBlink ? 1 : 0.2)
+                        .animation(.easeInOut(duration: 0.6).repeatForever(), value: recordingBlink)
+                    Text(formatRecordingTime(cameraManager.recordingDuration))
+                        .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(.white)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(.black.opacity(0.55), in: Capsule())
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .padding(.top, CameraView.quickBarHeight + 8)
+                .allowsHitTesting(false)
+                .transition(.opacity)
+            }
+
+            // ── Metering mode button + tooltip ───────────────────────────────────
+            VStack(alignment: .trailing, spacing: 4) {
+                Button {
+                    let next = cameraManager.captureSettings.meteringMode.next
+                    cameraManager.setMeteringMode(next)
+                    HapticManager.light()
+                    showMeteringTooltipBriefly()
+                } label: {
+                    Image(systemName: cameraManager.captureSettings.meteringMode.systemImage)
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundStyle(.white)
+                        .frame(width: 32, height: 32)
+                        .background(.black.opacity(0.45), in: Circle())
+                }
+
+                if showMeteringTooltip {
+                    Text(cameraManager.captureSettings.meteringMode.rawValue)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 8).padding(.vertical, 4)
+                        .background(.black.opacity(0.6), in: Capsule())
+                        .transition(.opacity)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+            .padding(.top, CameraView.quickBarHeight + 10)
+            .padding(.trailing, 12)
+
             // ── Histogram — stays inside preview area ────────────────────────────
             if showHistogram && !cameraViewModel.histogram.red.isEmpty {
                 HistogramView(data: cameraViewModel.histogram)
-                    .padding(.top, max(60, (letterboxBarHeight ?? 0) + 16))
+                    .padding(.top, max(60, (letterboxBarHeight ?? 0) + 16) + CameraView.quickBarHeight)
                     .padding(.leading, 16)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                     .allowsHitTesting(false)
@@ -150,6 +209,17 @@ struct CameraView: View {
                 .transition(.move(edge: .trailing).combined(with: .opacity))
                 .zIndex(10)
             }
+
+            // ── Before / After style preview (long-press on style thumbnail) ────
+            if let style = stylesViewModel.beforeAfterStyle {
+                StyleBeforeAfterView(style: style) {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        stylesViewModel.beforeAfterStyle = nil
+                    }
+                }
+                .transition(.opacity)
+                .zIndex(11)
+            }
         }
         .statusBarHidden()
         .persistentSystemOverlays(.hidden)
@@ -178,6 +248,10 @@ struct CameraView: View {
         .onChange(of: showFocusPeaking)             { syncProcessor() }
         .onChange(of: showZebra)                    { syncProcessor() }
         .onChange(of: showFalseColor)               { syncProcessor() }
+        .onChange(of: cameraManager.isRecording) { recording in
+            // Kick off the blink animation when recording starts
+            if recording { recordingBlink.toggle() }
+        }
     }
 
     // MARK: - Shutter row
@@ -198,16 +272,31 @@ struct CameraView: View {
             Spacer()
             shutterButton
             Spacer()
+            recordButton
+        }
+    }
 
-            Button {
-                cameraManager.flipCamera()
-                HapticManager.medium()
-            } label: {
-                Image(systemName: "arrow.triangle.2.circlepath.camera")
-                    .font(.system(size: 22))
-                    .foregroundStyle(.white)
+    // MARK: - Record button
+
+    private var recordButton: some View {
+        let recording = cameraManager.isRecording
+        return Button {
+            if recording {
+                cameraManager.stopRecording()
+            } else {
+                cameraManager.startRecording()
+            }
+            HapticManager.medium()
+        } label: {
+            ZStack {
+                Circle()
+                    .stroke(.white, lineWidth: 3)
                     .frame(width: 52, height: 52)
-                    .background(.white.opacity(0.15), in: Circle())
+                Circle()
+                    .fill(recording ? Color.red : Color.white.opacity(0.85))
+                    .frame(width: recording ? 22 : 40, height: recording ? 22 : 40)
+                    .clipShape(recording ? AnyShape(RoundedRectangle(cornerRadius: 4)) : AnyShape(Circle()))
+                    .animation(.easeInOut(duration: 0.2), value: recording)
             }
         }
     }
@@ -333,6 +422,10 @@ struct CameraView: View {
             .tracking(2)
     }
 
+    // MARK: - Layout constants
+
+    static let quickBarHeight: CGFloat = 50
+
     // MARK: - Swipe gesture
 
     private var swipeUpGesture: some Gesture {
@@ -363,6 +456,24 @@ struct CameraView: View {
 
     private func syncProcessor() {
         cameraViewModel.syncOverlaysToProcessor(focusPeaking: showFocusPeaking, zebra: showZebra, falseColor: showFalseColor)
+    }
+
+    private func formatRecordingTime(_ seconds: TimeInterval) -> String {
+        let s = Int(seconds)
+        return String(format: "%02d:%02d", s / 60, s % 60)
+    }
+
+    // Show metering mode name for 1.5s then fade out
+    private func showMeteringTooltipBriefly() {
+        meteringTooltipTask?.cancel()
+        withAnimation(.easeIn(duration: 0.15)) { showMeteringTooltip = true }
+        meteringTooltipTask = Task {
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                withAnimation(.easeOut(duration: 0.3)) { showMeteringTooltip = false }
+            }
+        }
     }
 
     private func makeCaptureDelegate() -> CapturePhotoDelegate {

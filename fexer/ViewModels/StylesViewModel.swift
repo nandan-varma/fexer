@@ -6,7 +6,7 @@ final class StylesViewModel {
     let stylesManager: StylesManager
 
     var selectedCategory: StyleCategory = .film
-    var isBeforeAfterActive = false
+    var beforeAfterStyle: PhotoStyle?
     var thumbnails: [UUID: UIImage] = [:]
     var isPickerExpanded = false
 
