@@ -183,7 +183,7 @@ struct CameraView: View {
                 // Gradient backdrop starts above the lens/shutter row for legibility
                 VStack(spacing: 0) {
                     if showStylePicker {
-                        StylePickerView(stylesViewModel: stylesViewModel, isExpanded: false,
+                        StylePickerView(stylesViewModel: stylesViewModel, isExpanded: true,
                                        onAdjust: { syncProcessor() })
                             .padding(.bottom, 6)
                     }

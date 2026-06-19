@@ -1,9 +1,11 @@
 import CoreImage
+import OSLog
 
 final class FalseColorFilter: CIFilter {
     var inputImage: CIImage?
 
-    private static let kernel: CIKernel = {
+    // Optional so a Metal shader compile failure degrades gracefully instead of crashing.
+    private static let kernel: CIKernel? = {
         let source = """
         #include <CoreImage/CoreImage.h>
         using namespace metal;
@@ -30,15 +32,19 @@ final class FalseColorFilter: CIFilter {
                 return float4(1.0, 0.0, 0.0, 1.0);
         }
         """
-        guard let k = CIKernel.compileMetal(source)
-        else { fatalError("CIKernel 'falseColor' failed to compile") }
+        guard let k = CIKernel.compileMetal(source) else {
+            Logger(subsystem: "com.nandanvarma.fexer", category: "camera")
+                .error("CIKernel 'falseColor' failed to compile — false color unavailable")
+            return nil
+        }
         return k
     }()
 
     override var outputImage: CIImage? {
-        guard let input = inputImage else { return nil }
-        return Self.kernel.apply(extent: input.extent,
-                                 roiCallback: { _, rect in rect },
-                                 arguments: [input])
+        // Return the input unmodified when the kernel failed to compile.
+        guard let input = inputImage, let kernel = Self.kernel else { return inputImage }
+        return kernel.apply(extent: input.extent,
+                            roiCallback: { _, rect in rect },
+                            arguments: [input])
     }
 }

@@ -2,6 +2,7 @@ import Vision
 import CoreML
 import AVFoundation
 import Observation
+import OSLog
 
 /// Classifies scenes from camera frames to suggest photographic styles.
 /// Runs inference at ~2fps; debounces suggestions to avoid flickering.
@@ -47,8 +48,12 @@ final class SceneClassifier {
         guard frameCounter % 30 == 0 else { return } // ~2fps at 60fps
 
         let request = VNClassifyImageRequest { [weak self] request, error in
-            guard error == nil,
-                  let results = request.results as? [VNClassificationObservation],
+            if let error {
+                Logger(subsystem: "com.nandanvarma.fexer", category: "camera")
+                    .error("Scene classification failed: \(error.localizedDescription)")
+                return
+            }
+            guard let results = request.results as? [VNClassificationObservation],
                   let top = results.first(where: { $0.confidence > 0.3 })
             else { return }
 
@@ -56,7 +61,12 @@ final class SceneClassifier {
         }
 
         let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, options: [:])
-        try? handler.perform([request])
+        do {
+            try handler.perform([request])
+        } catch {
+            Logger(subsystem: "com.nandanvarma.fexer", category: "camera")
+                .error("VNImageRequestHandler.perform failed: \(error.localizedDescription)")
+        }
     }
 
     private func updateSuggestion(label: String) {

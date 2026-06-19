@@ -4,11 +4,14 @@ import OSLog
 
 extension CIContext {
     private static let sharedInstance: CIContext = {
+        let log = Logger(subsystem: "com.nandanvarma.fexer", category: "camera")
         guard let device = MTLCreateSystemDefaultDevice() else {
-            fatalError("Metal is not available on this device")
+            log.error("Metal unavailable — falling back to software CIContext")
+            return CIContext(options: [.useSoftwareRenderer: true])
         }
         guard let sRGB = CGColorSpace(name: CGColorSpace.sRGB) else {
-            fatalError("sRGB color space unavailable")
+            log.error("sRGB color space unavailable — falling back to software CIContext")
+            return CIContext(mtlDevice: device, options: [.useSoftwareRenderer: false])
         }
         return CIContext(mtlDevice: device, options: [
             .useSoftwareRenderer: false,

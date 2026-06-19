@@ -5,7 +5,8 @@ import MetalKit
 import os
 import QuartzCore
 
-// CVPixelBuffer is a CF reference type with atomic retain/release — safe to cross actor boundaries.
+// CVPixelBuffer is a CF reference type with atomic retain/release on its backing store.
+// Swift 6 Sendable checking can't verify CF types automatically, so we assert it manually.
 extension CVBuffer: @retroactive @unchecked Sendable {}
 
 /// Processes every video frame from AVCaptureVideoDataOutput.
@@ -71,9 +72,6 @@ final class CaptureProcessor: NSObject {
         get { flagsLock.withLock { $0.2 } }
         set { flagsLock.withLock { $0.2 = newValue } }
     }
-
-    // zebraTime is only ever read and written on sessionQueue — no lock needed
-    var zebraTime: Float = 0
 
     // Anamorphic 2× desqueeze (thread-safe: set from MainActor, read from sessionQueue)
     private let anamorphicLock = OSAllocatedUnfairLock(initialState: false)
@@ -217,10 +215,11 @@ extension CaptureProcessor: AVCaptureVideoDataOutputSampleBufferDelegate {
     private static func blendFrames(_ frames: [CIImage]) -> CIImage? {
         guard !frames.isEmpty else { return nil }
         guard frames.count > 1 else { return frames[0] }
+        // Create once per blend pass — not per iteration — to avoid repeated filter allocation.
+        guard let maxFilter = CIFilter(name: "CIMaximumCompositing") else { return frames[0] }
 
         var result = frames[0]
         for frame in frames.dropFirst() {
-            guard let maxFilter = CIFilter(name: "CIMaximumCompositing") else { continue }
             maxFilter.setValue(result, forKey: kCIInputBackgroundImageKey)
             maxFilter.setValue(frame,  forKey: kCIInputImageKey)
             if let out = maxFilter.outputImage { result = out }

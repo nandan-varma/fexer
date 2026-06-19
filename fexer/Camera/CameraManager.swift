@@ -146,7 +146,11 @@ import UIKit
 
         guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back),
               let input = try? AVCaptureDeviceInput(device: device)
-        else { session.commitConfiguration(); return }
+        else {
+            Logger.camera.error("configureSession: failed to access wide-angle camera or create device input")
+            session.commitConfiguration()
+            return
+        }
 
         if session.canAddInput(input) { session.addInput(input) }
         currentDevice = device
@@ -485,11 +489,11 @@ import UIKit
                         device.exposureMode = .continuousAutoExposure
                     }
                 case .spot:
-                    // Spot: meter at the current tap-to-focus point (or center if none set).
-                    let pt = device.focusPointOfInterest
-                    let isValid = pt.x != 0 || pt.y != 0
+                    // Spot: meter at the current tap-to-focus point.
+                    // focusPointOfInterest defaults to (0.5, 0.5) when never explicitly set,
+                    // so just use it directly — (0,0) is a valid top-left coordinate.
                     if device.isExposurePointOfInterestSupported {
-                        device.exposurePointOfInterest = isValid ? pt : CGPoint(x: 0.5, y: 0.5)
+                        device.exposurePointOfInterest = device.focusPointOfInterest
                     }
                     if device.isExposureModeSupported(.autoExpose) {
                         device.exposureMode = .autoExpose
@@ -851,8 +855,12 @@ extension Comparable {
 
 extension AVCaptureDevice {
     func withLock(_ body: () -> Void) {
-        guard (try? lockForConfiguration()) != nil else { return }
-        defer { unlockForConfiguration() }
-        body()
+        do {
+            try lockForConfiguration()
+            defer { unlockForConfiguration() }
+            body()
+        } catch {
+            Logger.camera.error("lockForConfiguration failed: \(error.localizedDescription)")
+        }
     }
 }
