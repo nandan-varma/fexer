@@ -823,8 +823,15 @@ import Photos
             sourcePixelBufferAttributes: pixelAttrs
         )
 
-        // Audio input
-        let audioInput = AVAssetWriterInput(mediaType: .audio, outputSettings: nil)
+        // Audio input — specify AAC settings for MP4 compatibility
+        // AVCaptureAudioDataOutput outputs LPCM; MP4 requires compressed audio (AAC)
+        let audioOutputSettings: [String: Any] = [
+            AVFormatIDKey: kAudioFormatMPEG4AAC,
+            AVNumberOfChannelsKey: 2,
+            AVSampleRateKey: 44100,
+            AVEncoderBitRateKey: 128000
+        ]
+        let audioInput = AVAssetWriterInput(mediaType: .audio, outputSettings: audioOutputSettings)
         audioInput.expectsMediaDataInRealTime = true
 
         guard writer.canAdd(videoInput), writer.canAdd(audioInput) else {
