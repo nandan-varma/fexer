@@ -159,12 +159,27 @@ final class CameraViewModel {
     // MARK: - Overlay Sync
 
     /// Caller passes AppStorage flags in so this class doesn't need to own them.
-    func syncOverlaysToProcessor(focusPeaking: Bool = false, zebra: Bool = false, falseColor: Bool = false) {
+    func syncOverlaysToProcessor(
+        focusPeaking: Bool = false,
+        zebra: Bool = false,
+        falseColor: Bool = false,
+        peakingColorName: String = "red"
+    ) {
         cameraManager.processor.isFocusPeakingEnabled = focusPeaking
         cameraManager.processor.isZebraEnabled = zebra
         cameraManager.processor.isFalseColorEnabled = falseColor
+        cameraManager.processor.peakingColor = Self.ciColor(forPeakingColorName: peakingColorName)
         let filter = stylesManager.activeLUTFilter()
         cameraManager.processor.lutFilter = filter
+    }
+
+    static func ciColor(forPeakingColorName name: String) -> CIColor {
+        switch name {
+        case "green":  return CIColor(red: 0.2, green: 1,   blue: 0.2, alpha: 0.9)
+        case "white":  return CIColor(red: 1,   green: 1,   blue: 1,   alpha: 0.9)
+        case "yellow": return CIColor(red: 1,   green: 0.9, blue: 0,   alpha: 0.9)
+        default:       return CIColor(red: 1,   green: 0.2, blue: 0.2, alpha: 0.9)
+        }
     }
 
     // MARK: - Capture

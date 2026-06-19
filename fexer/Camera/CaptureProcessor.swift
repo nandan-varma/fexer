@@ -45,6 +45,15 @@ final class CaptureProcessor: NSObject {
         zebraTimeLock.withLock { $0 = time }
     }
 
+    private let peakingColorLock = OSAllocatedUnfairLock(
+        initialState: CIColor(red: 1, green: 0.2, blue: 0.2, alpha: 0.9)
+    )
+
+    var peakingColor: CIColor {
+        get { peakingColorLock.withLock { $0 } }
+        set { peakingColorLock.withLock { $0 = newValue } }
+    }
+
     private let flagsLock = OSAllocatedUnfairLock(initialState: (false, false, false))
 
     var isFocusPeakingEnabled: Bool {
@@ -127,6 +136,7 @@ extension CaptureProcessor: AVCaptureVideoDataOutputSampleBufferDelegate {
 
         // Focus peaking (composited on top of false color if both active)
         if isFocusPeakingEnabled {
+            focusPeakingFilter.inputHighlightColor = peakingColor
             focusPeakingFilter.inputImage = image
             if let output = focusPeakingFilter.outputImage {
                 image = output

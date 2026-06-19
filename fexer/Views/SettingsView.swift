@@ -19,6 +19,7 @@ struct SettingsView: View {
     @AppStorage("showGrid")           private var showGrid           = false
     @AppStorage("gridType")           private var gridType           = "Thirds"
     @AppStorage("showFocusPeaking")   private var showFocusPeaking   = false
+    @AppStorage("focusPeakingColor")  private var focusPeakingColor: String = "red"
     @AppStorage("showZebra")          private var showZebra          = false
     @AppStorage("showLevelIndicator") private var showLevelIndicator = false
     @AppStorage("showFalseColor")     private var showFalseColor     = false
@@ -82,6 +83,36 @@ struct SettingsView: View {
                     }
 
                     Toggle("Focus Peaking", isOn: $showFocusPeaking)
+                    if showFocusPeaking {
+                        HStack {
+                            Text("Peaking Color")
+                            Spacer()
+                            ForEach(["red", "green", "white", "yellow"], id: \.self) { name in
+                                let swatchColor: Color = switch name {
+                                case "red":    .red
+                                case "green":  .green
+                                case "white":  .white
+                                case "yellow": .yellow
+                                default:       .white
+                                }
+                                Button {
+                                    focusPeakingColor = name
+                                } label: {
+                                    ZStack {
+                                        Circle()
+                                            .fill(swatchColor)
+                                            .frame(width: 26, height: 26)
+                                        if focusPeakingColor == name {
+                                            Image(systemName: "checkmark")
+                                                .font(.system(size: 11, weight: .bold))
+                                                .foregroundStyle(.black)
+                                        }
+                                    }
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
                     Toggle("Zebra Stripes", isOn: $showZebra)
                     Toggle("False Color", isOn: $showFalseColor)
 
