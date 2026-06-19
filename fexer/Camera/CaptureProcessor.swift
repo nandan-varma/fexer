@@ -83,6 +83,14 @@ final class CaptureProcessor: NSObject {
         set { anamorphicLock.withLock { $0 = newValue } }
     }
 
+    // Gates frame delivery until AVFoundation rotation is configured.
+    // Frames arriving before rotation is set are landscape — drop them to avoid the boot flash.
+    private let rotationReadyLock = OSAllocatedUnfairLock(initialState: false)
+    var isRotationReady: Bool {
+        get { rotationReadyLock.withLock { $0 } }
+        set { rotationReadyLock.withLock { $0 = newValue } }
+    }
+
     // Long exposure frame accumulation — all mutable state below is sessionQueue-only
     // except longExpActiveLock (read/written from caller + sessionQueue)
     private let longExpActiveLock = OSAllocatedUnfairLock(initialState: false)
@@ -127,6 +135,7 @@ extension CaptureProcessor: AVCaptureVideoDataOutputSampleBufferDelegate {
                        didOutput sampleBuffer: CMSampleBuffer,
                        from connection: AVCaptureConnection) {
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+        guard isRotationReady else { return }
 
         frameCount += 1
         let presentationTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)

@@ -54,6 +54,8 @@ struct CameraView: View {
     @AppStorage("hintSwipeUpSeen")    private var hintSwipeUpSeen      = false
     @AppStorage("hintBrightnessSeen") private var hintBrightnessSeen   = false
 
+    @State private var isZoomDialActive = false
+
     @State private var volumeObservation: NSKeyValueObservation?
     @State private var showSwipeUpHint = false
     @State private var showBrightnessHint = false
@@ -744,31 +746,83 @@ struct CameraView: View {
         let isAtStop = abs(live - activeFactor) < 0.05
 
         return AnyView(
-            HStack(spacing: 8) {
-                ForEach(factors, id: \.self) { factor in
-                    let isActive = factor == activeFactor
-                    Button {
-                        cameraManager.setZoom(factor)
-                        HapticManager.selectionChanged()
-                    } label: {
-                        Text(isActive && !isAtStop ? liveZoomLabel(live) : zoomStopLabel(factor))
-                            .font(.system(size: 13, weight: isActive ? .bold : .medium, design: .monospaced))
-                            .foregroundStyle(isActive ? .black : .white)
-                            .frame(height: 30)
-                            .padding(.horizontal, 10)
-                            .background(isActive ? Color.white : Color.white.opacity(0.15),
-                                        in: Capsule())
+            VStack(spacing: 10) {
+                if isZoomDialActive {
+                    ZoomDial(
+                        factors: factors,
+                        currentZoom: live,
+                        onZoom: { cameraManager.setZoom($0) },
+                        onDismiss: {
+                            withAnimation(.spring(response: 0.2, dampingFraction: 0.8)) {
+                                isZoomDialActive = false
+                            }
+                        }
+                    )
+                    .transition(.opacity.combined(with: .scale(scale: 0.85, anchor: .bottom)))
+                }
+
+                HStack(spacing: 8) {
+                    ForEach(factors, id: \.self) { factor in
+                        let isActive = factor == activeFactor
+                        let labelText = isActive && !isAtStop ? liveZoomLabel(live) : zoomStopLabel(factor)
+                        zoomButtonView(factor: factor, isActive: isActive, labelText: labelText)
                     }
                 }
+                .frame(height: 36)
             }
-            .frame(height: 36)
+            .animation(.spring(response: 0.25, dampingFraction: 0.75), value: isZoomDialActive)
         )
     }
 
+    @ViewBuilder
+    private func zoomButtonView(factor: CGFloat, isActive: Bool, labelText: String) -> some View {
+        if isActive {
+            Button {
+                if isZoomDialActive {
+                    withAnimation(.spring(response: 0.2, dampingFraction: 0.8)) { isZoomDialActive = false }
+                } else {
+                    HapticManager.selectionChanged()
+                }
+            } label: {
+                zoomButtonLabel(text: labelText, isActive: true)
+            }
+            .highPriorityGesture(
+                LongPressGesture(minimumDuration: 0.3)
+                    .onEnded { _ in
+                        guard !isZoomDialActive else { return }
+                        withAnimation(.spring(response: 0.25, dampingFraction: 0.75)) {
+                            isZoomDialActive = true
+                        }
+                        HapticManager.selectionChanged()
+                    }
+            )
+        } else {
+            Button {
+                cameraManager.setZoom(factor)
+                HapticManager.selectionChanged()
+                withAnimation(.spring(response: 0.2, dampingFraction: 0.8)) { isZoomDialActive = false }
+            } label: {
+                zoomButtonLabel(text: labelText, isActive: false)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func zoomButtonLabel(text: String, isActive: Bool) -> some View {
+        Text(text)
+            .font(.system(size: 13, weight: isActive ? .bold : .medium, design: .monospaced))
+            .foregroundStyle(isActive ? .black : .white)
+            .frame(height: 30)
+            .padding(.horizontal, 10)
+            .background(isActive ? Color.white : Color.white.opacity(0.15), in: Capsule())
+    }
+
     private func zoomStopLabel(_ factor: CGFloat) -> String {
-        if factor < 1 { return "0.5\u{00D7}" }
-        if factor == 1 { return "1\u{00D7}" }
-        return "\(Int(factor))\u{00D7}"
+        let rounded = (factor * 10).rounded() / 10
+        if rounded == rounded.rounded() {
+            return "\(Int(rounded))\u{00D7}"
+        }
+        return String(format: "%.1f\u{00D7}", rounded)
     }
 
     private func liveZoomLabel(_ factor: CGFloat) -> String {
@@ -1041,6 +1095,14 @@ struct CameraView: View {
         cameraManager.setProRAWEnabled(isProRAWEnabled)
         setupVolumeButtonObserver()
         if !hintSwipeUpSeen { scheduleSwipeUpHint() }
+        applyPendingShootingMode()
+    }
+
+    private func applyPendingShootingMode() {
+        guard let mode = appState.pendingShootingMode,
+              let index = ShootingMode.allCases.firstIndex(of: mode) else { return }
+        appState.pendingShootingMode = nil
+        cameraViewModel.selectMode(index: index, cropRatioRaw: $cropRatioRaw, selfTimerDelay: $selfTimerDelay)
     }
 
     private func scheduleSwipeUpHint() {
@@ -1274,6 +1336,126 @@ struct CameraView: View {
 
 extension Logger {
     nonisolated static let camera = Logger(subsystem: "com.nandanvarma.fexer", category: "camera")
+}
+
+// MARK: - Zoom Dial
+
+private struct ZoomDial: View {
+    let factors: [CGFloat]
+    let currentZoom: CGFloat
+    let onZoom: (CGFloat) -> Void
+    let onDismiss: () -> Void
+
+    private let arcRadius: CGFloat = 100
+    private let arcStartDeg: Double = 215
+    private let arcEndDeg: Double = 325
+
+    private var minZoom: CGFloat { factors.first ?? 0.5 }
+    private var maxZoom: CGFloat { factors.last ?? 10 }
+
+    private func zoomFraction(_ zoom: CGFloat) -> Double {
+        let logMin = log(Double(max(minZoom, 0.01)))
+        let logMax = log(Double(max(maxZoom, 0.01)))
+        let logZ = log(Double(max(zoom, 0.01))).fxClamped(to: logMin...logMax)
+        return (logZ - logMin) / (logMax - logMin)
+    }
+
+    private func zoomFromFraction(_ t: Double) -> CGFloat {
+        let logMin = log(Double(max(minZoom, 0.01)))
+        let logMax = log(Double(max(maxZoom, 0.01)))
+        return CGFloat(exp(logMin + t.fxClamped(to: 0...1) * (logMax - logMin)))
+    }
+
+    private func zoomToAngleDeg(_ zoom: CGFloat) -> Double {
+        arcStartDeg + zoomFraction(zoom) * (arcEndDeg - arcStartDeg)
+    }
+
+    private func arcPoint(deg: Double, center: CGPoint, radius: CGFloat) -> CGPoint {
+        let rad = deg * .pi / 180
+        return CGPoint(x: center.x + radius * cos(rad), y: center.y + radius * sin(rad))
+    }
+
+    var body: some View {
+        let w: CGFloat = arcRadius * 2 + 60
+        let h: CGFloat = arcRadius + 22
+
+        Canvas { context, size in
+            let center = CGPoint(x: size.width / 2, y: size.height)
+            let steps = 80
+
+            // Track arc
+            var track = Path()
+            for i in 0...steps {
+                let t = Double(i) / Double(steps)
+                let pt = arcPoint(deg: arcStartDeg + t * (arcEndDeg - arcStartDeg),
+                                  center: center, radius: arcRadius)
+                if i == 0 { track.move(to: pt) } else { track.addLine(to: pt) }
+            }
+            context.stroke(track, with: .color(.white.opacity(0.2)),
+                           style: StrokeStyle(lineWidth: 3, lineCap: .round))
+
+            // Filled arc from start up to current zoom position
+            let frac = zoomFraction(currentZoom)
+            let fillEndDeg = arcStartDeg + frac * (arcEndDeg - arcStartDeg)
+            let fillSteps = max(1, Int(frac * Double(steps)))
+            if fillSteps > 0 {
+                var fill = Path()
+                for i in 0...fillSteps {
+                    let t = Double(i) / Double(fillSteps)
+                    let pt = arcPoint(deg: arcStartDeg + t * (fillEndDeg - arcStartDeg),
+                                      center: center, radius: arcRadius)
+                    if i == 0 { fill.move(to: pt) } else { fill.addLine(to: pt) }
+                }
+                context.stroke(fill, with: .color(.yellow.opacity(0.9)),
+                               style: StrokeStyle(lineWidth: 3, lineCap: .round))
+            }
+
+            // Tick marks at each optical stop
+            for factor in factors {
+                let deg = zoomToAngleDeg(factor)
+                let inner = arcPoint(deg: deg, center: center, radius: arcRadius - 9)
+                let outer = arcPoint(deg: deg, center: center, radius: arcRadius + 9)
+                var tick = Path()
+                tick.move(to: inner)
+                tick.addLine(to: outer)
+                context.stroke(tick, with: .color(.white.opacity(0.9)),
+                               style: StrokeStyle(lineWidth: 2, lineCap: .round))
+            }
+
+            // Thumb at current zoom
+            let thumbDeg = zoomToAngleDeg(currentZoom)
+            let thumbPt = arcPoint(deg: thumbDeg, center: center, radius: arcRadius)
+            var thumb = Path()
+            thumb.addEllipse(in: CGRect(x: thumbPt.x - 9, y: thumbPt.y - 9, width: 18, height: 18))
+            context.fill(thumb, with: .color(.white))
+            context.stroke(thumb, with: .color(.yellow.opacity(0.6)),
+                           style: StrokeStyle(lineWidth: 2))
+        }
+        .frame(width: w, height: h)
+        .contentShape(Rectangle())
+        .gesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { value in
+                    let center = CGPoint(x: w / 2, y: h)
+                    let dx = value.location.x - center.x
+                    let dy = value.location.y - center.y
+                    var deg = atan2(dy, dx) * 180 / .pi
+                    if deg < 0 { deg += 360 }
+
+                    if deg > arcEndDeg {
+                        deg = arcEndDeg
+                    } else if deg < arcStartDeg {
+                        let toStart = arcStartDeg - deg
+                        let toEnd = 360 - arcEndDeg + deg
+                        deg = toStart <= toEnd ? arcStartDeg : arcEndDeg
+                    }
+
+                    let t = (deg - arcStartDeg) / (arcEndDeg - arcStartDeg)
+                    onZoom(zoomFromFraction(t))
+                }
+                .onEnded { _ in onDismiss() }
+        )
+    }
 }
 
 

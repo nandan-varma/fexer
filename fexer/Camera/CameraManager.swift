@@ -95,8 +95,10 @@ import Photos
             }
             // Defer video rotation so the connection stabilises after startRunning.
             // Setting videoRotationAngle immediately can trigger Fig err=-12710.
+            // Frames are dropped until this fires (isRotationReady gate in CaptureProcessor).
             self.sessionQueue.asyncAfter(deadline: .now() + 0.15) { [self] in
                 self.configureVideoRotation()
+                self.processor.isRotationReady = true
             }
         }
     }
@@ -601,12 +603,14 @@ import Photos
             }
             if session.canAddInput(newInput) { session.addInput(newInput) }
             currentDevice = device
+            processor.isRotationReady = false
             session.commitConfiguration()
             Task { @MainActor in self.isDepthDataSupported = photoOutput.isDepthDataDeliverySupported }
             cleanupObservers()
             setupObservations(for: device)
             sessionQueue.asyncAfter(deadline: .now() + 0.15) { [self] in
                 configureVideoRotation()
+                processor.isRotationReady = true
             }
         }
     }
@@ -1003,8 +1007,7 @@ import Photos
         let hasUltraWide = device.constituentDevices.contains { $0.deviceType == .builtInUltraWideCamera }
         if hasUltraWide { factors.insert(0.5, at: 0) }
         factors.append(contentsOf: switchOvers.filter { $0 > 1.0 })
-        // Cap at 3 options for clean UI
-        return Array(factors.prefix(3))
+        return factors
     }
 
     // MARK: - Macro Mode (Phase 6)

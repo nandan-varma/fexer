@@ -12,6 +12,7 @@ final class AppState {
     var currentScreen: AppScreen = .camera
     var quickAccessItems: [QuickAccessItem] = AppState.loadQuickAccessItems()
     let permissionsManager = PermissionsManager()
+    var pendingShootingMode: ShootingMode? = nil
 
     private static func loadQuickAccessItems() -> [QuickAccessItem] {
         if let saved = UserDefaults.standard.array(forKey: "quickAccessItems") as? [String] {
