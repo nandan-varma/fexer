@@ -121,6 +121,25 @@ final class CameraManager: NSObject {
             let tnt = AVCaptureDevice.WhiteBalanceTemperatureAndTintValues(temperature: kelvin, tint: tint)
             var gains = device.deviceWhiteBalanceGains(for: tnt)
             let maxGain = device.maxWhiteBalanceGain
+            // Ratiometric normalization: scale all channels so the minimum is 1.0,
+            // preserving inter-channel ratios. Per-channel clamping to 1.0 destroys
+            // the ratio (e.g. {R:0.85, G:1.0, B:1.5} → {1.0, 1.0, 1.5}) which
+            // makes WB look like a filter instead of a real color-temperature shift.
+            let minGain = min(gains.redGain, gains.greenGain, gains.blueGain)
+            if minGain < 1.0 {
+                let scale = 1.0 / minGain
+                gains.redGain   *= scale
+                gains.greenGain *= scale
+                gains.blueGain  *= scale
+            }
+            let peakGain = max(gains.redGain, gains.greenGain, gains.blueGain)
+            if peakGain > maxGain {
+                let scale = maxGain / peakGain
+                gains.redGain   *= scale
+                gains.greenGain *= scale
+                gains.blueGain  *= scale
+            }
+            // Safety clamp for floating-point edge cases after two scale passes
             gains.redGain   = gains.redGain.fxClamped(to: 1.0...maxGain)
             gains.greenGain = gains.greenGain.fxClamped(to: 1.0...maxGain)
             gains.blueGain  = gains.blueGain.fxClamped(to: 1.0...maxGain)
