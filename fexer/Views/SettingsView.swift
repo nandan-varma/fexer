@@ -146,11 +146,11 @@ struct SettingsView: View {
                 }
 
                 // MARK: Quick Access Bar
-                Section("Quick Access Bar") {
+                Section {
                     ForEach(appState.quickAccessItems) { item in
                         HStack {
                             Image(systemName: item.systemImageName)
-                                .frame(width: 24)
+                                .frame(width: 28)
                                 .foregroundStyle(.yellow)
                             Text(item.rawValue)
                         }
@@ -159,6 +159,32 @@ struct SettingsView: View {
                         appState.quickAccessItems.move(fromOffsets: from, toOffset: to)
                         appState.saveQuickAccessItems()
                     }
+                    .onDelete { offsets in
+                        appState.quickAccessItems.remove(atOffsets: offsets)
+                        appState.saveQuickAccessItems()
+                    }
+
+                    let available = QuickAccessItem.allCases.filter {
+                        !appState.quickAccessItems.contains($0)
+                    }
+                    if !available.isEmpty {
+                        Menu {
+                            ForEach(available) { item in
+                                Button {
+                                    appState.quickAccessItems.append(item)
+                                    appState.saveQuickAccessItems()
+                                } label: {
+                                    Label(item.rawValue, systemImage: item.systemImageName)
+                                }
+                            }
+                        } label: {
+                            Label("Add Item", systemImage: "plus.circle")
+                        }
+                    }
+                } header: {
+                    Text("Quick Access Bar")
+                } footer: {
+                    Text("Drag to reorder · Swipe to remove")
                 }
 
                 // MARK: Watermark
@@ -186,6 +212,7 @@ struct SettingsView: View {
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
             .preferredColorScheme(.dark)
+            .toolbar { EditButton() }
         }
     }
 }

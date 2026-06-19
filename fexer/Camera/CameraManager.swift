@@ -3,6 +3,7 @@ import CoreImage
 import Observation
 import OSLog
 import Foundation
+import UIKit
 
     /// Owns the AVCaptureSession and all camera hardware configuration.
     /// @Observable properties are read from MainActor; all session mutations
@@ -28,14 +29,25 @@ import Foundation
     var lastCapturedPhoto: CapturedPhoto?
     var previewImageSize: CGSize = .zero
 
+    // Video recording state (MainActor)
+    var isRecording = false
+    var recordingDuration: TimeInterval = 0
+
+    // Live Photo toggle (MainActor)
+    var isLivePhotoEnabled = false
+
     // MARK: - Internal (sessionQueue only)
     let processor = CaptureProcessor()
     private let session = AVCaptureSession()
     private let sessionQueue = DispatchQueue(label: "com.fexer.session", qos: .userInteractive)
     private let photoOutput = AVCapturePhotoOutput()
     private let videoOutput = AVCaptureVideoDataOutput()
+    private let movieOutput = AVCaptureMovieFileOutput()
     private var currentDevice: AVCaptureDevice?
     private var deviceObservations: [NSKeyValueObservation] = []
+
+    // Timer runs on MainActor; kept here so we can invalidate from MainActor context
+    private var recordingTimer: Timer?
 
     var captureSettings = CaptureSettings()
 
@@ -141,6 +153,19 @@ import Foundation
         if session.canAddOutput(videoOutput) { session.addOutput(videoOutput) }
 
         if session.canAddOutput(photoOutput) { session.addOutput(photoOutput) }
+
+        // Live Photo requires the capture to be enabled before commitConfiguration
+        if photoOutput.isLivePhotoCaptureSupported {
+            photoOutput.isLivePhotoCaptureEnabled = true
+        }
+
+        if session.canAddOutput(movieOutput) {
+            session.addOutput(movieOutput)
+            if let conn = movieOutput.connection(with: .video),
+               conn.isVideoStabilizationSupported {
+                conn.preferredVideoStabilizationMode = .auto
+            }
+        }
 
         session.commitConfiguration()
 
@@ -482,23 +507,34 @@ import Foundation
     }
 
     private func makePhotoSettings(format: CaptureFormat) -> AVCapturePhotoSettings {
+        let settings: AVCapturePhotoSettings
         switch format {
         case .rawPlusJpeg:
             if let rawType = photoOutput.availableRawPhotoPixelFormatTypes.first {
-                return AVCapturePhotoSettings(
+                settings = AVCapturePhotoSettings(
                     rawPixelFormatType: rawType,
                     processedFormat: [AVVideoCodecKey: AVVideoCodecType.jpeg]
                 )
+            } else {
+                settings = AVCapturePhotoSettings(format: [AVVideoCodecKey: AVVideoCodecType.jpeg])
             }
-            return AVCapturePhotoSettings(format: [AVVideoCodecKey: AVVideoCodecType.jpeg])
         case .raw:
             if let rawType = photoOutput.availableRawPhotoPixelFormatTypes.first {
-                return AVCapturePhotoSettings(rawPixelFormatType: rawType, processedFormat: nil)
+                settings = AVCapturePhotoSettings(rawPixelFormatType: rawType, processedFormat: nil)
+            } else {
+                settings = AVCapturePhotoSettings()
             }
-            return AVCapturePhotoSettings()
         case .jpeg:
-            return AVCapturePhotoSettings(format: [AVVideoCodecKey: AVVideoCodecType.jpeg])
+            settings = AVCapturePhotoSettings(format: [AVVideoCodecKey: AVVideoCodecType.jpeg])
         }
+        // Attach a Live Photo movie file URL when enabled
+        if isLivePhotoEnabled && photoOutput.isLivePhotoCaptureEnabled {
+            let liveURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString)
+                .appendingPathExtension("mov")
+            settings.livePhotoMovieFileURL = liveURL
+        }
+        return settings
     }
 
     // MARK: - Video Rotation
@@ -506,11 +542,59 @@ import Foundation
     /// Tells AVFoundation to deliver portrait-upright frames to the video output.
     /// Must be called on sessionQueue, after session.commitConfiguration().
     private func configureVideoRotation() {
-        guard let connection = videoOutput.connection(with: .video) else { return }
         let portraitAngle: CGFloat = 90
-        if connection.isVideoRotationAngleSupported(portraitAngle) {
-            connection.videoRotationAngle = portraitAngle
+        if let conn = videoOutput.connection(with: .video),
+           conn.isVideoRotationAngleSupported(portraitAngle) {
+            conn.videoRotationAngle = portraitAngle
         }
+        if let conn = movieOutput.connection(with: .video),
+           conn.isVideoRotationAngleSupported(portraitAngle) {
+            conn.videoRotationAngle = portraitAngle
+        }
+    }
+
+    // MARK: - Video Recording
+
+    func startRecording() {
+        sessionQueue.async { [self] in
+            guard !movieOutput.isRecording else { return }
+            let url = FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString)
+                .appendingPathExtension("mov")
+            movieOutput.startRecording(to: url, recordingDelegate: self)
+            // isRecording is set in the delegate callback once recording actually starts
+        }
+        Task { @MainActor in
+            UIApplication.shared.isIdleTimerDisabled = true
+        }
+    }
+
+    func stopRecording() {
+        sessionQueue.async { [self] in
+            guard movieOutput.isRecording else { return }
+            movieOutput.stopRecording()
+        }
+    }
+
+    @MainActor
+    private func startRecordingTimer() {
+        recordingTimer?.invalidate()
+        recordingDuration = 0
+        recordingTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            self?.recordingDuration += 1
+        }
+    }
+
+    @MainActor
+    private func stopRecordingTimer() {
+        recordingTimer?.invalidate()
+        recordingTimer = nil
+    }
+
+    // MARK: - Live Photo
+
+    func toggleLivePhoto() {
+        isLivePhotoEnabled.toggle()
     }
 
     // MARK: - Zoom Levels
@@ -588,6 +672,36 @@ import Foundation
         case .builtInTelephotoCamera: return "3×"
         default: return device.localizedName
         }
+    }
+}
+
+// MARK: - AVCaptureFileOutputRecordingDelegate
+
+extension CameraManager: AVCaptureFileOutputRecordingDelegate {
+    nonisolated func fileOutput(_ output: AVCaptureFileOutput,
+                                didStartRecordingTo fileURL: URL,
+                                from connections: [AVCaptureConnection]) {
+        Task { @MainActor in
+            self.isRecording = true
+            self.startRecordingTimer()
+        }
+    }
+
+    nonisolated func fileOutput(_ output: AVCaptureFileOutput,
+                                didFinishRecordingTo outputFileURL: URL,
+                                from connections: [AVCaptureConnection],
+                                error: Error?) {
+        if let error {
+            Logger.camera.error("Video recording failed: \(error.localizedDescription)")
+        }
+        Task { @MainActor in
+            self.isRecording = false
+            self.recordingDuration = 0
+            self.stopRecordingTimer()
+            UIApplication.shared.isIdleTimerDisabled = false
+        }
+        // Save to Photos library on a background thread
+        UISaveVideoAtPathToSavedPhotosAlbum(outputFileURL.path, nil, nil, nil)
     }
 }
 
