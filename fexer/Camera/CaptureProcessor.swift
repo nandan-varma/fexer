@@ -72,6 +72,29 @@ final class CaptureProcessor: NSObject {
     // zebraTime is only ever read and written on sessionQueue — no lock needed
     var zebraTime: Float = 0
 
+    // Anamorphic 2× desqueeze (thread-safe: set from MainActor, read from sessionQueue)
+    private let anamorphicLock = OSAllocatedUnfairLock(initialState: false)
+    var isAnamorphicDesqueezeEnabled: Bool {
+        get { anamorphicLock.withLock { $0 } }
+        set { anamorphicLock.withLock { $0 = newValue } }
+    }
+
+    // Long exposure frame accumulation — all mutable state below is sessionQueue-only
+    // except longExpActiveLock (read/written from caller + sessionQueue)
+    private let longExpActiveLock = OSAllocatedUnfairLock(initialState: false)
+    private var longExpFrames: [CIImage] = []
+    private var longExpStart: CFTimeInterval = 0
+    var longExpDuration: Double = 4.0
+    var onLongExposureComplete: ((CIImage) -> Void)?
+
+    var isLongExposureCapturing: Bool { longExpActiveLock.withLock { $0 } }
+
+    func beginLongExposureCapture(duration: Double = 4.0, completion: @escaping (CIImage) -> Void) {
+        onLongExposureComplete = completion
+        longExpDuration = duration
+        longExpActiveLock.withLock { $0 = true }
+    }
+
     private let focusPeakingFilter = FocusPeakingFilter()
     private let zebraFilter = ZebraFilter()
     private let falseColorFilter = FalseColorFilter()
@@ -102,6 +125,11 @@ extension CaptureProcessor: AVCaptureVideoDataOutputSampleBufferDelegate {
 
         var image = CIImage(cvPixelBuffer: pixelBuffer)
 
+        // Anamorphic 2× horizontal desqueeze (applied before all other processing)
+        if anamorphicLock.withLock({ $0 }) {
+            image = image.transformed(by: CGAffineTransform(scaleX: 2.0, y: 1.0))
+        }
+
         // Report image dimensions once (and again if camera is flipped)
         let size = image.extent.size
         if size != reportedSize {
@@ -114,6 +142,22 @@ extension CaptureProcessor: AVCaptureVideoDataOutputSampleBufferDelegate {
             onPixelBuffer?(pixelBuffer)
         }
         let rawImage = image  // snapshot before filter chain for histogram
+
+        // Long exposure: accumulate frames for frame-averaged blend
+        if longExpActiveLock.withLock({ $0 }) {
+            if longExpFrames.isEmpty { longExpStart = CACurrentMediaTime() }
+            longExpFrames.append(rawImage)
+            if CACurrentMediaTime() - longExpStart >= longExpDuration {
+                longExpActiveLock.withLock { $0 = false }
+                let frames = longExpFrames
+                longExpFrames = []
+                let callback = onLongExposureComplete
+                onLongExposureComplete = nil
+                histogramQueue.async {
+                    if let blended = Self.blendFrames(frames) { callback?(blended) }
+                }
+            }
+        }
 
         // False color must see the ungraded signal — apply before LUT
         if isFalseColorEnabled {
@@ -162,6 +206,23 @@ extension CaptureProcessor: AVCaptureVideoDataOutputSampleBufferDelegate {
                 computeHistogram(from: image, context: context)
             }
         }
+    }
+
+    /// Maximum-composites N frames: each pixel keeps the brightest value seen across all frames.
+    /// Produces light trails and star trails; correct for long-exposure light accumulation.
+    /// (Add÷N averaging was previously used but produced ghosting without trails.)
+    private static func blendFrames(_ frames: [CIImage]) -> CIImage? {
+        guard !frames.isEmpty else { return nil }
+        guard frames.count > 1 else { return frames[0] }
+
+        var result = frames[0]
+        for frame in frames.dropFirst() {
+            guard let maxFilter = CIFilter(name: "CIMaximumCompositing") else { continue }
+            maxFilter.setValue(result, forKey: kCIInputBackgroundImageKey)
+            maxFilter.setValue(frame,  forKey: kCIInputImageKey)
+            if let out = maxFilter.outputImage { result = out }
+        }
+        return result
     }
 
     private func computeHistogram(from image: CIImage, context: CIContext) {

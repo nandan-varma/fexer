@@ -57,12 +57,11 @@ final class GalleryViewModel: NSObject, PHPhotoLibraryChangeObserver {
 }
 
 extension GalleryViewModel {
-    func photoLibraryDidChange(_ changeInstance: PHChange) {
-        guard let result = fetchResult,
-              let changes = changeInstance.changeDetails(for: result)
-        else { return }
-
+    nonisolated func photoLibraryDidChange(_ changeInstance: PHChange) {
         Task { @MainActor in
+            guard let result = fetchResult,
+                  let changes = changeInstance.changeDetails(for: result)
+            else { return }
             self.fetchResult = changes.fetchResultAfterChanges
             var updated: [PHAsset] = []
             changes.fetchResultAfterChanges.enumerateObjects { asset, _, _ in updated.append(asset) }

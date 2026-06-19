@@ -6,7 +6,7 @@ import Metal
 final class StylePreviewRenderer {
     static let shared = StylePreviewRenderer()
 
-    private let cache = NSCache<NSString, UIImage>()
+    nonisolated(unsafe) private let cache = NSCache<NSString, UIImage>()
     private let renderQueue = DispatchQueue(label: "com.fexer.stylePreview", qos: .userInitiated, attributes: .concurrent)
     private let ciContext: CIContext = {
         guard let device = MTLCreateSystemDefaultDevice() else {
@@ -29,13 +29,15 @@ final class StylePreviewRenderer {
     nonisolated func updateFrame(_ pixelBuffer: CVPixelBuffer) {}
 
     nonisolated func originalImage(size: CGSize, completion: @escaping (UIImage?) -> Void) {
-        let key = "__original__-\(Int(size.width))x\(Int(size.height))" as NSString
+        let keyStr = "__original__-\(Int(size.width))x\(Int(size.height))"
+        let key = keyStr as NSString
         if let cached = cache.object(forKey: key) { completion(cached); return }
 
         let base = sampleImage
         guard base.extent.width > 0 && base.extent.height > 0 else { completion(nil); return }
 
         renderQueue.async { [self] in
+            let cacheKey = keyStr as NSString
             let scale = max(size.width / base.extent.width, size.height / base.extent.height)
             let scaled = base.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
             let ox = (scaled.extent.width  - size.width)  / 2
@@ -46,7 +48,7 @@ final class StylePreviewRenderer {
                 completion(nil); return
             }
             let image = UIImage(cgImage: cgImage)
-            self.cache.setObject(image, forKey: key)
+            self.cache.setObject(image, forKey: cacheKey)
             DispatchQueue.main.async { completion(image) }
         }
     }
@@ -54,13 +56,15 @@ final class StylePreviewRenderer {
     nonisolated func thumbnail(for style: PhotoStyle,
                                 size: CGSize = CGSize(width: 120, height: 90),
                                 completion: @escaping (UIImage?) -> Void) {
-        let key = "\(style.id)-\(Int(size.width))x\(Int(size.height))" as NSString
+        let keyStr = "\(style.id)-\(Int(size.width))x\(Int(size.height))"
+        let key = keyStr as NSString
         if let cached = cache.object(forKey: key) { completion(cached); return }
 
         let base = sampleImage
         guard base.extent.width > 0 && base.extent.height > 0 else { completion(nil); return }
 
         renderQueue.async { [self] in
+            let cacheKey = keyStr as NSString
             var processed = base
 
             guard let sRGB = CGColorSpace(name: CGColorSpace.sRGB) else { return }
@@ -87,7 +91,7 @@ final class StylePreviewRenderer {
                 completion(nil); return
             }
             let thumb = UIImage(cgImage: cgImage)
-            self.cache.setObject(thumb, forKey: key)
+            self.cache.setObject(thumb, forKey: cacheKey)
             DispatchQueue.main.async { completion(thumb) }
         }
     }

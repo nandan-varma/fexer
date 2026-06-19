@@ -1,7 +1,7 @@
 import CoreImage
 
 struct HistogramCalculator {
-    static func compute(from image: CIImage, context: CIContext) -> HistogramData {
+    nonisolated static func compute(from image: CIImage, context: CIContext) -> HistogramData {
         let count = 256
         guard let filter = CIFilter(name: "CIAreaHistogram") else {
             return HistogramData()

@@ -36,6 +36,10 @@ import UIKit
     // Live Photo toggle (MainActor)
     var isLivePhotoEnabled = false
 
+    // Hardware capability flags (set after session configuration)
+    var isProRAWSupported: Bool = false
+    var isDepthDataSupported: Bool = false
+
     // MARK: - Internal (sessionQueue only)
     let processor = CaptureProcessor()
     private let session = AVCaptureSession()
@@ -169,6 +173,11 @@ import UIKit
 
         session.commitConfiguration()
 
+        Task { @MainActor in
+            self.isProRAWSupported = photoOutput.isAppleProRAWSupported
+            self.isDepthDataSupported = photoOutput.isDepthDataDeliverySupported
+        }
+
         setupObservations(for: device)
 
         processor.onPreviewSizeKnown = { [weak self] size in
@@ -206,6 +215,26 @@ import UIKit
             let clamped = CMTimeClampToRange(duration, range: CMTimeRange(start: min, end: max))
             device.withLock {
                 device.setExposureModeCustom(duration: clamped, iso: device.iso, completionHandler: nil)
+            }
+        }
+    }
+
+    /// Sets ISO and shutter speed atomically in a single `setExposureModeCustom` call.
+    /// Avoids the race where separate setISO/setShutter calls each read stale device values.
+    /// Also updates captureSettings immediately so sliders reflect the preset values.
+    func setManualExposure(iso: Float, duration: CMTime) {
+        sessionQueue.async { [self] in
+            guard let device = currentDevice else { return }
+            let clampedISO = iso.fxClamped(to: device.activeFormat.minISO...device.activeFormat.maxISO)
+            let minDur = device.activeFormat.minExposureDuration
+            let maxDur = device.activeFormat.maxExposureDuration
+            let clampedDuration = CMTimeClampToRange(duration, range: CMTimeRange(start: minDur, end: maxDur))
+            device.withLock {
+                device.setExposureModeCustom(duration: clampedDuration, iso: clampedISO)
+            }
+            Task { @MainActor in
+                self.captureSettings.isoValue = clampedISO
+                self.captureSettings.shutterSpeed = clampedDuration
             }
         }
     }
@@ -276,7 +305,10 @@ import UIKit
     ///
     /// This method is thread-safe and executes on the sessionQueue. The focus and exposure
     /// will be locked to the specified point until changed or reset.
-    func setFocusPoint(_ point: CGPoint) {
+    /// - Parameters:
+    ///   - point: Normalized CGPoint in AVFoundation space (0,0 = top-left, 1,1 = bottom-right).
+    ///   - adjustExposure: When false (AEL active), only repoints focus — leaves exposure locked.
+    func setFocusPoint(_ point: CGPoint, adjustExposure: Bool = true) {
         sessionQueue.async { [self] in
             guard let device = currentDevice else {
                 Logger.camera.error("Cannot set focus point: no camera device available")
@@ -287,8 +319,12 @@ import UIKit
                     device.focusPointOfInterest = point
                     device.focusMode = .autoFocus
                 }
-                if device.isExposurePointOfInterestSupported {
-                    device.exposurePointOfInterest = point
+                if adjustExposure && device.isExposurePointOfInterestSupported {
+                    // Spot metering tracks the tap point; matrix/center stay at center
+                    let expPoint: CGPoint = captureSettings.meteringMode == .spot
+                        ? point
+                        : CGPoint(x: 0.5, y: 0.5)
+                    device.exposurePointOfInterest = expPoint
                     device.exposureMode = .autoExpose
                 }
             }
@@ -426,17 +462,79 @@ import UIKit
         sessionQueue.async { [self] in
             guard let device = currentDevice else { return }
             device.withLock {
-                if device.isExposurePointOfInterestSupported {
-                    switch mode {
-                    case .matrix, .center:
+                switch mode {
+                case .matrix:
+                    // True evaluative: don't constrain the exposure point — let the device
+                    // use its own scene analysis across the full frame.
+                    if device.isExposureModeSupported(.continuousAutoExposure) {
+                        device.exposureMode = .continuousAutoExposure
+                    }
+                case .center:
+                    // Center-weighted: explicitly bias the AE algorithm to the center region.
+                    if device.isExposurePointOfInterestSupported {
                         device.exposurePointOfInterest = CGPoint(x: 0.5, y: 0.5)
+                    }
+                    if device.isExposureModeSupported(.continuousAutoExposure) {
                         device.exposureMode = .continuousAutoExposure
-                    case .spot:
-                        device.exposureMode = .continuousAutoExposure
+                    }
+                case .spot:
+                    // Spot: meter at the current tap-to-focus point (or center if none set).
+                    let pt = device.focusPointOfInterest
+                    let isValid = pt.x != 0 || pt.y != 0
+                    if device.isExposurePointOfInterestSupported {
+                        device.exposurePointOfInterest = isValid ? pt : CGPoint(x: 0.5, y: 0.5)
+                    }
+                    if device.isExposureModeSupported(.autoExpose) {
+                        device.exposureMode = .autoExpose
                     }
                 }
             }
             Task { @MainActor in self.captureSettings.meteringMode = mode }
+        }
+    }
+
+    // MARK: - ProRAW
+
+    func setProRAWEnabled(_ enabled: Bool) {
+        sessionQueue.async { [self] in
+            guard photoOutput.isAppleProRAWSupported else { return }
+            session.beginConfiguration()
+            photoOutput.isAppleProRAWEnabled = enabled
+            session.commitConfiguration()
+            Logger.camera.info("ProRAW \(enabled ? "enabled" : "disabled")")
+        }
+    }
+
+    // MARK: - Night Mode
+
+    func setNightModeEnabled(_ enabled: Bool) {
+        sessionQueue.async { [self] in
+            guard let device = currentDevice else { return }
+            device.withLock {
+                if device.isLowLightBoostSupported {
+                    device.automaticallyEnablesLowLightBoostWhenAvailable = enabled
+                }
+            }
+            session.beginConfiguration()
+            photoOutput.maxPhotoQualityPrioritization = enabled ? .quality : .balanced
+            session.commitConfiguration()
+        }
+    }
+
+    // MARK: - Portrait / Depth Data
+
+    func setDepthDataEnabled(_ enabled: Bool) {
+        sessionQueue.async { [self] in
+            guard photoOutput.isDepthDataDeliverySupported else { return }
+            session.beginConfiguration()
+            photoOutput.isDepthDataDeliveryEnabled = enabled
+            if enabled && photoOutput.isPortraitEffectsMatteDeliverySupported {
+                photoOutput.isPortraitEffectsMatteDeliveryEnabled = true
+            } else {
+                photoOutput.isPortraitEffectsMatteDeliveryEnabled = false
+            }
+            session.commitConfiguration()
+            Logger.camera.info("Depth data \(enabled ? "enabled" : "disabled")")
         }
     }
 
@@ -463,6 +561,7 @@ import UIKit
             if session.canAddInput(newInput) { session.addInput(newInput) }
             currentDevice = device
             session.commitConfiguration()
+            Task { @MainActor in self.isDepthDataSupported = photoOutput.isDepthDataDeliverySupported }
             cleanupObservers()
             setupObservations(for: device)
             sessionQueue.asyncAfter(deadline: .now() + 0.15) { [self] in
@@ -473,11 +572,13 @@ import UIKit
 
     // MARK: - Still Capture
 
-    func capturePhoto(delegate: AVCapturePhotoCaptureDelegate) {
+    /// - Parameter bypassBusyGuard: Set `true` for burst mode, which needs overlapping captures.
+    func capturePhoto(delegate: AVCapturePhotoCaptureDelegate, bypassBusyGuard: Bool = false) {
         sessionQueue.async { [self] in
-            guard !isCapturing else { return }
-            Task { @MainActor in self.isCapturing = true }
-
+            guard bypassBusyGuard || !isCapturing else { return }
+            if !bypassBusyGuard {
+                Task { @MainActor in self.isCapturing = true }
+            }
             let settings = makePhotoSettings(format: captureSettings.captureFormat)
             settings.flashMode = flashMode
             settings.photoQualityPrioritization = photoOutput.maxPhotoQualityPrioritization.rawValue >= AVCapturePhotoOutput.QualityPrioritization.quality.rawValue

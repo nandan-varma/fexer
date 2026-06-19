@@ -53,9 +53,9 @@ struct StyleBeforeAfterView: View {
                 }
             }
             .frame(width: geo.size.width, height: geo.size.height)
+            .onAppear { loadImages(size: geo.size) }
         }
         .ignoresSafeArea()
-        .onAppear { loadImages() }
     }
 
     @ViewBuilder
@@ -128,8 +128,7 @@ struct StyleBeforeAfterView: View {
         .allowsHitTesting(false)
     }
 
-    private func loadImages() {
-        let size = UIScreen.main.bounds.size
+    private func loadImages(size: CGSize) {
         StylePreviewRenderer.shared.originalImage(size: size) { self.originalImage = $0 }
         StylePreviewRenderer.shared.thumbnail(for: style, size: size) { self.styledImage = $0 }
     }

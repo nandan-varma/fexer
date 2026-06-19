@@ -4,10 +4,7 @@ struct GridOverlayView: View {
     let gridType: GridType
 
     var body: some View {
-        GeometryReader { geo in
-            let w = geo.size.width
-            let h = geo.size.height
-
+        GeometryReader { _ in
             switch gridType {
             case .none:
                 EmptyView()

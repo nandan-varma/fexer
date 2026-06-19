@@ -63,6 +63,7 @@ struct SettingsView: View {
             Toggle(isOn: $isProRAW) {
                 Label("ProRAW", systemImage: "sparkles")
             }
+            .disabled(!cameraManager.isProRAWSupported)
 
             Toggle(isOn: $isLocationEnabled) {
                 Label("Save Location", systemImage: "location.fill")
@@ -70,7 +71,11 @@ struct SettingsView: View {
         } header: {
             Text("Camera")
         } footer: {
-            Text("ProRAW requires iPhone 12 Pro or later. Location is embedded in EXIF metadata.")
+            if cameraManager.isProRAWSupported {
+                Text("Location is embedded in EXIF metadata.")
+            } else {
+                Text("ProRAW is not supported on this device (requires iPhone 12 Pro or later). Location is embedded in EXIF metadata.")
+            }
         }
     }
 

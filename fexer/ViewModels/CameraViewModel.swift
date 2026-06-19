@@ -8,6 +8,10 @@ struct HistogramData {
     var green: [Float] = []
     var blue:  [Float] = []
     var luma:  [Float] = []
+
+    nonisolated init(red: [Float] = [], green: [Float] = [], blue: [Float] = [], luma: [Float] = []) {
+        self.red = red; self.green = green; self.blue = blue; self.luma = luma
+    }
 }
 
 @Observable
@@ -70,8 +74,13 @@ final class CameraViewModel {
     // MARK: - Gesture Handlers
 
     func handleTapToFocus(at normalizedPoint: CGPoint) {
-        cameraManager.setFocusPoint(normalizedPoint)
-        focusIndicatorPosition = normalizedPoint
+        // Ignore when the focus slider is in manual mode — user owns the lens position.
+        guard cameraManager.captureSettings.isAutoFocus else { return }
+
+        // When AEL is active, refocus only — don't move the exposure point.
+        cameraManager.setFocusPoint(normalizedPoint,
+                                    adjustExposure: !cameraManager.captureSettings.isAELocked)
+        // focusIndicatorPosition is set to screen coords by ViewfinderView before this call.
         showFocusIndicator = true
         isFocusLocked = false
 
@@ -86,7 +95,9 @@ final class CameraViewModel {
             try? await Task.sleep(nanoseconds: 2_000_000_000)
             guard !Task.isCancelled else { return }
             await MainActor.run {
-                self.showFocusIndicator = false
+                withAnimation(.easeOut(duration: 0.35)) {
+                    self.showFocusIndicator = false
+                }
                 self.isFocusLocked = false
             }
         }
@@ -112,6 +123,10 @@ final class CameraViewModel {
     }
 
     func handleDoubleTapReset() {
+        focusTask?.cancel()
+        focusTask = nil
+        showFocusIndicator = false
+        isFocusLocked = false
         cameraManager.setAutoExposure()
         cameraManager.setAutoFocus()
         cameraManager.setAutoWhiteBalance()
@@ -222,7 +237,7 @@ final class CameraViewModel {
                     self.burstCount = i
                     HapticManager.shutter()
                 }
-                cameraManager.capturePhoto(delegate: delegate)
+                cameraManager.capturePhoto(delegate: delegate, bypassBusyGuard: true)
                 try? await Task.sleep(nanoseconds: 100_000_000) // 100 ms
             }
             await MainActor.run {
@@ -285,13 +300,19 @@ final class CameraViewModel {
         case .timelapse:
             stopTimelapse()
         case .anamorphic:
-            // Restore the crop that was in use before anamorphic was selected
             cropRatioRaw.wrappedValue = preModeRaw
-        case .longExposure, .night:
-            // Return to full auto when leaving these modes
+            cameraManager.processor.isAnamorphicDesqueezeEnabled = false
+        case .longExposure:
             cameraManager.setAutoExposure()
             cameraManager.captureSettings.isAutoISO = true
             cameraManager.captureSettings.isAutoShutter = true
+        case .night:
+            cameraManager.setAutoExposure()
+            cameraManager.captureSettings.isAutoISO = true
+            cameraManager.captureSettings.isAutoShutter = true
+            cameraManager.setNightModeEnabled(false)
+        case .portrait:
+            cameraManager.setDepthDataEnabled(false)
         default:
             break
         }
@@ -307,32 +328,29 @@ final class CameraViewModel {
             break // default behavior
 
         case .portrait:
-            // No deep-effect implementation (requires TrueDepth/dual cam); badge shown in CameraView.
-            break
+            // Enable depth data delivery — Photos.app and compatible apps use this for portrait effects
+            cameraManager.setDepthDataEnabled(true)
 
         case .selfTimer:
             // Ensure the timer is active (set to 3s if currently disabled)
             if selfTimerDelay.wrappedValue == 0 {
-                selfTimerDelay.wrappedValue = 3
+                selfTimerDelay.wrappedValue = 2
             }
 
         case .longExposure:
-            // ISO 50, shutter 1s — lock manual exposure
-            cameraManager.setAutoExposure()
+            // ISO 50, shutter 1s — set atomically to avoid race between separate ISO/shutter calls
             cameraManager.captureSettings.isAutoISO = false
             cameraManager.captureSettings.isAutoShutter = false
-            cameraManager.setISO(50)
-            cameraManager.setShutterSpeed(CMTime(value: 1, timescale: 1))
+            cameraManager.setManualExposure(iso: 50, duration: CMTime(value: 1, timescale: 1))
             Logger.camera.info("Long exposure mode: ISO 50, 1s")
 
         case .night:
-            // ISO 3200, 1/15s — lock manual exposure
-            cameraManager.setAutoExposure()
+            // ISO 3200, 1/15s + enable low-light boost and quality prioritization
             cameraManager.captureSettings.isAutoISO = false
             cameraManager.captureSettings.isAutoShutter = false
-            cameraManager.setISO(3200)
-            cameraManager.setShutterSpeed(CMTime(value: 1, timescale: 15))
-            Logger.camera.info("Night mode: ISO 3200, 1/15s")
+            cameraManager.setManualExposure(iso: 3200, duration: CMTime(value: 1, timescale: 15))
+            cameraManager.setNightModeEnabled(true)
+            Logger.camera.info("Night mode: ISO 3200, 1/15s, low-light boost enabled")
 
         case .burst:
             break // burst starts on shutter press
@@ -341,10 +359,11 @@ final class CameraViewModel {
             break // timelapse starts on shutter press
 
         case .anamorphic:
-            // Save current crop so we can restore it when leaving
+            // Save current crop, apply 2.39:1 guide, and enable 2× horizontal desqueeze in preview
             preModeRaw = cropRatioRaw.wrappedValue
             cropRatioRaw.wrappedValue = CropRatio.r239_100.rawValue
-            Logger.camera.info("Anamorphic mode: applied 2.39:1 crop")
+            cameraManager.processor.isAnamorphicDesqueezeEnabled = true
+            Logger.camera.info("Anamorphic mode: 2.39:1 crop + 2× desqueeze enabled")
         }
     }
 }

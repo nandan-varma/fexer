@@ -8,6 +8,7 @@ struct CameraPreview: UIViewRepresentable {
     let cameraManager: CameraManager
     var cropRatio: CropRatio = .full
     var onTapToFocus: ((CGPoint, CGSize) -> Void)?
+    var onDoubleTap: (() -> Void)?
     var onPinchZoom: ((CGFloat, CGFloat) -> Void)?
     var onSwipeBrightness: ((CGFloat) -> Void)?
 
@@ -27,6 +28,7 @@ struct CameraPreview: UIViewRepresentable {
     func updateUIView(_ uiView: MTKView, context: Context) {
         context.coordinator.cropRatio = cropRatio
         context.coordinator.onTapToFocus = onTapToFocus
+        context.coordinator.onDoubleTap = onDoubleTap
         context.coordinator.onPinchZoom = onPinchZoom
         context.coordinator.onSwipeBrightness = onSwipeBrightness
         context.coordinator.setupGesturesIfNeeded(on: uiView)
@@ -40,6 +42,7 @@ struct CameraPreview: UIViewRepresentable {
         let cameraManager: CameraManager
         var cropRatio: CropRatio = .full
         var onTapToFocus: ((CGPoint, CGSize) -> Void)?
+        var onDoubleTap: (() -> Void)?
         var onPinchZoom: ((CGFloat, CGFloat) -> Void)?
         var onSwipeBrightness: ((CGFloat) -> Void)?
 
@@ -53,14 +56,18 @@ struct CameraPreview: UIViewRepresentable {
             guard !gesturesSetup else { return }
             gesturesSetup = true
 
-            if FeatureFlags.tapToFocus {
-                let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap))
-                view.addGestureRecognizer(tap)
-            }
-            if FeatureFlags.pinchToZoom {
-                let pinch = UIPinchGestureRecognizer(target: self, action: #selector(handlePinch))
-                view.addGestureRecognizer(pinch)
-            }
+            // Double-tap must be registered first so single-tap can require it to fail.
+            let doubleTap = UITapGestureRecognizer(target: self, action: #selector(handleDoubleTap))
+            doubleTap.numberOfTapsRequired = 2
+            view.addGestureRecognizer(doubleTap)
+
+            let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap))
+            // Wait for double-tap to fail before firing; prevents 350ms swallow of single taps.
+            tap.require(toFail: doubleTap)
+            view.addGestureRecognizer(tap)
+
+            let pinch = UIPinchGestureRecognizer(target: self, action: #selector(handlePinch))
+            view.addGestureRecognizer(pinch)
             let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePan))
             pan.minimumNumberOfTouches = 1
             pan.maximumNumberOfTouches = 1
@@ -145,6 +152,10 @@ struct CameraPreview: UIViewRepresentable {
 
             commandBuffer.present(drawable)
             commandBuffer.commit()
+        }
+
+        @objc func handleDoubleTap(_ gesture: UITapGestureRecognizer) {
+            onDoubleTap?()
         }
 
         @objc func handleTap(_ gesture: UITapGestureRecognizer) {

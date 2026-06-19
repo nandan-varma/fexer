@@ -63,17 +63,15 @@ struct ManualControlsPanel: View {
                 }
                 .frame(maxWidth: .infinity)
 
-                if FeatureFlags.focusSlider {
-                    divider
-                    FocusSlider(
-                        lensPosition: $cameraManager.captureSettings.focusDistance,
-                        isAuto: $cameraManager.captureSettings.isAutoFocus
-                    ) { cameraManager.setFocus(lensPosition: cameraManager.captureSettings.focusDistance) }
-                    .onChange(of: cameraManager.captureSettings.isAutoFocus) { _, isAuto in
-                        if isAuto { cameraManager.setAutoFocus() }
-                    }
-                    .frame(maxWidth: .infinity)
+                divider
+                FocusSlider(
+                    lensPosition: $cameraManager.captureSettings.focusDistance,
+                    isAuto: $cameraManager.captureSettings.isAutoFocus
+                ) { cameraManager.setFocus(lensPosition: cameraManager.captureSettings.focusDistance) }
+                .onChange(of: cameraManager.captureSettings.isAutoFocus) { _, isAuto in
+                    if isAuto { cameraManager.setAutoFocus() }
                 }
+                .frame(maxWidth: .infinity)
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 20)

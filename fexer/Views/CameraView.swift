@@ -2,6 +2,7 @@ import SwiftUI
 import AVFoundation
 import CoreImage
 import ImageIO
+import Photos
 import OSLog
 
 struct CameraView: View {
@@ -20,22 +21,28 @@ struct CameraView: View {
     @Environment(AppState.self) var appState
 
     // Overlay visibility — shared keys with SettingsView
-    @AppStorage("showHistogram")      private var showHistogram      = true
-    @AppStorage("showGrid")           private var showGrid           = false
-    @AppStorage("gridType")           private var gridType           = "Thirds"
-    @AppStorage("showFocusPeaking")   private var showFocusPeaking   = false
-    @AppStorage("showZebra")          private var showZebra          = false
-    @AppStorage("showLevelIndicator") private var showLevelIndicator = false
-    @AppStorage("showStylePicker")    private var showStylePicker    = false
-    @AppStorage("showShootingModes")  private var showShootingModes  = false
-    @AppStorage("showGallery")        private var showGallery        = true
-    @AppStorage("cropRatio")           private var cropRatioRaw          = CropRatio.full.rawValue
-    @AppStorage("showFalseColor")      private var showFalseColor         = false
-    @AppStorage("isBracketingEnabled") private var isBracketingEnabled    = false
-    @AppStorage("bracketEVStep")       private var bracketEVStep: Double  = 1.0
-    @AppStorage("selfTimerDelay")      private var selfTimerDelay: Int    = 0
-    @AppStorage("focusPeakingColor")   private var focusPeakingColor: String = "red"
-    @AppStorage("timelapseInterval")   private var timelapseInterval: Double = 5.0
+    @AppStorage("showHistogram")        private var showHistogram         = true
+    @AppStorage("showGrid")             private var showGrid              = false
+    @AppStorage("gridType")             private var gridType              = "Thirds"
+    @AppStorage("showFocusPeaking")     private var showFocusPeaking      = false
+    @AppStorage("showZebra")            private var showZebra             = false
+    @AppStorage("showLevelIndicator")   private var showLevelIndicator    = false
+    @AppStorage("showStylePicker")      private var showStylePicker       = false
+    @AppStorage("showShootingModes")    private var showShootingModes     = false
+    @AppStorage("showGallery")          private var showGallery           = true
+    @AppStorage("cropRatio")            private var cropRatioRaw          = CropRatio.full.rawValue
+    @AppStorage("showFalseColor")       private var showFalseColor        = false
+    @AppStorage("isBracketingEnabled")  private var isBracketingEnabled   = false
+    @AppStorage("bracketEVStep")        private var bracketEVStep: Double = 1.0
+    @AppStorage("selfTimerDelay")       private var selfTimerDelay: Int   = 0
+    @AppStorage("focusPeakingColor")    private var focusPeakingColor: String = "red"
+    @AppStorage("timelapseInterval")    private var timelapseInterval: Double = 5.0
+    @AppStorage("defaultCaptureFormat") private var defaultCaptureFormat  = "JPEG"
+    @AppStorage("isProRAWEnabled")      private var isProRAWEnabled       = false
+    @AppStorage("volumeButtonBehavior") private var volumeButtonBehavior  = "Shutter"
+    @AppStorage("watermarkText")        private var watermarkText         = ""
+
+    @State private var volumeObservation: NSKeyValueObservation?
 
     private var cropRatio: CropRatio { CropRatio(rawValue: cropRatioRaw) ?? .full }
 
@@ -247,15 +254,19 @@ struct CameraView: View {
             HapticManager.warmUp()
             cameraManager.startSession()
             syncProcessor()
-            // Feed live frames to StylePreviewRenderer so thumbnails can be generated
             cameraManager.processor.onPixelBuffer = stylesViewModel.onFrameAvailable
             UIApplication.shared.isIdleTimerDisabled = true
             Task { await appState.permissionsManager.requestPhotoLibraryAccess() }
             appState.permissionsManager.requestLocationAccess()
-            // Sync persisted timelapse interval into view model
             cameraViewModel.timelapseInterval = timelapseInterval
+            // Wire persisted capture settings
+            cameraManager.captureSettings.captureFormat = CaptureFormat(rawValue: defaultCaptureFormat) ?? .jpeg
+            cameraManager.setProRAWEnabled(isProRAWEnabled)
+            setupVolumeButtonObserver()
         }
         .onDisappear {
+            volumeObservation?.invalidate()
+            volumeObservation = nil
             cameraManager.stopSession()
             UIApplication.shared.isIdleTimerDisabled = false
         }
@@ -268,6 +279,17 @@ struct CameraView: View {
         .onChange(of: timelapseInterval)            { cameraViewModel.timelapseInterval = timelapseInterval }
         .onChange(of: cameraManager.isRecording) { _, recording in
             if recording { recordingBlink.toggle() }
+        }
+        .onChange(of: defaultCaptureFormat) { _, v in
+            cameraManager.captureSettings.captureFormat = CaptureFormat(rawValue: v) ?? .jpeg
+        }
+        .onChange(of: isProRAWEnabled) { _, v in
+            cameraManager.setProRAWEnabled(v)
+        }
+        .onChange(of: volumeButtonBehavior) { _, _ in
+            volumeObservation?.invalidate()
+            volumeObservation = nil
+            setupVolumeButtonObserver()
         }
     }
 
@@ -454,6 +476,10 @@ struct CameraView: View {
     }
 
     private func performCapture() {
+        if cameraViewModel.activeMode == .longExposure {
+            performLongExposureCapture()
+            return
+        }
         HapticManager.shutter()
         let delegate = makeCaptureDelegate()
         activeDelegates[delegate.id] = delegate
@@ -462,6 +488,50 @@ struct CameraView: View {
         } else {
             cameraManager.capturePhoto(delegate: delegate)
         }
+    }
+
+    private func performLongExposureCapture() {
+        guard !cameraManager.processor.isLongExposureCapturing else { return }
+        HapticManager.shutter()
+        let location = appState.permissionsManager.currentLocation
+        let captureFilter = stylesManager.makeCaptureFilter()
+        let capturedCropRatio = cropRatio
+        let capturedWatermark = watermarkText
+
+        cameraManager.processor.beginLongExposureCapture(duration: 4.0) { ciImage in
+            Task { @MainActor in
+                self.saveLongExposureImage(
+                    ciImage, filter: captureFilter,
+                    cropRatio: capturedCropRatio, watermark: capturedWatermark,
+                    location: location
+                )
+            }
+        }
+    }
+
+    private func saveLongExposureImage(_ ciImage: CIImage, filter: LUTFilter?,
+                                        cropRatio: CropRatio, watermark: String,
+                                        location: CLLocation?) {
+        var out = ciImage
+        if let f = filter {
+            f.inputImage = out
+            out = f.outputImage ?? out
+        }
+        guard let sRGB = CGColorSpace(name: CGColorSpace.sRGB),
+              let cg = CIContext.shared.createCGImage(out, from: out.extent, format: .RGBA8, colorSpace: sRGB),
+              let jpeg = UIImage(cgImage: cg).jpegData(compressionQuality: 0.95)
+        else { return }
+
+        var data = jpeg
+        if cropRatio != .full, let cropped = Self.cropImageData(data, to: cropRatio) { data = cropped }
+        if !watermark.isEmpty, let marked = Self.burnWatermark(in: data, text: watermark) { data = marked }
+
+        PHPhotoLibrary.shared().performChanges {
+            PHAssetCreationRequest.forAsset().addResource(with: .photo, data: data, options: nil)
+        } completionHandler: { _, error in
+            if let error { Logger.camera.error("Long exposure save: \(error.localizedDescription)") }
+        }
+        HapticManager.light()
     }
 
     // MARK: - Zoom strip
@@ -582,10 +652,17 @@ struct CameraView: View {
     private var modeAdvisoryLine: some View {
         switch cameraViewModel.activeMode {
         case .longExposure:
-            Text("USE A TRIPOD")
-                .font(.system(size: 9, weight: .medium))
-                .foregroundStyle(.orange.opacity(0.85))
-                .tracking(1.5)
+            if cameraManager.processor.isLongExposureCapturing {
+                Text("CAPTURING…")
+                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                    .foregroundStyle(.orange.opacity(0.9))
+                    .tracking(1.5)
+            } else {
+                Text("4 SEC BLEND — USE A TRIPOD")
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(.orange.opacity(0.85))
+                    .tracking(1.5)
+            }
         case .timelapse:
             HStack(spacing: 8) {
                 if cameraViewModel.isTimelapseActive {
@@ -600,10 +677,17 @@ struct CameraView: View {
             }
             .tracking(1)
         case .portrait:
-            Text("PORTRAIT")
-                .font(.system(size: 9, weight: .medium))
-                .foregroundStyle(.purple.opacity(0.7))
-                .tracking(1.5)
+            if cameraManager.isDepthDataSupported {
+                Text("PORTRAIT")
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(.purple.opacity(0.7))
+                    .tracking(1.5)
+            } else {
+                Text("DEPTH UNAVAILABLE — FLIP TO BACK CAMERA")
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(.red.opacity(0.85))
+                    .tracking(1.5)
+            }
         default:
             EmptyView()
         }
@@ -641,7 +725,7 @@ struct CameraView: View {
     /// Height of each letterbox bar (top and bottom) in screen points, or nil when the preview fills edge-to-edge.
     /// Covers both crop-ratio bars (SwiftUI black bars) and the aspect-fit empty area in "Full" mode.
     private var letterboxBarHeight: CGFloat? {
-        let screen = (UIApplication.shared.connectedScenes.first as? UIWindowScene)?.screen ?? UIScreen.main
+        guard let screen = (UIApplication.shared.connectedScenes.first as? UIWindowScene)?.screen else { return nil }
         let imageSize = cameraManager.previewImageSize
         let imageAspect = imageSize.width > 0 && imageSize.height > 0 ? imageSize.width / imageSize.height : nil
         let barH = cropRatio.letterboxBarHeight(viewSize: screen.bounds.size, imageAspect: imageAspect)
@@ -682,8 +766,10 @@ struct CameraView: View {
         let activeStyle = stylesManager.activeStyle
         let styleIntensity = stylesManager.styleIntensity
         let captureSettings = cameraManager.captureSettings
-        // Snapshot a fresh filter instance at shutter time so it doesn't race with the preview pipeline.
         let captureFilter = stylesManager.makeCaptureFilter()
+        let capturedCropRatio = cropRatio
+        let capturedWatermark = watermarkText
+        let isAnamorphic = cameraManager.processor.isAnamorphicDesqueezeEnabled
         let onShowReview: (CapturedPhoto) -> Void = { [self] photo in
             capturedPhoto = photo
             withAnimation(.easeInOut(duration: 0.3)) { showReview = true }
@@ -696,28 +782,38 @@ struct CameraView: View {
                     return
                 }
 
-                // Bake the LUT into the captured JPEG so the saved photo and review match the viewfinder.
-                // Uses .applyOrientationProperty so portrait photos stay upright, and CGImageDestination
-                // to re-embed all original EXIF/GPS metadata with orientation reset to 1 (upright).
+                // Bake LUT and/or anamorphic desqueeze into captured image.
+                // Portrait photos stay upright via .applyOrientationProperty.
                 let styledData: Data = {
-                    guard let filter = captureFilter, !photo.isRawPhoto,
+                    let needsLUT = captureFilter != nil && !photo.isRawPhoto
+                    let needsDesqueeze = isAnamorphic && !photo.isRawPhoto
+                    guard needsLUT || needsDesqueeze,
                           let source = CGImageSourceCreateWithData(rawData as CFData, nil),
                           let uti = CGImageSourceGetType(source),
                           let ciImage = CIImage(data: rawData, options: [.applyOrientationProperty: true])
                     else { return rawData }
 
-                    filter.inputImage = ciImage
-                    guard let output = filter.outputImage,
-                          let sRGB = CGColorSpace(name: CGColorSpace.sRGB),
+                    var out = ciImage
+
+                    if needsLUT, let filter = captureFilter {
+                        filter.inputImage = out
+                        out = filter.outputImage ?? out
+                    }
+
+                    // Apply 2× horizontal desqueeze to match what the preview showed
+                    if needsDesqueeze {
+                        out = out.transformed(by: CGAffineTransform(scaleX: 2.0, y: 1.0))
+                    }
+
+                    guard let sRGB = CGColorSpace(name: CGColorSpace.sRGB),
                           let cgImage = CIContext.shared.createCGImage(
-                              output, from: output.extent, format: .RGBA8, colorSpace: sRGB)
+                              out, from: out.extent, format: .RGBA8, colorSpace: sRGB)
                     else { return rawData }
 
                     let mutableData = NSMutableData()
                     guard let dest = CGImageDestinationCreateWithData(mutableData, uti, 1, nil)
                     else { return rawData }
 
-                    // Carry original EXIF/GPS/TIFF metadata forward; pixels are now upright so reset orientation.
                     var props = (CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [String: Any]) ?? [:]
                     props[kCGImagePropertyOrientation as String] = 1
                     if var tiff = props[kCGImagePropertyTIFFDictionary as String] as? [String: Any] {
@@ -729,11 +825,22 @@ struct CameraView: View {
                     return mutableData as Data
                 }()
 
+                // Apply crop to match viewfinder ratio (RAW skipped — raw data is always full-frame)
+                var processedData = styledData
+                if !photo.isRawPhoto && capturedCropRatio != .full {
+                    processedData = Self.cropImageData(processedData, to: capturedCropRatio) ?? processedData
+                }
+
+                // Burn watermark text onto non-RAW images
+                if !photo.isRawPhoto && !capturedWatermark.isEmpty {
+                    processedData = Self.burnWatermark(in: processedData, text: capturedWatermark) ?? processedData
+                }
+
                 let dataToSave: Data
                 if let style = activeStyle, !photo.isRawPhoto {
-                    dataToSave = ExifReader.embedStyleTag(in: styledData, styleName: style.name) ?? styledData
+                    dataToSave = ExifReader.embedStyleTag(in: processedData, styleName: style.name) ?? processedData
                 } else {
-                    dataToSave = styledData
+                    dataToSave = processedData
                 }
 
                 saveToPhotoLibrary(data: dataToSave, photo: photo, location: captureLocation)
@@ -741,7 +848,7 @@ struct CameraView: View {
                 guard shouldShowReview else { return }
 
                 let captured = CapturedPhoto(
-                    jpegData: styledData,
+                    jpegData: processedData,
                     captureSettings: captureSettings,
                     appliedStyle: activeStyle,
                     styleIntensity: styleIntensity,
@@ -757,6 +864,99 @@ struct CameraView: View {
                 }
             }
         )
+    }
+
+    // MARK: - Volume button observer
+
+    private func setupVolumeButtonObserver() {
+        guard volumeButtonBehavior != "Disabled" else { return }
+        let session = AVAudioSession.sharedInstance()
+        try? session.setCategory(.playback, options: .mixWithOthers)
+        try? session.setActive(true)
+        volumeObservation = session.observe(\.outputVolume, options: [.old, .new]) { _, change in
+            guard let old = change.oldValue, let new = change.newValue, old != new else { return }
+            Task { @MainActor in self.handleVolumeButton(didIncrease: new > old) }
+        }
+    }
+
+    private func handleVolumeButton(didIncrease: Bool) {
+        switch volumeButtonBehavior {
+        case "Shutter":
+            captureAction()
+        case "Zoom":
+            let delta: CGFloat = didIncrease ? 0.5 : -0.5
+            let newZoom = (cameraViewModel.zoomLevel + delta).fxClamped(to: 0.5...15.0)
+            cameraViewModel.handlePinchZoom(scale: newZoom, velocity: 0)
+        default:
+            break
+        }
+    }
+
+    // MARK: - Image post-processing helpers
+
+    /// Center-crops JPEG data to match the given crop ratio. Metadata is preserved.
+    private static func cropImageData(_ data: Data, to ratio: CropRatio) -> Data? {
+        guard let aspect = ratio.portraitAspect,
+              let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let uti = CGImageSourceGetType(source),
+              let cgImage = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return nil }
+
+        let imgW = CGFloat(cgImage.width)
+        let imgH = CGFloat(cgImage.height)
+        let currentAspect = imgW / imgH
+
+        let cropRect: CGRect
+        if aspect <= currentAspect {
+            // Target is narrower — crop width, keep full height
+            let newW = imgH * aspect
+            cropRect = CGRect(x: (imgW - newW) / 2, y: 0, width: newW, height: imgH)
+        } else {
+            // Target is wider — crop height, keep full width
+            let newH = imgW / aspect
+            cropRect = CGRect(x: 0, y: (imgH - newH) / 2, width: imgW, height: newH)
+        }
+
+        guard let cropped = cgImage.cropping(to: cropRect) else { return nil }
+        let out = NSMutableData()
+        guard let dest = CGImageDestinationCreateWithData(out, uti, 1, nil) else { return nil }
+        var props = (CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [String: Any]) ?? [:]
+        props[kCGImagePropertyOrientation as String] = 1
+        CGImageDestinationAddImage(dest, cropped, props as CFDictionary)
+        guard CGImageDestinationFinalize(dest) else { return nil }
+        return out as Data
+    }
+
+    /// Renders text as a watermark in the bottom-right corner of a JPEG image.
+    private static func burnWatermark(in data: Data, text: String) -> Data? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let uti = CGImageSourceGetType(source),
+              let cgImage = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return nil }
+
+        let size = CGSize(width: cgImage.width, height: cgImage.height)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let rendered = UIGraphicsImageRenderer(size: size, format: format).image { _ in
+            UIImage(cgImage: cgImage).draw(in: CGRect(origin: .zero, size: size))
+            let fontSize = max(24, size.width * 0.022)
+            let attrs: [NSAttributedString.Key: Any] = [
+                .font: UIFont.systemFont(ofSize: fontSize, weight: .semibold),
+                .foregroundColor: UIColor.white.withAlphaComponent(0.65)
+            ]
+            let str = NSAttributedString(string: text, attributes: attrs)
+            let strSize = str.size()
+            let padding = fontSize * 1.4
+            str.draw(at: CGPoint(x: size.width - strSize.width - padding,
+                                 y: size.height - strSize.height - padding))
+        }
+
+        guard let watermarkedCG = rendered.cgImage else { return nil }
+        let out = NSMutableData()
+        guard let dest = CGImageDestinationCreateWithData(out, uti, 1, nil) else { return nil }
+        var props = (CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [String: Any]) ?? [:]
+        props[kCGImagePropertyOrientation as String] = 1
+        CGImageDestinationAddImage(dest, watermarkedCG, props as CFDictionary)
+        guard CGImageDestinationFinalize(dest) else { return nil }
+        return out as Data
     }
 }
 

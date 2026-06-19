@@ -48,9 +48,10 @@ final class StylesViewModel {
 
     /// Called from sessionQueue via CaptureProcessor.onPixelBuffer (~1/s).
     nonisolated func onFrameAvailable(_ pixelBuffer: CVPixelBuffer) {
-        StylePreviewRenderer.shared.updateFrame(pixelBuffer)
-        stylesManager.processFrame(pixelBuffer)
-        Task { @MainActor [weak self] in self?.retryPendingThumbnailsOnce() }
+        Task { @MainActor [weak self] in
+            self?.stylesManager.processFrame(pixelBuffer)
+            self?.retryPendingThumbnailsOnce()
+        }
     }
 
     private var _hasRetriedThumbnails = false
