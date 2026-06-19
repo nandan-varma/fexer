@@ -915,14 +915,16 @@ import Photos
     // MARK: - Frame Rate
 
     func configureVideoFrameRate(_ fps: Int) {
-        guard let device = currentDevice else { return }
-        let targetFPS = Double(fps)
-        let supportedRanges = device.activeFormat.videoSupportedFrameRateRanges
-        guard supportedRanges.contains(where: { $0.maxFrameRate >= targetFPS }) else { return }
-        let cmDuration = CMTimeMake(value: 1, timescale: Int32(targetFPS))
-        device.withLock {
-            device.activeVideoMinFrameDuration = cmDuration
-            device.activeVideoMaxFrameDuration = cmDuration
+        sessionQueue.async { [self] in
+            guard let device = currentDevice else { return }
+            let targetFPS = Double(fps)
+            let supportedRanges = device.activeFormat.videoSupportedFrameRateRanges
+            guard supportedRanges.contains(where: { $0.maxFrameRate >= targetFPS }) else { return }
+            let cmDuration = CMTimeMake(value: 1, timescale: Int32(targetFPS))
+            device.withLock {
+                device.activeVideoMinFrameDuration = cmDuration
+                device.activeVideoMaxFrameDuration = cmDuration
+            }
         }
     }
 

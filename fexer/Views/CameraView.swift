@@ -4,7 +4,7 @@ import CoreImage
 import ImageIO
 import Photos
 import OSLog
-import MediaPlayer
+
 
 struct CameraView: View {
     @State private var cameraManager: CameraManager
@@ -73,23 +73,23 @@ struct CameraView: View {
     }
 
     private var mainContent: some View {
-        let z = ZStack {
+        let core = ZStack {
             AnyView(baseLayer)
             AnyView(hudOverlayLayer)
             AnyView(controlLayer)
             AnyView(modalOverlayLayer)
         }
-        let a = z
+        let styleStack = core
             .statusBarHidden()
             .persistentSystemOverlays(.hidden)
             .preferredColorScheme(.dark)
             .gesture(swipeUpGesture)
-        let b = a
+        let sheetWrapper = styleStack
             .sheet(isPresented: $showSettings) {
                 SettingsView(cameraManager: cameraManager, stylesManager: stylesManager)
                     .environment(appState)
             }
-        let c = b
+        let lifecycle = sheetWrapper
             .onAppear { onCameraViewAppear() }
             .onDisappear { onCameraViewDisappear() }
             .onChange(of: stylesManager.activeStyle)    { syncProcessor() }
@@ -97,7 +97,7 @@ struct CameraView: View {
             .onChange(of: showFocusPeaking)             { syncProcessor() }
             .onChange(of: showZebra)                    { syncProcessor() }
             .onChange(of: showFalseColor)               { syncProcessor() }
-        let d = c
+        let features = lifecycle
             .onChange(of: focusPeakingColor)            { syncProcessor() }
             .onChange(of: isCleanViewActive)            { syncProcessor() }
             .onChange(of: cameraViewModel.isPanelExpanded) { _, expanded in
@@ -120,7 +120,7 @@ struct CameraView: View {
                     }
                 }
             }
-        let e = d
+        let captureBindings = features
             .onChange(of: cameraViewModel.isAELocked) { _, locked in
                 aelToastTask?.cancel()
                 withAnimation(.easeIn(duration: 0.15)) {
@@ -146,11 +146,11 @@ struct CameraView: View {
                 volumeObservation = nil
                 setupVolumeButtonObserver()
             }
-        let f = e
+        let settingsSync = captureBindings
             .onChange(of: videoFrameRate) { _, fps in
                 cameraManager.configureVideoFrameRate(fps)
             }
-        return f
+        return settingsSync
     }
 
     // MARK: - Body sub-layers (type-checker optimization)
@@ -1245,66 +1245,4 @@ extension Logger {
     nonisolated static let camera = Logger(subsystem: "com.nandanvarma.fexer", category: "camera")
 }
 
-// MARK: - Supporting types
 
-struct ShutterButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .scaleEffect(configuration.isPressed ? 0.9 : 1.0)
-            .animation(.easeInOut(duration: 0.08), value: configuration.isPressed)
-    }
-}
-
-final class CapturePhotoDelegate: NSObject, AVCapturePhotoCaptureDelegate {
-    let id: UUID
-    private let onProcessed: (AVCapturePhoto, Bool) -> Void
-    private let onCaptureDone: (UUID) -> Void
-
-    init(id: UUID = UUID(),
-         onProcessed: @escaping (AVCapturePhoto, Bool) -> Void,
-         onCaptureDone: @escaping (UUID) -> Void) {
-        self.id = id
-        self.onProcessed = onProcessed
-        self.onCaptureDone = onCaptureDone
-    }
-
-    func photoOutput(_ output: AVCapturePhotoOutput,
-                     didFinishProcessingPhoto photo: AVCapturePhoto,
-                     error: Error?) {
-        if let error {
-            Logger.camera.error("Capture error: \(error.localizedDescription)")
-            return
-        }
-        var shouldShowReview = true
-        // RAW in a RAW+JPEG capture: expectedPhotoCount == 2 means JPEG will follow
-        if photo.isRawPhoto && photo.resolvedSettings.expectedPhotoCount > 1 {
-            shouldShowReview = false
-        }
-        // Bracketed capture: only show review for the EV-0 frame
-        if let auto = photo.bracketSettings
-            as? AVCaptureAutoExposureBracketedStillImageSettings {
-            shouldShowReview = abs(auto.exposureTargetBias) < 0.01
-        }
-        onProcessed(photo, shouldShowReview)
-    }
-
-    func photoOutput(_ output: AVCapturePhotoOutput,
-                     didFinishCaptureFor resolvedSettings: AVCaptureResolvedPhotoSettings,
-                     error: Error?) {
-        onCaptureDone(id)
-    }
-}
-
-// MARK: - Volume HUD suppressor
-
-/// Adds a zero-size MPVolumeView to the UIKit hierarchy so the system knows
-/// the app is managing volume display itself, suppressing the built-in HUD.
-private struct VolumeHUDSuppressor: UIViewRepresentable {
-    func makeUIView(context: Context) -> MPVolumeView {
-        let view = MPVolumeView()
-        view.alpha = 0.001
-        view.isUserInteractionEnabled = false
-        return view
-    }
-    func updateUIView(_ uiView: MPVolumeView, context: Context) {}
-}

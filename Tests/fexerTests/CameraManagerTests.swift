@@ -188,13 +188,3 @@ class CameraManagerTests: XCTestCase {
         XCTAssertTrue(QuickAccessItem.allCases.contains(.flipCamera))
     }
 }
-
-// MARK: - Helper Extensions for Testing
-
-extension AVCaptureDevice {
-    static func mockDevice() -> AVCaptureDevice {
-        // This is a mock implementation for testing
-        // In a real test environment, you would need proper mocking
-        fatalError("Use dependency injection for testing")
-    }
-}

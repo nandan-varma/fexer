@@ -111,17 +111,6 @@ class StylePreviewRendererTests: XCTestCase {
         
         XCTAssertEqual(renderer1, renderer2)
     }
-    
-    func testUpdateFrameNoOp() {
-        // The renderer should have a no-op updateFrame method
-        // This is intentional as previews now use a bundled sample image
-        let pixelBuffer = nil as CVPixelBuffer?
-        
-        // This should not crash
-        renderer.updateFrame(pixelBuffer)
-        XCTAssertTrue(true)
-    }
-}
 
 class StylesManagerTests: XCTestCase {
     var stylesManager: StylesManager!

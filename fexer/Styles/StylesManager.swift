@@ -28,29 +28,10 @@ final class StylesManager {
         didSet { sceneClassifier.isEnabled = isSmartStylesEnabled }
     }
 
-    // Called from CaptureProcessor on sessionQueue — returns filter configured for this frame
-    func activeLUTFilter() -> LUTFilter? {
-        guard let style = activeStyle else { return nil }
-        guard let (data, dim) = lutLoader.effectiveLUT(for: style) else { return nil }
-        lutFilter.setStyle(name: style.name, data: data, dimension: dim)
-        lutFilter.inputIntensity = styleIntensity
+    // MARK: - LUT Filter Configuration
 
-        let p = StyleTransforms.params(for: style)
-        lutFilter.isBW = (p.saturation == 0)
-        lutFilter.adjExposure   = adjustments.exposure
-        lutFilter.adjContrast   = adjustments.contrast
-        lutFilter.adjSaturation = lutFilter.isBW ? 0 : adjustments.saturation
-        lutFilter.adjWarmth     = adjustments.warmth
-
-        return lutFilter
-    }
-
-    /// Returns a fresh LUTFilter configured for the current style, for baking into a still capture.
-    /// Creates a new instance each call to avoid racing with the shared preview-pipeline filter.
-    func makeCaptureFilter() -> LUTFilter? {
-        guard let style = activeStyle else { return nil }
-        guard let (data, dim) = lutLoader.effectiveLUT(for: style) else { return nil }
-        let filter = LUTFilter()
+    private func configureFilter(_ filter: LUTFilter, for style: PhotoStyle) {
+        guard let (data, dim) = lutLoader.effectiveLUT(for: style) else { return }
         filter.setStyle(name: style.name, data: data, dimension: dim)
         filter.inputIntensity = styleIntensity
         let p = StyleTransforms.params(for: style)
@@ -59,6 +40,23 @@ final class StylesManager {
         filter.adjContrast   = adjustments.contrast
         filter.adjSaturation = filter.isBW ? 0 : adjustments.saturation
         filter.adjWarmth     = adjustments.warmth
+    }
+
+    // Called from CaptureProcessor on sessionQueue — returns filter configured for this frame
+    func activeLUTFilter() -> LUTFilter? {
+        guard let style = activeStyle else { return nil }
+        guard lutLoader.effectiveLUT(for: style) != nil else { return nil }
+        configureFilter(lutFilter, for: style)
+        return lutFilter
+    }
+
+    /// Returns a fresh LUTFilter configured for the current style, for baking into a still capture.
+    /// Creates a new instance each call to avoid racing with the shared preview-pipeline filter.
+    func makeCaptureFilter() -> LUTFilter? {
+        guard let style = activeStyle else { return nil }
+        guard lutLoader.effectiveLUT(for: style) != nil else { return nil }
+        let filter = LUTFilter()
+        configureFilter(filter, for: style)
         return filter
     }
 

@@ -1,5 +1,4 @@
 import Vision
-import CoreML
 import AVFoundation
 import Observation
 import OSLog
