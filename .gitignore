@@ -29,3 +29,6 @@ Podfile.lock
 .DS_Store
 .AppleDouble
 .LSOverride
+
+# claude
+.claude/
