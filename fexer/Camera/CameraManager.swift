@@ -480,7 +480,9 @@ import UIKit
 
             let settings = makePhotoSettings(format: captureSettings.captureFormat)
             settings.flashMode = flashMode
-            settings.photoQualityPrioritization = .quality
+            settings.photoQualityPrioritization = photoOutput.maxPhotoQualityPrioritization.rawValue >= AVCapturePhotoOutput.QualityPrioritization.quality.rawValue
+                ? .quality
+                : photoOutput.maxPhotoQualityPrioritization
             photoOutput.capturePhoto(with: settings, delegate: delegate)
         }
     }

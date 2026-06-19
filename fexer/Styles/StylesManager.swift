@@ -45,6 +45,23 @@ final class StylesManager {
         return lutFilter
     }
 
+    /// Returns a fresh LUTFilter configured for the current style, for baking into a still capture.
+    /// Creates a new instance each call to avoid racing with the shared preview-pipeline filter.
+    func makeCaptureFilter() -> LUTFilter? {
+        guard let style = activeStyle else { return nil }
+        guard let (data, dim) = lutLoader.effectiveLUT(for: style) else { return nil }
+        let filter = LUTFilter()
+        filter.setStyle(name: style.name, data: data, dimension: dim)
+        filter.inputIntensity = styleIntensity
+        let p = StyleTransforms.params(for: style)
+        filter.isBW = (p.saturation == 0)
+        filter.adjExposure   = adjustments.exposure
+        filter.adjContrast   = adjustments.contrast
+        filter.adjSaturation = filter.isBW ? 0 : adjustments.saturation
+        filter.adjWarmth     = adjustments.warmth
+        return filter
+    }
+
     func selectStyle(_ style: PhotoStyle?) {
         let newStyle = (style?.id == PhotoStyle.none.id) ? nil : style
         if newStyle?.id != activeStyle?.id {

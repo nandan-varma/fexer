@@ -25,7 +25,12 @@ struct QuickAccessBar: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
         }
-        .background(.black.opacity(0.45))
+        .background(.ultraThinMaterial.opacity(0.85))
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(.white.opacity(0.06))
+                .frame(height: 0.5)
+        }
     }
 
     @ViewBuilder
@@ -38,11 +43,14 @@ struct QuickAccessBar: View {
                 Image(systemName: iconName(for: item))
                     .font(.system(size: 17, weight: .medium))
                     .foregroundStyle(active ? Color.yellow : Color.white.opacity(0.6))
+                    .contentTransition(.symbolEffect(.replace))
+                    .animation(.easeInOut(duration: 0.15), value: active)
                     .frame(width: 44, height: 38)
                     .background(
                         active ? Color.yellow.opacity(0.18) : Color.white.opacity(0.06),
                         in: RoundedRectangle(cornerRadius: 9, style: .continuous)
                     )
+                    .animation(.easeInOut(duration: 0.15), value: active)
 
                 if let bdg {
                     Text(bdg)

@@ -1,5 +1,7 @@
 import SwiftUI
 import AVFoundation
+import CoreImage
+import ImageIO
 import OSLog
 
 struct CameraView: View {
@@ -164,23 +166,34 @@ struct CameraView: View {
             VStack(spacing: 0) {
                 Spacer()
 
-                if showStylePicker {
-                    StylePickerView(stylesViewModel: stylesViewModel, isExpanded: false,
-                                   onAdjust: { syncProcessor() })
-                        .padding(.bottom, 8)
+                // Gradient backdrop starts above the lens/shutter row for legibility
+                VStack(spacing: 0) {
+                    if showStylePicker {
+                        StylePickerView(stylesViewModel: stylesViewModel, isExpanded: false,
+                                       onAdjust: { syncProcessor() })
+                            .padding(.bottom, 6)
+                    }
+
+                    if showShootingModes {
+                        shootingModePicker
+                            .padding(.bottom, 8)
+                    }
+
+                    lensSwitcherRow
+                        .padding(.bottom, 16)
+
+                    shutterRow
+                        .padding(.horizontal, 28)
+                        .padding(.bottom, max(34, 0))
                 }
-
-                if showShootingModes {
-                    shootingModePicker
-                        .padding(.bottom, 8)
-                }
-
-                lensSwitcherRow
-                    .padding(.bottom, 14)
-
-                shutterRow
-                    .padding(.horizontal, 32)
-                    .padding(.bottom, max(34, 0))
+                .background(
+                    LinearGradient(
+                        colors: [.clear, .black.opacity(0.55)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                    .ignoresSafeArea(edges: .bottom)
+                )
             }
 
             // ── Manual controls panel ────────────────────────────────────────────
@@ -253,7 +266,7 @@ struct CameraView: View {
         .onChange(of: showFalseColor)               { syncProcessor() }
         .onChange(of: focusPeakingColor)            { syncProcessor() }
         .onChange(of: timelapseInterval)            { cameraViewModel.timelapseInterval = timelapseInterval }
-        .onChange(of: cameraManager.isRecording) { recording in
+        .onChange(of: cameraManager.isRecording) { _, recording in
             if recording { recordingBlink.toggle() }
         }
     }
@@ -261,13 +274,21 @@ struct CameraView: View {
     // MARK: - Shutter row
 
     private var shutterRow: some View {
-        HStack {
+        HStack(alignment: .center) {
             if showGallery {
                 Button { appState.currentScreen = .gallery } label: {
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(.white.opacity(0.15))
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(.white.opacity(0.12))
                         .frame(width: 52, height: 52)
-                        .overlay(Image(systemName: "photo.stack").font(.system(size: 22)).foregroundStyle(.white))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .stroke(.white.opacity(0.15), lineWidth: 0.5)
+                        )
+                        .overlay(
+                            Image(systemName: "photo.stack")
+                                .font(.system(size: 20, weight: .medium))
+                                .foregroundStyle(.white.opacity(0.9))
+                        )
                 }
             } else {
                 Spacer().frame(width: 52, height: 52)
@@ -490,10 +511,10 @@ struct CameraView: View {
     /// Horizontally scrollable shooting mode selector with advisory label below.
     private var shootingModePicker: some View {
         VStack(spacing: 4) {
-            // Advisory / status line appears above the mode scroll
+            // Advisory / status line
             modeAdvisoryLine
 
-            // Scrollable mode tabs
+            // Scrollable mode tabs with frosted glass background
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 0) {
                     ForEach(Array(ShootingMode.allCases.enumerated()), id: \.offset) { idx, mode in
@@ -507,30 +528,31 @@ struct CameraView: View {
                         } label: {
                             VStack(spacing: 3) {
                                 HStack(spacing: 4) {
-                                    if mode == .night { // night moon badge
+                                    if mode == .night {
                                         Image(systemName: "moon.fill")
                                             .font(.system(size: 8))
                                             .foregroundStyle(.yellow)
                                             .opacity(isActive ? 1 : 0)
                                     }
                                     Text(mode.rawValue.uppercased())
-                                        .font(.system(size: 10, weight: isActive ? .bold : .medium))
-                                        .foregroundStyle(isActive ? .yellow : .white.opacity(0.5))
-                                        .tracking(1.5)
+                                        .font(.system(size: 10, weight: isActive ? .bold : .semibold))
+                                        .foregroundStyle(isActive ? .yellow : .white.opacity(0.45))
+                                        .tracking(1.2)
                                 }
-                                // Underline for active tab
                                 Capsule()
                                     .fill(isActive ? Color.yellow : Color.clear)
                                     .frame(height: 2)
                             }
                             .padding(.horizontal, 10)
-                            .padding(.vertical, 4)
+                            .padding(.vertical, 5)
                         }
                         .buttonStyle(.plain)
                     }
                 }
-                .padding(.horizontal, 12)
+                .padding(.horizontal, 8)
             }
+            .background(.ultraThinMaterial.opacity(0.5), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .padding(.horizontal, 8)
         }
     }
 
@@ -619,7 +641,7 @@ struct CameraView: View {
     /// Height of each letterbox bar (top and bottom) in screen points, or nil when the preview fills edge-to-edge.
     /// Covers both crop-ratio bars (SwiftUI black bars) and the aspect-fit empty area in "Full" mode.
     private var letterboxBarHeight: CGFloat? {
-        let screen = UIScreen.main
+        let screen = (UIApplication.shared.connectedScenes.first as? UIWindowScene)?.screen ?? UIScreen.main
         let imageSize = cameraManager.previewImageSize
         let imageAspect = imageSize.width > 0 && imageSize.height > 0 ? imageSize.width / imageSize.height : nil
         let barH = cropRatio.letterboxBarHeight(viewSize: screen.bounds.size, imageAspect: imageAspect)
@@ -660,6 +682,8 @@ struct CameraView: View {
         let activeStyle = stylesManager.activeStyle
         let styleIntensity = stylesManager.styleIntensity
         let captureSettings = cameraManager.captureSettings
+        // Snapshot a fresh filter instance at shutter time so it doesn't race with the preview pipeline.
+        let captureFilter = stylesManager.makeCaptureFilter()
         let onShowReview: (CapturedPhoto) -> Void = { [self] photo in
             capturedPhoto = photo
             withAnimation(.easeInOut(duration: 0.3)) { showReview = true }
@@ -672,11 +696,44 @@ struct CameraView: View {
                     return
                 }
 
+                // Bake the LUT into the captured JPEG so the saved photo and review match the viewfinder.
+                // Uses .applyOrientationProperty so portrait photos stay upright, and CGImageDestination
+                // to re-embed all original EXIF/GPS metadata with orientation reset to 1 (upright).
+                let styledData: Data = {
+                    guard let filter = captureFilter, !photo.isRawPhoto,
+                          let source = CGImageSourceCreateWithData(rawData as CFData, nil),
+                          let uti = CGImageSourceGetType(source),
+                          let ciImage = CIImage(data: rawData, options: [.applyOrientationProperty: true])
+                    else { return rawData }
+
+                    filter.inputImage = ciImage
+                    guard let output = filter.outputImage,
+                          let sRGB = CGColorSpace(name: CGColorSpace.sRGB),
+                          let cgImage = CIContext.shared.createCGImage(
+                              output, from: output.extent, format: .RGBA8, colorSpace: sRGB)
+                    else { return rawData }
+
+                    let mutableData = NSMutableData()
+                    guard let dest = CGImageDestinationCreateWithData(mutableData, uti, 1, nil)
+                    else { return rawData }
+
+                    // Carry original EXIF/GPS/TIFF metadata forward; pixels are now upright so reset orientation.
+                    var props = (CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [String: Any]) ?? [:]
+                    props[kCGImagePropertyOrientation as String] = 1
+                    if var tiff = props[kCGImagePropertyTIFFDictionary as String] as? [String: Any] {
+                        tiff[kCGImagePropertyTIFFOrientation as String] = 1
+                        props[kCGImagePropertyTIFFDictionary as String] = tiff
+                    }
+                    CGImageDestinationAddImage(dest, cgImage, props as CFDictionary)
+                    guard CGImageDestinationFinalize(dest) else { return rawData }
+                    return mutableData as Data
+                }()
+
                 let dataToSave: Data
                 if let style = activeStyle, !photo.isRawPhoto {
-                    dataToSave = ExifReader.embedStyleTag(in: rawData, styleName: style.name) ?? rawData
+                    dataToSave = ExifReader.embedStyleTag(in: styledData, styleName: style.name) ?? styledData
                 } else {
-                    dataToSave = rawData
+                    dataToSave = styledData
                 }
 
                 saveToPhotoLibrary(data: dataToSave, photo: photo, location: captureLocation)
@@ -684,7 +741,7 @@ struct CameraView: View {
                 guard shouldShowReview else { return }
 
                 let captured = CapturedPhoto(
-                    jpegData: rawData,
+                    jpegData: styledData,
                     captureSettings: captureSettings,
                     appliedStyle: activeStyle,
                     styleIntensity: styleIntensity,
@@ -706,7 +763,7 @@ struct CameraView: View {
 // MARK: - Logger
 
 extension Logger {
-    static let camera = Logger(subsystem: "com.nandanvarma.fexer", category: "camera")
+    nonisolated static let camera = Logger(subsystem: "com.nandanvarma.fexer", category: "camera")
 }
 
 // MARK: - Supporting types

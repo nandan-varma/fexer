@@ -92,12 +92,14 @@ struct ManualControlsPanel: View {
     private var handle: some View {
         ZStack {
             // Center pill — tapping it dismisses the panel
-            RoundedRectangle(cornerRadius: 2.5)
-                .fill(.white.opacity(0.3))
-                .frame(width: 36, height: 5)
-                .frame(maxWidth: .infinity)
-                .contentShape(Rectangle())
-                .onTapGesture { onDismiss?() }
+            VStack(spacing: 6) {
+                RoundedRectangle(cornerRadius: 2.5)
+                    .fill(.white.opacity(0.28))
+                    .frame(width: 36, height: 5)
+            }
+            .frame(maxWidth: .infinity)
+            .contentShape(Rectangle())
+            .onTapGesture { onDismiss?() }
 
             HStack {
                 // Metering mode cycling button — top-left
@@ -106,33 +108,37 @@ struct ManualControlsPanel: View {
                     cameraManager.setMeteringMode(next)
                     HapticManager.selectionChanged()
                 } label: {
-                    HStack(spacing: 4) {
+                    HStack(spacing: 5) {
                         Image(systemName: cameraManager.captureSettings.meteringMode.systemImage)
-                            .font(.system(size: 12))
-                        Text(cameraManager.captureSettings.meteringMode.rawValue)
-                            .font(.system(size: 10, weight: .semibold))
-                            .tracking(0.5)
+                            .font(.system(size: 11, weight: .medium))
+                        Text(cameraManager.captureSettings.meteringMode.rawValue.uppercased())
+                            .font(.system(size: 9, weight: .semibold))
+                            .tracking(0.8)
                     }
-                    .foregroundStyle(.white.opacity(0.55))
+                    .foregroundStyle(.white.opacity(0.5))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(.white.opacity(0.07), in: Capsule())
                     .frame(height: 36)
                     .contentShape(Rectangle())
                 }
-                .padding(.leading, 14)
+                .padding(.leading, 12)
 
                 Spacer()
 
                 // Settings gear — top-right
                 Button { onSettings?() } label: {
-                    Image(systemName: "gearshape")
-                        .font(.system(size: 16))
-                        .foregroundStyle(.white.opacity(0.55))
+                    Image(systemName: "gearshape.fill")
+                        .font(.system(size: 15))
+                        .foregroundStyle(.white.opacity(0.5))
                         .frame(width: 36, height: 36)
+                        .background(.white.opacity(0.07), in: Circle())
                         .contentShape(Rectangle())
                 }
-                .padding(.trailing, 14)
+                .padding(.trailing, 12)
             }
         }
-        .padding(.top, 6)
+        .padding(.top, 8)
         .padding(.bottom, 10)
     }
 
