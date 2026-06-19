@@ -83,10 +83,15 @@ final class CaptureProcessor: NSObject {
     // Long exposure frame accumulation — all mutable state below is sessionQueue-only
     // except longExpActiveLock (read/written from caller + sessionQueue)
     private let longExpActiveLock = OSAllocatedUnfairLock(initialState: false)
+    // Capped at 60 frames (sampled every 4th at 60fps ≈ 15fps), so peak memory stays ~480 MB
+    // instead of the ~1.9 GB that 240 raw frames at 8 MB each would require.
     private var longExpFrames: [CIImage] = []
     private var longExpStart: CFTimeInterval = 0
     var longExpDuration: Double = 4.0
     var onLongExposureComplete: ((CIImage) -> Void)?
+
+    private let kLongExpMaxFrames = 60
+    private let kLongExpFrameSkip = 4  // sample every 4th frame → ~15 fps from 60 fps input
 
     var isLongExposureCapturing: Bool { longExpActiveLock.withLock { $0 } }
 
@@ -144,10 +149,13 @@ extension CaptureProcessor: AVCaptureVideoDataOutputSampleBufferDelegate {
         }
         let rawImage = image  // snapshot before filter chain for histogram
 
-        // Long exposure: accumulate frames for frame-averaged blend
+        // Long exposure: subsample frames to cap memory (kLongExpMaxFrames × ~8 MB ≈ 480 MB).
+        // Taking every kLongExpFrameSkip-th frame gives ~15 fps sampling from 60 fps input.
         if longExpActiveLock.withLock({ $0 }) {
             if longExpFrames.isEmpty { longExpStart = CACurrentMediaTime() }
-            longExpFrames.append(rawImage)
+            if frameCount % kLongExpFrameSkip == 0 && longExpFrames.count < kLongExpMaxFrames {
+                longExpFrames.append(rawImage)
+            }
             if CACurrentMediaTime() - longExpStart >= longExpDuration {
                 longExpActiveLock.withLock { $0 = false }
                 let frames = longExpFrames

@@ -8,6 +8,7 @@ import OSLog
 /// Runs inference at ~2fps; debounces suggestions to avoid flickering.
 @Observable
 final class SceneClassifier {
+    private static let log = Logger(subsystem: "com.nandanvarma.fexer", category: "camera")
     var suggestedStyle: PhotoStyle?
     var isEnabled = true
 
@@ -49,8 +50,7 @@ final class SceneClassifier {
 
         let request = VNClassifyImageRequest { [weak self] request, error in
             if let error {
-                Logger(subsystem: "com.nandanvarma.fexer", category: "camera")
-                    .error("Scene classification failed: \(error.localizedDescription)")
+                Self.log.error("Scene classification failed: \(error.localizedDescription)")
                 return
             }
             guard let results = request.results as? [VNClassificationObservation],
@@ -64,8 +64,7 @@ final class SceneClassifier {
         do {
             try handler.perform([request])
         } catch {
-            Logger(subsystem: "com.nandanvarma.fexer", category: "camera")
-                .error("VNImageRequestHandler.perform failed: \(error.localizedDescription)")
+            Self.log.error("VNImageRequestHandler.perform failed: \(error.localizedDescription)")
         }
     }
 

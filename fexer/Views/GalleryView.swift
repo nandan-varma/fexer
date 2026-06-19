@@ -4,8 +4,6 @@ import Photos
 struct GalleryView: View {
     @Environment(AppState.self) var appState
     @State private var galleryViewModel = GalleryViewModel()
-    @State private var selectedPhoto: UIImage?
-    @State private var showDetail = false
 
     private let columns = [
         GridItem(.flexible(), spacing: 2),

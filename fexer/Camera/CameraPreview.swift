@@ -74,26 +74,15 @@ struct CameraPreview: UIViewRepresentable {
             view.addGestureRecognizer(pan)
         }
 
-        private let mtlDevice: MTLDevice = {
-            guard let device = MTLCreateSystemDefaultDevice() else {
-                fatalError("Metal is not available on this device")
-            }
-            return device
-        }()
-        private let sRGB: CGColorSpace = {
-            guard let cs = CGColorSpace(name: CGColorSpace.sRGB) else {
-                fatalError("sRGB color space unavailable")
-            }
-            return cs
-        }()
+        // Optional so Metal or colorspace unavailability degrades gracefully instead of crashing.
+        private let mtlDevice: MTLDevice? = MTLCreateSystemDefaultDevice()
+        private let sRGB: CGColorSpace? = CGColorSpace(name: CGColorSpace.sRGB)
         private var cachedBlackBG: CIImage?
         private var cachedBlackBGSize: CGSize = .zero
 
         private lazy var ciContext: CIContext = CIContext.shared
 
-        private lazy var commandQueue: MTLCommandQueue? = {
-            mtlDevice.makeCommandQueue()
-        }()
+        private lazy var commandQueue: MTLCommandQueue? = mtlDevice?.makeCommandQueue()
 
         init(cameraManager: CameraManager) {
             self.cameraManager = cameraManager
@@ -105,7 +94,8 @@ struct CameraPreview: UIViewRepresentable {
             guard let drawable = view.currentDrawable,
                   let commandQueue,
                   let commandBuffer = commandQueue.makeCommandBuffer(),
-                  let image = cameraManager.processor.getLatestImage()
+                  let image = cameraManager.processor.getLatestImage(),
+                  let sRGB
             else { return }
 
             let drawableSize = view.drawableSize

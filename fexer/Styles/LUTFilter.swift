@@ -1,4 +1,5 @@
 import CoreImage
+import OSLog
 
 final class LUTFilter: CIFilter {
     var inputImage: CIImage?
@@ -17,22 +18,21 @@ final class LUTFilter: CIFilter {
     private var lutDimension: Int = 33
     private var styleName: String = ""
 
-    private lazy var colorCubeFilter: CIFilter    = Self.makeFilter("CIColorCubeWithColorSpace")
-    private lazy var dissolveFilter: CIFilter      = Self.makeFilter("CIDissolveTransition")
-    private lazy var exposureFilter: CIFilter      = Self.makeFilter("CIExposureAdjust")
-    private lazy var colorControlsFilter: CIFilter = Self.makeFilter("CIColorControls")
-    private lazy var tempTintFilter: CIFilter      = Self.makeFilter("CITemperatureAndTint")
+    // Optional so a missing filter name degrades gracefully (returns input unchanged) instead of crashing.
+    private lazy var colorCubeFilter: CIFilter?    = Self.makeFilter("CIColorCubeWithColorSpace")
+    private lazy var dissolveFilter: CIFilter?      = Self.makeFilter("CIDissolveTransition")
+    private lazy var exposureFilter: CIFilter?      = Self.makeFilter("CIExposureAdjust")
+    private lazy var colorControlsFilter: CIFilter? = Self.makeFilter("CIColorControls")
+    private lazy var tempTintFilter: CIFilter?      = Self.makeFilter("CITemperatureAndTint")
 
-    private static let sRGB: CGColorSpace = {
-        guard let cs = CGColorSpace(name: CGColorSpace.sRGB) else {
-            fatalError("sRGB color space unavailable")
-        }
-        return cs
-    }()
+    // Falls back to device RGB if sRGB is unavailable — colour accuracy degrades but won't crash.
+    private static let sRGB: CGColorSpace =
+        CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
 
-    private static func makeFilter(_ name: String) -> CIFilter {
+    private static func makeFilter(_ name: String) -> CIFilter? {
         guard let filter = CIFilter(name: name) else {
-            fatalError("CIFilter \(name) is not available on this device")
+            Logger.camera.error("CIFilter '\(name)' unavailable — step will be skipped")
+            return nil
         }
         return filter
     }
@@ -56,6 +56,8 @@ final class LUTFilter: CIFilter {
         guard let input = inputImage else { return nil }
         guard let lut = lutData, inputIntensity > 0.001 else { return input }
 
+        // If the colour-cube filter is unavailable, pass the image through unchanged.
+        guard let colorCubeFilter else { return input }
         colorCubeFilter.setValue(input,          forKey: "inputImage")
         colorCubeFilter.setValue(lutDimension,   forKey: "inputCubeDimension")
         colorCubeFilter.setValue(lut,            forKey: "inputCubeData")
@@ -68,37 +70,39 @@ final class LUTFilter: CIFilter {
         var blended: CIImage
         if isBW || inputIntensity >= 0.999 {
             blended = lutOutput
-        } else {
+        } else if let dissolveFilter {
             dissolveFilter.setValue(input,          forKey: "inputImage")
             dissolveFilter.setValue(lutOutput,      forKey: "inputTargetImage")
             dissolveFilter.setValue(inputIntensity, forKey: "inputTime")
             blended = dissolveFilter.outputImage ?? lutOutput
+        } else {
+            blended = lutOutput
         }
 
-        // Post-LUT adjustments
+        // Post-LUT adjustments — each step is skipped if its filter is unavailable.
         var result = blended
 
-        if adjExposure != 0 {
+        if adjExposure != 0, let exposureFilter {
             exposureFilter.setValue(result,      forKey: "inputImage")
             exposureFilter.setValue(adjExposure, forKey: "inputEV")
             result = exposureFilter.outputImage ?? result
         }
 
         let targetSat = isBW ? 1.0 : Float(1.0 + adjSaturation)
-        if adjContrast != 0 || (!isBW && adjSaturation != 0) {
-            colorControlsFilter.setValue(result,                 forKey: "inputImage")
-            colorControlsFilter.setValue(targetSat,             forKey: "inputSaturation")
-            colorControlsFilter.setValue(0.0,                   forKey: "inputBrightness")
-            colorControlsFilter.setValue(1.0 + adjContrast,     forKey: "inputContrast")
+        if (adjContrast != 0 || (!isBW && adjSaturation != 0)), let colorControlsFilter {
+            colorControlsFilter.setValue(result,             forKey: "inputImage")
+            colorControlsFilter.setValue(targetSat,          forKey: "inputSaturation")
+            colorControlsFilter.setValue(0.0,                forKey: "inputBrightness")
+            colorControlsFilter.setValue(1.0 + adjContrast,  forKey: "inputContrast")
             result = colorControlsFilter.outputImage ?? result
         }
 
         // CITemperatureAndTint: inputTargetNeutral > 6500 warms; < 6500 cools.
-        if adjWarmth != 0 {
+        if adjWarmth != 0, let tempTintFilter {
             let targetTemp = CGFloat(6500 + adjWarmth * 3000)
-            tempTintFilter.setValue(result,                                  forKey: "inputImage")
-            tempTintFilter.setValue(LUTFilter.neutralD65,                    forKey: "inputNeutral")
-            tempTintFilter.setValue(CIVector(x: targetTemp, y: 0),          forKey: "inputTargetNeutral")
+            tempTintFilter.setValue(result,                         forKey: "inputImage")
+            tempTintFilter.setValue(LUTFilter.neutralD65,           forKey: "inputNeutral")
+            tempTintFilter.setValue(CIVector(x: targetTemp, y: 0),  forKey: "inputTargetNeutral")
             result = tempTintFilter.outputImage ?? result
         }
 
