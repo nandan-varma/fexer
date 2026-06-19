@@ -455,7 +455,7 @@ import Foundation
 
             let settings = makePhotoSettings(format: captureSettings.captureFormat)
             settings.flashMode = flashMode
-            settings.photoQualityPrioritization = .quality
+            settings.photoQualityPrioritization = photoOutput.maxPhotoQualityPrioritization
             photoOutput.capturePhoto(with: settings, delegate: delegate)
         }
     }

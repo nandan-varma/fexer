@@ -83,10 +83,17 @@ struct CameraView: View {
                 .allowsHitTesting(false)
             }
 
+            // ── Quick-access bar — top of viewfinder ────────────────────────────
+            VStack {
+                QuickAccessBar(cameraManager: cameraManager)
+                    .environment(appState)
+                Spacer()
+            }
+
             // ── Histogram — stays inside preview area ────────────────────────────
             if showHistogram && !cameraViewModel.histogram.red.isEmpty {
                 HistogramView(data: cameraViewModel.histogram)
-                    .padding(.top, max(60, (letterboxBarHeight ?? 0) + 16))
+                    .padding(.top, max(60, (letterboxBarHeight ?? 0) + 16) + CameraView.quickBarHeight)
                     .padding(.leading, 16)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                     .allowsHitTesting(false)
@@ -149,6 +156,17 @@ struct CameraView: View {
                 }
                 .transition(.move(edge: .trailing).combined(with: .opacity))
                 .zIndex(10)
+            }
+
+            // ── Before / After style preview (long-press on style thumbnail) ────
+            if let style = stylesViewModel.beforeAfterStyle {
+                StyleBeforeAfterView(style: style) {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        stylesViewModel.beforeAfterStyle = nil
+                    }
+                }
+                .transition(.opacity)
+                .zIndex(11)
             }
         }
         .statusBarHidden()
@@ -346,6 +364,10 @@ struct CameraView: View {
                 }
             }
     }
+
+    // MARK: - Layout constants
+
+    static let quickBarHeight: CGFloat = 50
 
     // MARK: - Crop helpers
 

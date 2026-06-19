@@ -28,6 +28,29 @@ final class StylePreviewRenderer {
     /// No-op — previews now use a bundled sample image, not live frames.
     nonisolated func updateFrame(_ pixelBuffer: CVPixelBuffer) {}
 
+    nonisolated func originalImage(size: CGSize, completion: @escaping (UIImage?) -> Void) {
+        let key = "__original__-\(Int(size.width))x\(Int(size.height))" as NSString
+        if let cached = cache.object(forKey: key) { completion(cached); return }
+
+        let base = sampleImage
+        guard base.extent.width > 0 && base.extent.height > 0 else { completion(nil); return }
+
+        renderQueue.async { [self] in
+            let scale = max(size.width / base.extent.width, size.height / base.extent.height)
+            let scaled = base.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+            let ox = (scaled.extent.width  - size.width)  / 2
+            let oy = (scaled.extent.height - size.height) / 2
+            let cropRect = CGRect(x: scaled.extent.minX + ox, y: scaled.extent.minY + oy,
+                                  width: size.width, height: size.height)
+            guard let cgImage = self.ciContext.createCGImage(scaled, from: cropRect) else {
+                completion(nil); return
+            }
+            let image = UIImage(cgImage: cgImage)
+            self.cache.setObject(image, forKey: key)
+            DispatchQueue.main.async { completion(image) }
+        }
+    }
+
     nonisolated func thumbnail(for style: PhotoStyle,
                                 size: CGSize = CGSize(width: 120, height: 90),
                                 completion: @escaping (UIImage?) -> Void) {
