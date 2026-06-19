@@ -269,7 +269,7 @@ final class CameraViewModel {
                     self.timelapseCount += 1
                     HapticManager.shutter()
                 }
-                cameraManager.capturePhoto(delegate: delegate)
+                cameraManager.capturePhoto(delegate: delegate, bypassBusyGuard: true)
                 let ns = UInt64(timelapseInterval * 1_000_000_000)
                 try? await Task.sleep(nanoseconds: ns)
             }

@@ -4,6 +4,7 @@ import CoreImage
 import ImageIO
 import Photos
 import OSLog
+import MediaPlayer
 
 struct CameraView: View {
     @State private var cameraManager: CameraManager
@@ -55,6 +56,12 @@ struct CameraView: View {
 
     var body: some View {
         ZStack {
+            // Invisible MPVolumeView keeps the system volume HUD from appearing
+            // when volume buttons are used as shutter/zoom controls.
+            VolumeHUDSuppressor()
+                .frame(width: 0, height: 0)
+                .allowsHitTesting(false)
+
             // ── Viewfinder ──────────────────────────────────────────────────────
             ViewfinderView(cameraViewModel: cameraViewModel, cropRatio: cropRatio)
                 .ignoresSafeArea()
@@ -257,6 +264,7 @@ struct CameraView: View {
             cameraManager.processor.onPixelBuffer = stylesViewModel.onFrameAvailable
             UIApplication.shared.isIdleTimerDisabled = true
             Task { await appState.permissionsManager.requestPhotoLibraryAccess() }
+            Task { await appState.permissionsManager.requestMicrophoneAccess() }
             appState.permissionsManager.requestLocationAccess()
             cameraViewModel.timelapseInterval = timelapseInterval
             // Wire persisted capture settings
@@ -871,7 +879,9 @@ struct CameraView: View {
     private func setupVolumeButtonObserver() {
         guard volumeButtonBehavior != "Disabled" else { return }
         let session = AVAudioSession.sharedInstance()
-        try? session.setCategory(.playback, options: .mixWithOthers)
+        // .playback without .mixWithOthers gives the best chance of suppressing
+        // the system volume HUD (combined with VolumeHUDSuppressor in the hierarchy).
+        try? session.setCategory(.playback, mode: .default, options: [])
         try? session.setActive(true)
         volumeObservation = session.observe(\.outputVolume, options: [.old, .new]) { _, change in
             guard let old = change.oldValue, let new = change.newValue, old != new else { return }
@@ -1014,4 +1024,18 @@ final class CapturePhotoDelegate: NSObject, AVCapturePhotoCaptureDelegate {
                      error: Error?) {
         onCaptureDone(id)
     }
+}
+
+// MARK: - Volume HUD suppressor
+
+/// Adds a zero-size MPVolumeView to the UIKit hierarchy so the system knows
+/// the app is managing volume display itself, suppressing the built-in HUD.
+private struct VolumeHUDSuppressor: UIViewRepresentable {
+    func makeUIView(context: Context) -> MPVolumeView {
+        let view = MPVolumeView()
+        view.alpha = 0.001
+        view.isUserInteractionEnabled = false
+        return view
+    }
+    func updateUIView(_ uiView: MPVolumeView, context: Context) {}
 }

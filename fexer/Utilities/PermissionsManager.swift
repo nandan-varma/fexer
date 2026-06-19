@@ -7,6 +7,7 @@ import Observation
 @Observable
 final class PermissionsManager: NSObject {
     var cameraStatus: AVAuthorizationStatus = AVCaptureDevice.authorizationStatus(for: .video)
+    var microphoneStatus: AVAuthorizationStatus = AVCaptureDevice.authorizationStatus(for: .audio)
     var photoLibraryStatus: PHAuthorizationStatus = PHPhotoLibrary.authorizationStatus(for: .addOnly)
     var locationStatus: CLAuthorizationStatus = .notDetermined
     var motionAvailable: Bool = CMMotionManager().isDeviceMotionAvailable
@@ -36,6 +37,13 @@ final class PermissionsManager: NSObject {
         }
     }
 
+    func requestMicrophoneAccess() async {
+        let granted = await AVCaptureDevice.requestAccess(for: .audio)
+        await MainActor.run {
+            microphoneStatus = granted ? .authorized : .denied
+        }
+    }
+
     func requestPhotoLibraryAccess() async {
         let status = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
         await MainActor.run {
@@ -53,6 +61,7 @@ final class PermissionsManager: NSObject {
 
     func requestAllPermissions() async {
         await requestCameraAccess()
+        await requestMicrophoneAccess()
         await requestPhotoLibraryAccess()
         requestLocationAccess()
     }

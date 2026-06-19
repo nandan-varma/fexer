@@ -5,6 +5,9 @@ import MetalKit
 import os
 import QuartzCore
 
+// CVPixelBuffer is a CF reference type with atomic retain/release — safe to cross actor boundaries.
+extension CVBuffer: @retroactive @unchecked Sendable {}
+
 /// Processes every video frame from AVCaptureVideoDataOutput.
 /// Runs entirely on sessionQueue (background). Never touches MainActor.
 ///

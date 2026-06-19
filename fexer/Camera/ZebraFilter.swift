@@ -9,22 +9,25 @@ final class ZebraFilter: CIFilter {
 
     private static let kernel: CIKernel = {
         let source = """
-        kernel vec4 zebraStripes(sampler src, float overThreshold, float underThreshold,
-                                 float time, float stripeWidth) {
-            vec2 d = destCoord();
-            vec4 s = sample(src, samplerTransform(src, d));
-            float luma = dot(s.rgb, vec3(0.299, 0.587, 0.114));
+        #include <CoreImage/CoreImage.h>
+        using namespace metal;
+
+        [[stitchable]] float4 zebraStripes(coreimage::sampler src, float overThreshold, float underThreshold,
+                                            float time, float stripeWidth) {
+            float2 d = src.coord();
+            float4 s = src.sample(d);
+            float luma = dot(s.rgb, float3(0.299, 0.587, 0.114));
             if (luma > overThreshold || luma < underThreshold) {
-                float stripe = mod(d.x + d.y + time, stripeWidth * 2.0);
-                vec4 warningColor = luma > overThreshold
-                                     ? vec4(1.0, 0.0, 0.0, 1.0)
-                                     : vec4(0.0, 0.4, 1.0, 1.0);
-                return stripe < stripeWidth ? warningColor : vec4(0.0, 0.0, 0.0, 1.0);
+                float stripe = fmod(d.x + d.y + time, stripeWidth * 2.0);
+                float4 warningColor = luma > overThreshold
+                                       ? float4(1.0, 0.0, 0.0, 1.0)
+                                       : float4(0.0, 0.4, 1.0, 1.0);
+                return stripe < stripeWidth ? warningColor : float4(0.0, 0.0, 0.0, 1.0);
             }
             return s;
         }
         """
-        guard let k = CIKernel.compileCIKL(source)
+        guard let k = CIKernel.compileMetal(source)
         else { fatalError("CIKernel 'zebraStripes' failed to compile") }
         return k
     }()

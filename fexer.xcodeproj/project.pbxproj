@@ -258,6 +258,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSCameraUsageDescription = "fexer needs camera access to take photos.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "fexer can embed your location in photo metadata.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "fexer records audio when capturing video.";
 				INFOPLIST_KEY_NSMotionUsageDescription = "fexer uses motion data for the horizon level indicator.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "fexer saves your photos to your library.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "fexer can show photos you've taken in the app.";
@@ -295,6 +296,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSCameraUsageDescription = "fexer needs camera access to take photos.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "fexer can embed your location in photo metadata.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "fexer records audio when capturing video.";
 				INFOPLIST_KEY_NSMotionUsageDescription = "fexer uses motion data for the horizon level indicator.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "fexer saves your photos to your library.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "fexer can show photos you've taken in the app.";

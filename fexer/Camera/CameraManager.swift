@@ -163,6 +163,13 @@ import UIKit
             photoOutput.isLivePhotoCaptureEnabled = true
         }
 
+        // Microphone input for video recording audio
+        if let audioDevice = AVCaptureDevice.default(for: .audio),
+           let audioInput = try? AVCaptureDeviceInput(device: audioDevice),
+           session.canAddInput(audioInput) {
+            session.addInput(audioInput)
+        }
+
         if session.canAddOutput(movieOutput) {
             session.addOutput(movieOutput)
             if let conn = movieOutput.connection(with: .video),
@@ -661,6 +668,15 @@ import UIKit
     func startRecording() {
         sessionQueue.async { [self] in
             guard !movieOutput.isRecording else { return }
+            // Switch to HD preset so movieOutput records at full 1080p quality.
+            // Photo preset limits video output; photo captures remain full-resolution
+            // because AVCapturePhotoOutput captures at sensor resolution regardless of preset.
+            session.beginConfiguration()
+            if session.canSetSessionPreset(.hd1920x1080) {
+                session.sessionPreset = .hd1920x1080
+            }
+            session.commitConfiguration()
+            configureVideoRotation()
             let url = FileManager.default.temporaryDirectory
                 .appendingPathComponent(UUID().uuidString)
                 .appendingPathExtension("mov")
@@ -796,6 +812,13 @@ extension CameraManager: AVCaptureFileOutputRecordingDelegate {
                                 error: Error?) {
         if let error {
             Logger.camera.error("Video recording failed: \(error.localizedDescription)")
+        }
+        // Restore photo-quality preset now that recording is done
+        sessionQueue.async { [self] in
+            session.beginConfiguration()
+            session.sessionPreset = .photo
+            session.commitConfiguration()
+            configureVideoRotation()
         }
         Task { @MainActor in
             self.isRecording = false
