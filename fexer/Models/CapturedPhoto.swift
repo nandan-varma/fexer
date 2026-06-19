@@ -11,6 +11,7 @@ struct CapturedPhoto: Identifiable {
     let captureDate: Date
     let location: CLLocation?
     let exifMetadata: [String: Any]
+    var editState: EditState?
 
     init(
         jpegData: Data? = nil,
@@ -20,7 +21,8 @@ struct CapturedPhoto: Identifiable {
         styleIntensity: Float = 1.0,
         captureDate: Date = Date(),
         location: CLLocation? = nil,
-        exifMetadata: [String: Any] = [:]
+        exifMetadata: [String: Any] = [:],
+        editState: EditState? = nil
     ) {
         self.id = UUID()
         self.jpegData = jpegData
@@ -31,6 +33,7 @@ struct CapturedPhoto: Identifiable {
         self.captureDate = captureDate
         self.location = location
         self.exifMetadata = exifMetadata
+        self.editState = editState
     }
 }
 

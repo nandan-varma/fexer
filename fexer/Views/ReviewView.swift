@@ -9,6 +9,8 @@ struct ReviewView: View {
     @State private var showExif = false
     @State private var showShareSheet = false
     @State private var reviewHistogram: HistogramData?
+    @State private var showEdit = false
+    @State private var editedPhoto: CapturedPhoto?
 
     var body: some View {
         ZStack {
@@ -16,7 +18,7 @@ struct ReviewView: View {
 
             // Photo display
             Group {
-                if let data = photo.jpegData, let uiImage = UIImage(data: data) {
+                if let data = (editedPhoto ?? photo).jpegData, let uiImage = UIImage(data: data) {
                     Image(uiImage: uiImage)
                         .resizable()
                         .aspectRatio(contentMode: .fit)
@@ -49,6 +51,16 @@ struct ReviewView: View {
                     Spacer()
 
                     Button {
+                        showEdit = true
+                    } label: {
+                        Image(systemName: "slider.horizontal.3")
+                            .font(.system(size: 20))
+                            .foregroundStyle(.white)
+                            .frame(width: 36, height: 36)
+                            .background(.black.opacity(0.5), in: Circle())
+                    }
+
+                    Button {
                         withAnimation { showExif.toggle() }
                     } label: {
                         Image(systemName: showExif ? "info.circle.fill" : "info.circle")
@@ -75,7 +87,7 @@ struct ReviewView: View {
                     Spacer()
 
                     // Share
-                    if let data = photo.jpegData {
+                    if let data = editedPhoto?.jpegData ?? photo.jpegData {
                         ShareLink(item: data, preview: SharePreview("Photo")) {
                             Image(systemName: "square.and.arrow.up")
                                 .font(.system(size: 20))
@@ -98,6 +110,12 @@ struct ReviewView: View {
             let target: CGFloat = magnification > 1.5 ? 1.0 : 2.0
             withAnimation(.spring()) { magnification = target }
             lastMagnification = target
+        }
+        .sheet(isPresented: $showEdit) {
+            EditView(photo: editedPhoto ?? photo) { updatedPhoto in
+                editedPhoto = updatedPhoto
+                showEdit = false
+            }
         }
     }
 

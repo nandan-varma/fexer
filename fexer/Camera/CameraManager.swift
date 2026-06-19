@@ -4,6 +4,7 @@ import Observation
 import OSLog
 import Foundation
 import UIKit
+import Photos
 
     /// Owns the AVCaptureSession and all camera hardware configuration.
     /// @Observable properties are read from MainActor; all session mutations
@@ -46,9 +47,17 @@ import UIKit
     private let sessionQueue = DispatchQueue(label: "com.fexer.session", qos: .userInteractive)
     private let photoOutput = AVCapturePhotoOutput()
     private let videoOutput = AVCaptureVideoDataOutput()
-    private let movieOutput = AVCaptureMovieFileOutput()
     private var currentDevice: AVCaptureDevice?
     private var deviceObservations: [NSKeyValueObservation] = []
+
+    // AVAssetWriter recording pipeline — accessed from sessionQueue AND nonisolated audio delegate,
+    // so nonisolated(unsafe). All mutations are serialised through sessionQueue.
+    private var assetWriter: AVAssetWriter?
+    private var videoWriterInput: AVAssetWriterInput?
+    private var audioWriterInput: AVAssetWriterInput?
+    private var pixelBufferAdaptor: AVAssetWriterInputPixelBufferAdaptor?
+    private var isWaitingToRecord = false
+    private let audioOutput = AVCaptureAudioDataOutput()
 
     // Timer runs on MainActor; kept here so we can invalidate from MainActor context
     private var recordingTimer: Timer?
@@ -160,6 +169,9 @@ import UIKit
         videoOutput.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
         if session.canAddOutput(videoOutput) { session.addOutput(videoOutput) }
 
+        // Audio output for AVAssetWriter pipeline
+        if session.canAddOutput(audioOutput) { session.addOutput(audioOutput) }
+
         if session.canAddOutput(photoOutput) { session.addOutput(photoOutput) }
 
         // Live Photo requires the capture to be enabled before commitConfiguration
@@ -172,14 +184,6 @@ import UIKit
            let audioInput = try? AVCaptureDeviceInput(device: audioDevice),
            session.canAddInput(audioInput) {
             session.addInput(audioInput)
-        }
-
-        if session.canAddOutput(movieOutput) {
-            session.addOutput(movieOutput)
-            if let conn = movieOutput.connection(with: .video),
-               conn.isVideoStabilizationSupported {
-                conn.preferredVideoStabilizationMode = .auto
-            }
         }
 
         session.commitConfiguration()
@@ -514,6 +518,12 @@ import UIKit
                     if device.isExposureModeSupported(.autoExpose) {
                         device.exposureMode = .autoExpose
                     }
+                case .highlightWeighted:
+                    // Approximate: use CIAreaMaximum to find the brightest region, meter there
+                    if device.isExposurePointOfInterestSupported {
+                        device.exposurePointOfInterest = CGPoint(x: 0.5, y: 0.2) // upper frame bias for highlights
+                        device.exposureMode = .autoExpose
+                    }
                 }
             }
             Task { @MainActor in self.captureSettings.meteringMode = mode }
@@ -636,6 +646,27 @@ import UIKit
         }
     }
 
+    /// Captures 3 shots sequentially at current K ± kStep, then current K.
+    func capturePhotoBracketedWB(kStep: Float, delegate: AVCapturePhotoCaptureDelegate) {
+        sessionQueue.async { [self] in
+            guard !isCapturing else { return }
+            Task { @MainActor in self.isCapturing = true }
+            let baseK = captureSettings.whiteBalance
+            let tint  = captureSettings.whiteBalanceTint
+            let steps: [Float] = [-kStep, 0, kStep]
+            let captureSettings = self.captureSettings
+            for (i, step) in steps.enumerated() {
+                sessionQueue.asyncAfter(deadline: .now() + Double(i) * 0.35) { [self] in
+                    let k = (baseK + step).fxClamped(to: 2000...10000)
+                    self.setWhiteBalance(kelvin: k, tint: tint)
+                    let settings = self.makePhotoSettings(format: captureSettings.captureFormat)
+                    settings.flashMode = self.flashMode
+                    self.photoOutput.capturePhoto(with: settings, delegate: delegate)
+                }
+            }
+        }
+    }
+
     private func makePhotoSettings(format: CaptureFormat) -> AVCapturePhotoSettings {
         let settings: AVCapturePhotoSettings
         switch format {
@@ -677,41 +708,60 @@ import UIKit
            conn.isVideoRotationAngleSupported(portraitAngle) {
             conn.videoRotationAngle = portraitAngle
         }
-        if let conn = movieOutput.connection(with: .video),
-           conn.isVideoRotationAngleSupported(portraitAngle) {
-            conn.videoRotationAngle = portraitAngle
-        }
     }
 
     // MARK: - Video Recording
 
     func startRecording() {
         sessionQueue.async { [self] in
-            guard !movieOutput.isRecording else { return }
-            // Switch to HD preset so movieOutput records at full 1080p quality.
-            // Photo preset limits video output; photo captures remain full-resolution
-            // because AVCapturePhotoOutput captures at sensor resolution regardless of preset.
-            session.beginConfiguration()
-            if session.canSetSessionPreset(.hd1920x1080) {
-                session.sessionPreset = .hd1920x1080
+            guard !isWaitingToRecord && assetWriter == nil else { return }
+            isWaitingToRecord = true
+            // AVAssetWriter is set up lazily on the first processed frame so we
+            // know the actual CIImage dimensions after the full filter chain.
+            processor.onProcessedFrame = { [weak self] ciImage, time in
+                guard let self else { return }
+                if self.isWaitingToRecord {
+                    self.isWaitingToRecord = false
+                    self.setupAssetWriter(firstImage: ciImage, startTime: time)
+                } else {
+                    self.appendVideoFrame(ciImage, time: time)
+                }
             }
-            session.commitConfiguration()
-            configureVideoRotation()
-            let url = FileManager.default.temporaryDirectory
-                .appendingPathComponent(UUID().uuidString)
-                .appendingPathExtension("mov")
-            movieOutput.startRecording(to: url, recordingDelegate: self)
-            // isRecording is set in the delegate callback once recording actually starts
+            audioOutput.setSampleBufferDelegate(self, queue: sessionQueue)
         }
-        Task { @MainActor in
-            UIApplication.shared.isIdleTimerDisabled = true
-        }
+        Task { @MainActor in UIApplication.shared.isIdleTimerDisabled = true }
     }
 
     func stopRecording() {
         sessionQueue.async { [self] in
-            guard movieOutput.isRecording else { return }
-            movieOutput.stopRecording()
+            isWaitingToRecord = false
+            processor.onProcessedFrame = nil
+            audioOutput.setSampleBufferDelegate(nil, queue: nil)
+            guard let writer = assetWriter else { return }
+            videoWriterInput?.markAsFinished()
+            audioWriterInput?.markAsFinished()
+            assetWriter = nil
+            videoWriterInput = nil
+            audioWriterInput = nil
+            pixelBufferAdaptor = nil
+            let outputURL = writer.outputURL
+            writer.finishWriting {
+                guard writer.status == .completed else {
+                    Logger.camera.error("Video writing failed: \(writer.error?.localizedDescription ?? "unknown")")
+                    return
+                }
+                PHPhotoLibrary.shared().performChanges({
+                    PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: outputURL)
+                }, completionHandler: { _, error in
+                    if let error { Logger.camera.error("Video save failed: \(error.localizedDescription)") }
+                })
+            }
+            Task { @MainActor in
+                self.isRecording = false
+                self.recordingDuration = 0
+                self.stopRecordingTimer()
+                UIApplication.shared.isIdleTimerDisabled = false
+            }
         }
     }
 
@@ -729,6 +779,99 @@ import UIKit
         recordingTimer?.invalidate()
         recordingTimer = nil
     }
+
+    private func setupAssetWriter(firstImage: CIImage, startTime: CMTime) {
+        let extent = firstImage.extent
+        let width = Int(extent.width)
+        let height = Int(extent.height)
+        let settings = captureSettings.videoSettings
+        let fps = settings.frameRate
+
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("mp4")
+
+        guard let writer = try? AVAssetWriter(url: url, fileType: .mp4) else {
+            Logger.camera.error("Failed to create AVAssetWriter")
+            return
+        }
+
+        // Video input
+        let codecType: AVVideoCodecType = settings.codec == .h264 ? .h264 :
+                                          settings.codec == .proRes && isProResRecordingSupported ? .proRes4444 : .hevc
+        let compressionProps: [String: Any] = [
+            AVVideoAverageBitRateKey: (width * height >= 3840 * 2160) ? 40_000_000 : 15_000_000,
+            AVVideoMaxKeyFrameIntervalKey: fps,
+            AVVideoExpectedSourceFrameRateKey: fps
+        ]
+        let videoOutputSettings: [String: Any] = [
+            AVVideoCodecKey: codecType,
+            AVVideoWidthKey: width,
+            AVVideoHeightKey: height,
+            AVVideoCompressionPropertiesKey: compressionProps
+        ]
+        let videoInput = AVAssetWriterInput(mediaType: .video, outputSettings: videoOutputSettings)
+        videoInput.expectsMediaDataInRealTime = true
+
+        let pixelAttrs: [String: Any] = [
+            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
+            kCVPixelBufferWidthKey as String: width,
+            kCVPixelBufferHeightKey as String: height
+        ]
+        let adaptor = AVAssetWriterInputPixelBufferAdaptor(
+            assetWriterInput: videoInput,
+            sourcePixelBufferAttributes: pixelAttrs
+        )
+
+        // Audio input
+        let audioInput = AVAssetWriterInput(mediaType: .audio, outputSettings: nil)
+        audioInput.expectsMediaDataInRealTime = true
+
+        guard writer.canAdd(videoInput), writer.canAdd(audioInput) else {
+            Logger.camera.error("Cannot add inputs to AVAssetWriter")
+            return
+        }
+        writer.add(videoInput)
+        writer.add(audioInput)
+        writer.startWriting()
+        writer.startSession(atSourceTime: startTime)
+
+        assetWriter = writer
+        videoWriterInput = videoInput
+        audioWriterInput = audioInput
+        pixelBufferAdaptor = adaptor
+
+        appendVideoFrame(firstImage, time: startTime)
+
+        Task { @MainActor in
+            self.isRecording = true
+            self.startRecordingTimer()
+        }
+        Logger.camera.info("Video recording started: \(width)×\(height) \(fps)fps \(codecType.rawValue)")
+    }
+
+    private func appendVideoFrame(_ ciImage: CIImage, time: CMTime) {
+        guard let input = videoWriterInput,
+              let adaptor = pixelBufferAdaptor,
+              let pool = adaptor.pixelBufferPool,
+              input.isReadyForMoreMediaData else { return }
+        var pb: CVPixelBuffer?
+        CVPixelBufferPoolCreatePixelBuffer(nil, pool, &pb)
+        guard let pixelBuffer = pb else { return }
+        CIContext.shared.render(ciImage, to: pixelBuffer)
+        adaptor.append(pixelBuffer, withPresentationTime: time)
+    }
+
+    /// Checks if the current device supports ProRes recording.
+    var isProResRecordingSupported: Bool {
+        guard let device = currentDevice else { return false }
+        return device.formats.contains { format in
+            let desc = format.formatDescription
+            return CMFormatDescriptionGetMediaSubType(desc) == kCVPixelFormatType_422YpCbCr10BiPlanarVideoRange
+        }
+    }
+
+    var isProResSupported: Bool { isProResRecordingSupported }
 
     // MARK: - Live Photo
 
@@ -748,6 +891,39 @@ import UIKit
         factors.append(contentsOf: switchOvers.filter { $0 > 1.0 })
         // Cap at 3 options for clean UI
         return Array(factors.prefix(3))
+    }
+
+    // MARK: - Macro Mode (Phase 6)
+
+    var isMacroSupported: Bool {
+        guard let device = currentDevice else { return false }
+        return device.constituentDevices.contains { $0.deviceType == .builtInUltraWideCamera }
+            && device.isCenterStageActive == false  // proxy for macro-capable device
+    }
+
+    func setMacroModeEnabled(_ enabled: Bool) {
+        sessionQueue.async { [self] in
+            guard let device = currentDevice else { return }
+            device.withLock {
+                if device.isAutoFocusRangeRestrictionSupported {
+                    device.autoFocusRangeRestriction = enabled ? .near : .none
+                }
+            }
+        }
+    }
+
+    // MARK: - Frame Rate
+
+    func configureVideoFrameRate(_ fps: Int) {
+        guard let device = currentDevice else { return }
+        let targetFPS = Double(fps)
+        let supportedRanges = device.activeFormat.videoSupportedFrameRateRanges
+        guard supportedRanges.contains(where: { $0.maxFrameRate >= targetFPS }) else { return }
+        let cmDuration = CMTimeMake(value: 1, timescale: Int32(targetFPS))
+        device.withLock {
+            device.activeVideoMinFrameDuration = cmDuration
+            device.activeVideoMaxFrameDuration = cmDuration
+        }
     }
 
     // MARK: - KVO Observations
@@ -814,40 +990,16 @@ import UIKit
     }
 }
 
-// MARK: - AVCaptureFileOutputRecordingDelegate
+// MARK: - AVCaptureAudioDataOutputSampleBufferDelegate
 
-extension CameraManager: AVCaptureFileOutputRecordingDelegate {
-    nonisolated func fileOutput(_ output: AVCaptureFileOutput,
-                                didStartRecordingTo fileURL: URL,
-                                from connections: [AVCaptureConnection]) {
-        Task { @MainActor in
-            self.isRecording = true
-            self.startRecordingTimer()
-        }
-    }
-
-    nonisolated func fileOutput(_ output: AVCaptureFileOutput,
-                                didFinishRecordingTo outputFileURL: URL,
-                                from connections: [AVCaptureConnection],
-                                error: Error?) {
-        if let error {
-            Logger.camera.error("Video recording failed: \(error.localizedDescription)")
-        }
-        // Restore photo-quality preset now that recording is done
-        sessionQueue.async { [self] in
-            session.beginConfiguration()
-            session.sessionPreset = .photo
-            session.commitConfiguration()
-            configureVideoRotation()
-        }
-        Task { @MainActor in
-            self.isRecording = false
-            self.recordingDuration = 0
-            self.stopRecordingTimer()
-            UIApplication.shared.isIdleTimerDisabled = false
-        }
-        // Save to Photos library on a background thread
-        UISaveVideoAtPathToSavedPhotosAlbum(outputFileURL.path, nil, nil, nil)
+extension CameraManager: AVCaptureAudioDataOutputSampleBufferDelegate {
+    nonisolated func captureOutput(_ output: AVCaptureOutput,
+                                   didOutput sampleBuffer: CMSampleBuffer,
+                                   from connection: AVCaptureConnection) {
+        guard let input = audioWriterInput,
+              input.isReadyForMoreMediaData,
+              assetWriter?.status == .writing else { return }
+        input.append(sampleBuffer)
     }
 }
 

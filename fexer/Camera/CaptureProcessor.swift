@@ -24,6 +24,9 @@ final class CaptureProcessor: NSObject {
     var onPreviewSizeKnown: ((CGSize) -> Void)?
     /// Called with the raw pixel buffer ~once per second (for thumbnail generation).
     var onPixelBuffer: ((CVPixelBuffer) -> Void)?
+    /// Called with the final filtered CIImage and its presentation time.
+    /// Used by AVAssetWriter to record video with filters baked in.
+    var onProcessedFrame: ((CIImage, CMTime) -> Void)?
 
     // Filter pipeline state (set from CameraViewModel on main thread, read here)
     private let lutFilterLock = OSAllocatedUnfairLock(initialState: nil as LUTFilter?)
@@ -126,6 +129,7 @@ extension CaptureProcessor: AVCaptureVideoDataOutputSampleBufferDelegate {
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
 
         frameCount += 1
+        let presentationTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
         let currentTime = Float(CACurrentMediaTime().truncatingRemainder(dividingBy: 100.0))
         setZebraTime(currentTime)
 
@@ -205,6 +209,7 @@ extension CaptureProcessor: AVCaptureVideoDataOutputSampleBufferDelegate {
             }
         }
 
+        onProcessedFrame?(image, presentationTime)
         setLatestImage(image)
 
         // Histogram every 3rd frame (~20fps at 60fps session) — computed off sessionQueue

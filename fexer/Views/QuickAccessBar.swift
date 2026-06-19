@@ -14,6 +14,9 @@ struct QuickAccessBar: View {
     @AppStorage("isBracketingEnabled")  private var isBracketingEnabled  = false
     @AppStorage("selfTimerDelay")       private var selfTimerDelay: Int  = 0
     @AppStorage("defaultCaptureFormat") private var defaultFormat        = "JPEG"
+    @AppStorage("isWBBracketEnabled") private var isWBBracketEnabled = false
+    @AppStorage("showWaveform")       private var showWaveform       = false
+    @AppStorage("showVectorscope")    private var showVectorscope    = false
 
     var body: some View {
         GeometryReader { geo in
@@ -100,18 +103,22 @@ struct QuickAccessBar: View {
         case .falseColor:     return showFalseColor
         case .bracketAEB:     return isBracketingEnabled
         case .afMode:         return cameraManager.captureSettings.focusMode == .continuousAutoFocus
+        case .wbBracket:      return isWBBracketEnabled
+        case .waveform:       return showWaveform
+        case .vectorscope:    return showVectorscope
         }
     }
 
     private func badge(for item: QuickAccessItem) -> String? {
         switch item {
-        case .flash:   return cameraManager.flashMode == .auto ? "A" : nil
-        case .timer:   return selfTimerDelay > 0 ? "\(selfTimerDelay)s" : nil
-        case .format:  return defaultFormat != "JPEG" ? defaultFormat : nil
+        case .flash:     return cameraManager.flashMode == .auto ? "A" : nil
+        case .timer:     return selfTimerDelay > 0 ? "\(selfTimerDelay)s" : nil
+        case .format:    return defaultFormat != "JPEG" ? defaultFormat : nil
         case .afMode:
             if !cameraManager.captureSettings.isAutoFocus { return "M" }
             return cameraManager.captureSettings.focusMode == .continuousAutoFocus ? "C" : "S"
-        default:       return nil
+        case .wbBracket: return isWBBracketEnabled ? "WB" : nil
+        default:         return nil
         }
     }
 
@@ -168,6 +175,15 @@ struct QuickAccessBar: View {
                 ? .autoFocus
                 : .continuousAutoFocus
             cameraManager.setFocusMode(next)
+        case .wbBracket:
+            HapticManager.light()
+            isWBBracketEnabled.toggle()
+        case .waveform:
+            HapticManager.light()
+            showWaveform.toggle()
+        case .vectorscope:
+            HapticManager.light()
+            showVectorscope.toggle()
         }
     }
 }

@@ -24,6 +24,7 @@ struct CaptureSettings {
 
     var captureFormat: CaptureFormat = .jpeg
     var isProRAW: Bool = false
+    var videoSettings = VideoSettings()
 
     /// AF-C (.continuousAutoFocus) tracks continuously; AF-S (.autoFocus) focuses once then locks.
     var focusMode: AVCaptureDevice.FocusMode = .continuousAutoFocus

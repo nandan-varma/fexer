@@ -43,6 +43,12 @@ struct CameraView: View {
     @AppStorage("volumeButtonBehavior") private var volumeButtonBehavior  = "Shutter"
     @AppStorage("watermarkText")        private var watermarkText         = ""
     @AppStorage("longExposureDuration") private var longExposureDuration: Double = 4.0
+    @AppStorage("videoFrameRate")   private var videoFrameRate: Int    = 30
+    @AppStorage("isWBBracketEnabled") private var isWBBracketEnabled   = false
+    @AppStorage("wbBracketKStep")   private var wbBracketKStep: Double = 500.0
+    @AppStorage("selfTimerRepeat")  private var selfTimerRepeat: Int   = 1
+    @AppStorage("showWaveform")     private var showWaveform           = false
+    @AppStorage("showVectorscope")  private var showVectorscope        = false
 
     @State private var volumeObservation: NSKeyValueObservation?
 
@@ -161,12 +167,43 @@ struct CameraView: View {
             .padding(.top, CameraView.quickBarHeight + 10)
             .padding(.trailing, 12)
 
+            // ── Macro proximity indicator ─────────────────────────────────────────
+            if cameraManager.isMacroSupported && cameraManager.currentZoomFactor < 0.8 {
+                Text("MACRO")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(.black)
+                    .padding(.horizontal, 7).padding(.vertical, 3)
+                    .background(Color.yellow, in: Capsule())
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                    .padding(.top, CameraView.quickBarHeight + 10)
+                    .padding(.trailing, 52)
+                    .allowsHitTesting(false)
+            }
+
             // ── Histogram — stays inside preview area ────────────────────────────
             if showHistogram && !cameraViewModel.histogram.red.isEmpty {
                 HistogramView(data: cameraViewModel.histogram)
                     .padding(.top, CameraView.quickBarHeight + 8)
                     .padding(.leading, 16)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            }
+
+            // ── Waveform monitor ──────────────────────────────────────────────────
+            if showWaveform && !cameraViewModel.histogram.luma.isEmpty {
+                WaveformView(data: cameraViewModel.histogram)
+                    .padding(.top, CameraView.quickBarHeight + 8)
+                    .padding(.leading, showHistogram ? 152 : 16)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .allowsHitTesting(false)
+            }
+
+            // ── Vectorscope ───────────────────────────────────────────────────────
+            if showVectorscope {
+                VectorscopeView()
+                    .padding(.top, CameraView.quickBarHeight + 8)
+                    .padding(.trailing, 16)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                    .allowsHitTesting(false)
             }
 
             // ── Scene classifier suggestion badge ────────────────────────────────
@@ -331,6 +368,9 @@ struct CameraView: View {
             volumeObservation?.invalidate()
             volumeObservation = nil
             setupVolumeButtonObserver()
+        }
+        .onChange(of: videoFrameRate) { _, fps in
+            cameraManager.configureVideoFrameRate(fps)
         }
     }
 
@@ -517,6 +557,15 @@ struct CameraView: View {
     }
 
     private func performCapture() {
+        if cameraViewModel.activeMode == .video {
+            if cameraManager.isRecording {
+                cameraManager.stopRecording()
+            } else {
+                cameraManager.startRecording()
+            }
+            HapticManager.medium()
+            return
+        }
         if cameraViewModel.activeMode == .longExposure {
             performLongExposureCapture()
             return
@@ -524,6 +573,10 @@ struct CameraView: View {
         HapticManager.shutter()
         let delegate = makeCaptureDelegate()
         activeDelegates[delegate.id] = delegate
+        if isWBBracketEnabled {
+            cameraManager.capturePhotoBracketedWB(kStep: Float(wbBracketKStep), delegate: delegate)
+            return
+        }
         if isBracketingEnabled {
             cameraManager.capturePhotoBracketed(evStep: Float(bracketEVStep), delegate: delegate)
         } else {
@@ -745,6 +798,8 @@ struct CameraView: View {
                     .foregroundStyle(.red.opacity(0.85))
                     .tracking(1.5)
             }
+        case .video:
+            videoControlsRow
         default:
             EmptyView()
         }
@@ -757,6 +812,49 @@ struct CameraView: View {
         } else {
             return "\(Int(secs / 60))m"
         }
+    }
+
+    private var videoControlsRow: some View {
+        HStack(spacing: 12) {
+            // Frame rate picker
+            let supportedFPS = [24, 30, 60, 120, 240]
+            ForEach(supportedFPS, id: \.self) { fps in
+                let isActive = videoFrameRate == fps
+                Button {
+                    videoFrameRate = fps
+                    cameraManager.configureVideoFrameRate(fps)
+                    HapticManager.selectionChanged()
+                } label: {
+                    Text("\(fps)")
+                        .font(.system(size: 10, weight: isActive ? .bold : .medium, design: .monospaced))
+                        .foregroundStyle(isActive ? .black : .white.opacity(0.6))
+                        .padding(.horizontal, 8).padding(.vertical, 4)
+                        .background(isActive ? Color.yellow : Color.white.opacity(0.12),
+                                    in: Capsule())
+                }
+                .buttonStyle(.plain)
+            }
+
+            Spacer()
+
+            // Codec badge
+            if cameraManager.isProResSupported {
+                Button {
+                    let codecs = VideoCodec.allCases
+                    let idx = codecs.firstIndex(where: { $0 == cameraManager.captureSettings.videoSettings.codec }) ?? 0
+                    cameraManager.captureSettings.videoSettings.codec = codecs[(idx + 1) % codecs.count]
+                    HapticManager.light()
+                } label: {
+                    Text(cameraManager.captureSettings.videoSettings.codec.rawValue)
+                        .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(.white.opacity(0.8))
+                        .padding(.horizontal, 8).padding(.vertical, 4)
+                        .background(.white.opacity(0.12), in: Capsule())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 16)
     }
 
     // MARK: - Layout constants

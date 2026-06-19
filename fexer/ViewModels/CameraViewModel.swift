@@ -33,6 +33,8 @@ final class CameraViewModel {
     // Self-timer
     var timerCountdown: Int = 0
     var isTimerActive: Bool = false
+    var selfTimerRepeatCount: Int = 1  // 1 = single shot; 0 = infinite
+    var selfTimerRepeatCurrent: Int = 0
 
     // Burst
     var isBurstActive = false
@@ -153,24 +155,34 @@ final class CameraViewModel {
 
     // MARK: - Self-timer
 
-    func startTimerCapture(delay: Double, action: @escaping () -> Void) {
+    func startTimerCapture(delay: Double, repeatCount: Int = 1, action: @escaping () -> Void) {
         guard !isTimerActive else { return }
+        selfTimerRepeatCount = repeatCount
+        selfTimerRepeatCurrent = 0
         isTimerActive = true
         timerCountdown = Int(delay)
 
         timerTask = Task {
-            var remaining = Int(delay)
-            while remaining > 0 {
-                try? await Task.sleep(nanoseconds: 1_000_000_000)
-                guard !Task.isCancelled else { return }
-                remaining -= 1
-                await MainActor.run { self.timerCountdown = remaining }
+            var shotsLeft = repeatCount == 0 ? Int.max : repeatCount
+            while shotsLeft > 0 {
+                var remaining = Int(delay)
+                while remaining > 0 {
+                    try? await Task.sleep(nanoseconds: 1_000_000_000)
+                    guard !Task.isCancelled else { return }
+                    remaining -= 1
+                    await MainActor.run { self.timerCountdown = remaining }
+                }
+                await MainActor.run {
+                    guard !Task.isCancelled else { return }
+                    self.selfTimerRepeatCurrent += 1
+                    self.timerCountdown = Int(delay)
+                    action()
+                }
+                shotsLeft -= 1
             }
             await MainActor.run {
-                guard !Task.isCancelled else { return }
                 self.isTimerActive = false
                 self.timerCountdown = 0
-                action()
             }
         }
     }
@@ -222,16 +234,15 @@ final class CameraViewModel {
 
     // MARK: - Burst
 
-    /// Fires up to 10 photos 100 ms apart. Call `stopBurst()` to cancel early.
-    func startBurst(delegate: AVCapturePhotoCaptureDelegate) {
+    /// Fires up to `maxShots` photos 100 ms apart. Call `stopBurst()` to cancel early.
+    func startBurst(delegate: AVCapturePhotoCaptureDelegate, maxShots: Int = 10) {
         guard !isBurstActive else { return }
         isBurstActive = true
         burstCount = 0
         Logger.camera.info("Burst started")
 
         burstTask = Task {
-            let maxShots = 10
-            for i in 1...maxShots {
+            for i in 1...max(1, maxShots) {
                 guard !Task.isCancelled else { break }
                 await MainActor.run {
                     self.burstCount = i
@@ -313,6 +324,8 @@ final class CameraViewModel {
             cameraManager.setNightModeEnabled(false)
         case .portrait:
             cameraManager.setDepthDataEnabled(false)
+        case .video:
+            if cameraManager.isRecording { cameraManager.stopRecording() }
         default:
             break
         }
@@ -357,6 +370,9 @@ final class CameraViewModel {
 
         case .timelapse:
             break // timelapse starts on shutter press
+
+        case .video:
+            break // recording starts on shutter tap
 
         case .anamorphic:
             // Save current crop, apply 2.39:1 guide, and enable 2× horizontal desqueeze in preview

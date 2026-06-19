@@ -2,6 +2,7 @@ import Foundation
 
 enum ShootingMode: String, CaseIterable, Identifiable {
     case photo = "Photo"
+    case video = "Video"
     case portrait = "Portrait"
     case longExposure = "Long Exp"
     case night = "Night"
@@ -15,6 +16,7 @@ enum ShootingMode: String, CaseIterable, Identifiable {
     var systemImageName: String {
         switch self {
         case .photo: return "camera"
+        case .video: return "video.fill"
         case .portrait: return "person.crop.square"
         case .longExposure: return "timelapse"
         case .night: return "moon.stars"
@@ -82,6 +84,7 @@ enum MeteringMode: String, CaseIterable {
     case matrix = "Matrix"
     case center = "Center"
     case spot   = "Spot"
+    case highlightWeighted = "Highlight"
 
     var next: MeteringMode {
         let all = MeteringMode.allCases
@@ -93,6 +96,7 @@ enum MeteringMode: String, CaseIterable {
         case .matrix: return "square.grid.3x3"
         case .center: return "circle.and.line.horizontal"
         case .spot:   return "scope"
+        case .highlightWeighted: return "sun.max"
         }
     }
 }
@@ -111,6 +115,9 @@ enum QuickAccessItem: String, CaseIterable, Identifiable {
     case falseColor = "FalseColor"
     case bracketAEB = "Bracket"
     case afMode = "AFMode"
+    case wbBracket   = "WBBracket"
+    case waveform    = "Waveform"
+    case vectorscope = "Vectorscope"
 
     var id: String { rawValue }
 
@@ -129,6 +136,9 @@ enum QuickAccessItem: String, CaseIterable, Identifiable {
         case .falseColor: return "camera.filters"
         case .bracketAEB: return "plusminus"
         case .afMode: return "viewfinder.circle"
+        case .wbBracket:   return "thermometer.sun"
+        case .waveform:    return "waveform"
+        case .vectorscope: return "circle.grid.cross"
         }
     }
 }
