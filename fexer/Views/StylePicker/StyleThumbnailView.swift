@@ -4,8 +4,13 @@ struct StyleThumbnailView: View {
     let style: PhotoStyle
     let isSelected: Bool
     let thumbnail: UIImage?
+    var suggestedStyle: PhotoStyle?
     var onSelect: (() -> Void)?
     var onLongPress: (() -> Void)?
+
+    private var isSuggested: Bool {
+        suggestedStyle?.id == style.id
+    }
 
     var body: some View {
         VStack(spacing: 5) {
@@ -29,6 +34,21 @@ struct StyleThumbnailView: View {
                         .background(.black.opacity(0.7), in: RoundedRectangle(cornerRadius: 3))
                         .padding(4)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                }
+
+                // Scene suggestion badge — shown when this style matches the classifier output
+                if isSuggested {
+                    ZStack {
+                        Circle()
+                            .fill(Color.yellow)
+                            .frame(width: 18, height: 18)
+                        Image(systemName: "sparkle")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(.black)
+                    }
+                    .padding(4)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .transition(.scale.combined(with: .opacity))
                 }
             }
             .frame(width: 72, height: 72)
