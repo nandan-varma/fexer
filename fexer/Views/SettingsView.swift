@@ -5,43 +5,18 @@ struct SettingsView: View {
     @Bindable var cameraManager: CameraManager
     @Bindable var stylesManager: StylesManager
 
-    @AppStorage("defaultCaptureFormat") private var defaultFormat = "JPEG"
-    @AppStorage("isProRAWEnabled")      private var isProRAW = false
-    @AppStorage("isLocationEnabled")    private var isLocationEnabled = true
-    @AppStorage("volumeButtonBehavior") private var volumeButtonBehavior = "Shutter"
-    @AppStorage("isBracketingEnabled")  private var isBracketingEnabled = false
-    @AppStorage("bracketEVStep")        private var bracketEVStep: Double = 1.0
-    @AppStorage("selfTimerDelay")       private var selfTimerDelay: Int = 0
-
-    @AppStorage("showHistogram")      private var showHistogram      = true
-    @AppStorage("showGrid")           private var showGrid           = false
-    @AppStorage("gridType")           private var gridType           = "Thirds"
-    @AppStorage("showFocusPeaking")   private var showFocusPeaking   = false
-    @AppStorage("focusPeakingColor")  private var focusPeakingColor: String = "red"
-    @AppStorage("showZebra")          private var showZebra          = false
-    @AppStorage("showLevelIndicator") private var showLevelIndicator = false
-    @AppStorage("showFalseColor")     private var showFalseColor     = false
-
-    @AppStorage("cropRatio")          private var cropRatioRaw       = CropRatio.full.rawValue
-
-    @AppStorage("showStylePicker")    private var showStylePicker    = false
-    @AppStorage("showShootingModes")  private var showShootingModes  = false
-    @AppStorage("showGallery")        private var showGallery        = true
-
-    @AppStorage("watermarkText") private var watermarkText = ""
-
     var body: some View {
         NavigationStack {
             Form {
-                cameraSection
-                captureSection
-                viewfinderSection
-                analysisSection
-                stylesSection
-                interfaceSection
-                quickAccessSection
-                watermarkSection
-                aboutSection
+                CameraSection(cameraManager: cameraManager)
+                CaptureSection()
+                ViewfinderSection()
+                AnalysisSection()
+                StylesSection(stylesManager: stylesManager)
+                InterfaceSection()
+                QuickAccessSection(appState: appState)
+                WatermarkSection()
+                AboutSection()
             }
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
@@ -49,10 +24,17 @@ struct SettingsView: View {
             .toolbar { EditButton() }
         }
     }
+}
 
-    // MARK: - Camera
+// MARK: - Camera
 
-    private var cameraSection: some View {
+private struct CameraSection: View {
+    @Bindable var cameraManager: CameraManager
+    @AppStorage("defaultCaptureFormat") private var defaultFormat = "JPEG"
+    @AppStorage("isProRAWEnabled")      private var isProRAW = false
+    @AppStorage("isLocationEnabled")    private var isLocationEnabled = true
+
+    var body: some View {
         Section {
             Picker(selection: $defaultFormat) {
                 ForEach(["JPEG", "RAW", "RAW+JPEG"], id: \.self) { Text($0) }
@@ -78,10 +60,17 @@ struct SettingsView: View {
             }
         }
     }
+}
 
-    // MARK: - Capture
+// MARK: - Capture
 
-    private var captureSection: some View {
+private struct CaptureSection: View {
+    @AppStorage("volumeButtonBehavior") private var volumeButtonBehavior = "Shutter"
+    @AppStorage("selfTimerDelay")       private var selfTimerDelay: Int = 0
+    @AppStorage("isBracketingEnabled")  private var isBracketingEnabled = false
+    @AppStorage("bracketEVStep")        private var bracketEVStep: Double = 1.0
+
+    var body: some View {
         Section("Capture") {
             Picker(selection: $volumeButtonBehavior) {
                 ForEach(["Shutter", "Zoom", "Disabled"], id: \.self) { Text($0) }
@@ -116,10 +105,18 @@ struct SettingsView: View {
             }
         }
     }
+}
 
-    // MARK: - Viewfinder
+// MARK: - Viewfinder
 
-    private var viewfinderSection: some View {
+private struct ViewfinderSection: View {
+    @AppStorage("showHistogram")      private var showHistogram      = true
+    @AppStorage("showLevelIndicator") private var showLevelIndicator = false
+    @AppStorage("showGrid")           private var showGrid           = false
+    @AppStorage("gridType")           private var gridType           = "Thirds"
+    @AppStorage("cropRatio")          private var cropRatioRaw       = CropRatio.full.rawValue
+
+    var body: some View {
         Section {
             Toggle(isOn: $showHistogram) {
                 Label("Histogram", systemImage: "chart.bar.fill")
@@ -155,10 +152,17 @@ struct SettingsView: View {
             Text("Viewfinder")
         }
     }
+}
 
-    // MARK: - Analysis Tools
+// MARK: - Analysis Tools
 
-    private var analysisSection: some View {
+private struct AnalysisSection: View {
+    @AppStorage("showFocusPeaking")  private var showFocusPeaking  = false
+    @AppStorage("focusPeakingColor") private var focusPeakingColor: String = "red"
+    @AppStorage("showZebra")         private var showZebra         = false
+    @AppStorage("showFalseColor")    private var showFalseColor    = false
+
+    var body: some View {
         Section {
             Toggle(isOn: $showFocusPeaking) {
                 Label("Focus Peaking", systemImage: "scope")
@@ -212,10 +216,15 @@ struct SettingsView: View {
             }
         }
     }
+}
 
-    // MARK: - Styles
+// MARK: - Styles
 
-    private var stylesSection: some View {
+private struct StylesSection: View {
+    @Bindable var stylesManager: StylesManager
+    @AppStorage("showStylePicker") private var showStylePicker = false
+
+    var body: some View {
         Section("Styles") {
             Toggle(isOn: Binding(
                 get: { stylesManager.isSmartStylesEnabled },
@@ -237,10 +246,15 @@ struct SettingsView: View {
             }
         }
     }
+}
 
-    // MARK: - Interface
+// MARK: - Interface
 
-    private var interfaceSection: some View {
+private struct InterfaceSection: View {
+    @AppStorage("showShootingModes") private var showShootingModes = false
+    @AppStorage("showGallery")       private var showGallery       = true
+
+    var body: some View {
         Section("Interface") {
             Toggle(isOn: $showShootingModes) {
                 Label("Shooting Modes", systemImage: "list.bullet.below.rectangle")
@@ -250,10 +264,18 @@ struct SettingsView: View {
             }
         }
     }
+}
 
-    // MARK: - Quick Access Bar
+// MARK: - Quick Access Bar
 
-    private var quickAccessSection: some View {
+private struct QuickAccessSection: View {
+    var appState: AppState
+
+    private var available: [QuickAccessItem] {
+        QuickAccessItem.allCases.filter { !appState.quickAccessItems.contains($0) }
+    }
+
+    var body: some View {
         Section {
             ForEach(appState.quickAccessItems) { item in
                 HStack(spacing: 12) {
@@ -272,9 +294,6 @@ struct SettingsView: View {
                 appState.saveQuickAccessItems()
             }
 
-            let available = QuickAccessItem.allCases.filter {
-                !appState.quickAccessItems.contains($0)
-            }
             if !available.isEmpty {
                 Menu {
                     ForEach(available) { item in
@@ -296,10 +315,14 @@ struct SettingsView: View {
             Text("Drag to reorder · Swipe left to remove")
         }
     }
+}
 
-    // MARK: - Watermark
+// MARK: - Watermark
 
-    private var watermarkSection: some View {
+private struct WatermarkSection: View {
+    @AppStorage("watermarkText") private var watermarkText = ""
+
+    var body: some View {
         Section {
             HStack {
                 Label("Text", systemImage: "textformat")
@@ -314,10 +337,12 @@ struct SettingsView: View {
             Text("Embedded in each photo. Leave empty to disable.")
         }
     }
+}
 
-    // MARK: - About
+// MARK: - About
 
-    private var aboutSection: some View {
+private struct AboutSection: View {
+    var body: some View {
         Section("About") {
             HStack {
                 Label("Version", systemImage: "info.circle")

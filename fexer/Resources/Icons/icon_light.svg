@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <radialGradient id="bg-light" cx="50%" cy="50%" r="70%" gradientUnits="objectBoundingBox">
+      <stop offset="0%" stop-color="#1C1C24"/>
+      <stop offset="100%" stop-color="#06060A"/>
+    </radialGradient>
+    <radialGradient id="blade-fill-light" cx="512" cy="512" r="490" gradientUnits="userSpaceOnUse">
+      <stop offset="0%"   stop-color="#F0F0F4" stop-opacity="0.92"/>
+      <stop offset="26%"  stop-color="#D8D8DE" stop-opacity="0.88"/>
+      <stop offset="60%"  stop-color="#B0B0B8" stop-opacity="0.60"/>
+      <stop offset="100%" stop-color="#787880" stop-opacity="0.18"/>
+    </radialGradient>
+    <radialGradient id="center-glow-light" cx="50%" cy="50%" r="50%">
+      <stop offset="0%"   stop-color="#FFFFFF" stop-opacity="0.14"/>
+      <stop offset="70%"  stop-color="#FFFFFF" stop-opacity="0.04"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0.00"/>
+    </radialGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1024" height="1024" fill="url(#bg-light)"/>
+
+  <!-- 6 aperture blades — each is a rounded rect centered 285px above icon center,
+       then rotated k×60° around the icon center (512,512).
+       Inner tip lands at ~90px from center; outer tip at ~480px. -->
+  <rect x="427" y="32" width="170" height="390" rx="55" fill="url(#blade-fill-light)" transform="rotate(0,   512,512)"/>
+  <rect x="427" y="32" width="170" height="390" rx="55" fill="url(#blade-fill-light)" transform="rotate(60,  512,512)"/>
+  <rect x="427" y="32" width="170" height="390" rx="55" fill="url(#blade-fill-light)" transform="rotate(120, 512,512)"/>
+  <rect x="427" y="32" width="170" height="390" rx="55" fill="url(#blade-fill-light)" transform="rotate(180, 512,512)"/>
+  <rect x="427" y="32" width="170" height="390" rx="55" fill="url(#blade-fill-light)" transform="rotate(240, 512,512)"/>
+  <rect x="427" y="32" width="170" height="390" rx="55" fill="url(#blade-fill-light)" transform="rotate(300, 512,512)"/>
+
+  <!-- Mask center: hides inner blade tips, creates the aperture opening -->
+  <circle cx="512" cy="512" r="132" fill="#06060A"/>
+
+  <!-- Subtle lens glow inside the opening -->
+  <circle cx="512" cy="512" r="132" fill="url(#center-glow-light)"/>
+
+  <!-- Aperture ring highlight -->
+  <circle cx="512" cy="512" r="132" fill="none" stroke="rgba(255,255,255,0.22)" stroke-width="1.5"/>
+
+  <!-- Inner lens element -->
+  <circle cx="512" cy="512" r="52"  fill="rgba(255,255,255,0.05)" stroke="rgba(255,255,255,0.18)" stroke-width="1.5"/>
+
+  <!-- Tiny center dot -->
+  <circle cx="512" cy="512" r="10"  fill="rgba(255,255,255,0.30)"/>
+
+  <!-- Outer barrel ring (subtle) -->
+  <circle cx="512" cy="512" r="472" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="2"/>
+</svg>

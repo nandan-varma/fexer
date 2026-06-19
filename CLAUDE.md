@@ -139,15 +139,67 @@ LUTLoader.effectiveLUT(for: style)
 
 `StyleTransforms.swift` contains per-style parametric definitions. `StylePreviewRenderer` generates thumbnails from the live frame by applying the same `LUTLoader.effectiveLUT` path. Thumbnails are requested in `.onAppear`; if `lastFramePixelBuffer` is nil at that point (camera not started yet), `StylesViewModel.retryPendingThumbnailsOnce()` retries on the first `onPixelBuffer` callback.
 
+### Shooting mode state machine
+
+All mode logic lives in `CameraViewModel.selectMode(index:cropRatioRaw:selfTimerDelay:)`. It runs on `@MainActor` and handles both teardown of the outgoing mode and setup of the incoming one — do not add mode-specific side effects anywhere else.
+
+```
+selectMode(newIndex)
+  ├── teardown outgoing: stop burst / timelapse / recording; restore crop; disable depth/night
+  ├── activeModeIndex = newIndex  (drives UI via ShootingMode.allCases[index])
+  └── setup incoming: preset ISO/shutter; enable depth/night API; set crop; enable desqueeze
+```
+
+The `modeAdvisoryLine` view in `CameraView` shows per-mode controls (duration slider for long exposure, interval for timelapse, FPS/resolution/codec pickers for video). Add new per-mode controls there.
+
+### Capture flow
+
+```
+Shutter tap → CameraView.handleShutter()
+  ├── self-timer: CameraViewModel.startTimerCapture → deferred action()
+  └── direct: CameraView.performCapture()
+        ├── .video     → CameraManager.startRecording() / stopRecording()
+        ├── .longExposure → CaptureProcessor.beginLongExposureCapture()
+        ├── .burst     → CameraViewModel.startBurst(delegate:)
+        ├── .timelapse → CameraViewModel.startTimelapse(delegate:)
+        └── default    → CameraManager.capturePhoto(delegate:)
+                              ↓ AVFoundation callback
+                         CapturePhotoDelegate.photoOutput(_:didFinishProcessingPhoto:)
+                              ↓ onProcessed closure (defined in CameraView.makeCaptureDelegate)
+                         bake LUT/desqueeze/watermark → saveToPhotoLibrary(data:photo:location:)
+```
+
+`CapturePhotoDelegate` is created fresh per capture (`activeDelegates[id] = delegate` keeps it alive until `didFinishCaptureFor` fires the `onCaptureDone` callback that removes it). Never reuse a delegate instance.
+
 ### Capture variants
 
 - **AEB (bracketing)**: `capturePhotoBracketed(evStep:delegate:)` uses `AVCapturePhotoBracketSettings` with `AVCaptureAutoExposureBracketedStillImageSettings` at `[-evStep, 0, +evStep]`. Review is only shown for the EV-0 frame (detected via `photo.bracketSettings as? AVCaptureAutoExposureBracketedStillImageSettings` + `abs(auto.exposureTargetBias) < 0.01`).
 - **RAW+JPEG**: `photo.resolvedSettings.expectedPhotoCount > 1` identifies the RAW callback (JPEG follows); `shouldShowReview = false` for it.
 - **Self-timer**: Swift `Task` with 1s sleep loops. `action()` is called inside `await MainActor.run { guard !Task.isCancelled }` to close the race between expiry and cancellation.
 
-### Feature flags
+### Shooting mode implementation status
+
+| Mode | Status | Notes |
+|---|---|---|
+| Photo | ✅ Complete | AEB, RAW, RAW+JPEG, watermark, LUT bake |
+| Video | ✅ Complete | AVAssetWriter, LUT baked-in, GPS metadata, resolution switching |
+| Long Exposure | ✅ Complete | `CIMaximumCompositing` over N frames in `CaptureProcessor` |
+| Burst | ✅ Complete | 10 frames × 100 ms in `CameraViewModel.startBurst` |
+| Self-timer | ✅ Complete | Repeat count + countdown in `CameraViewModel` |
+| Timelapse | ✅ Complete | Configurable interval; each frame saved as individual JPEG |
+| Anamorphic | ✅ Complete | 2× horizontal desqueeze in `CaptureProcessor`; 2.39:1 crop guide |
+| Night | ⚠️ Partial | Hardware low-light boost + `.quality` QoS enabled; capture UX for long shutter (user feedback during multi-frame system capture) not yet implemented |
+| Portrait | ⚠️ Partial | `isDepthDataDeliveryEnabled` + portrait matte enabled; depth data captured but **never processed** — no blur applied to output JPEG |
+
+### Feature flags and `@AppStorage` persistence
 
 `App/FeatureFlags.swift` — all flags are currently `true`. Runtime visibility is controlled per-feature via `@AppStorage` keys shared between `CameraView` and `SettingsView` (e.g. `"showGrid"`, `"showHistogram"`, `"showStylePicker"`). After changing a flag that controls a processor-side filter (focus peaking, zebra, false color, LUT), call `cameraViewModel.syncOverlaysToProcessor()`.
+
+`@AppStorage` keys are the persistence layer — there is no separate UserDefaults wrapper. `CameraView` holds the keys and syncs them to `CameraManager`/`CameraViewModel` via `.onChange` modifiers at the bottom of `mainContent`. When adding a new persisted setting, declare it in `CameraView`, mirror it to `SettingsView` by using the same key string, and add an `.onChange` handler to apply it.
+
+### `CIContext.shared`
+
+`Utilities/CIContext+Shared.swift` exposes a single `CIContext` backed by `MTLCreateSystemDefaultDevice()`. Import it anywhere CI rendering is needed — never create a new `CIContext` per frame or per capture. The shared context is thread-safe for concurrent rendering.
 
 ### `fxClamped` extension
 

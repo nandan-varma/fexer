@@ -15,6 +15,10 @@ struct fexerApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @State private var appState = AppState.shared
 
+    init() {
+        CIContext.warmUpPipeline()
+    }
+
     var body: some Scene {
         WindowGroup {
             RootView()

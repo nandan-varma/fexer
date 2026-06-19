@@ -1,5 +1,6 @@
 import AVFoundation
 import CoreImage
+import CoreLocation
 import Observation
 import OSLog
 import Foundation
@@ -58,6 +59,9 @@ import Photos
     private var pixelBufferAdaptor: AVAssetWriterInputPixelBufferAdaptor?
     private var isWaitingToRecord = false
     private let audioOutput = AVCaptureAudioDataOutput()
+    // Captured at startRecording() call site (MainActor) and consumed on sessionQueue.
+    private var pendingRecordingLocation: CLLocation?
+    private var pendingRecordingStyleName: String?
 
     // Timer runs on MainActor; kept here so we can invalidate from MainActor context
     private var recordingTimer: Timer?
@@ -712,7 +716,9 @@ import Photos
 
     // MARK: - Video Recording
 
-    func startRecording() {
+    func startRecording(location: CLLocation? = nil, styleName: String? = nil) {
+        pendingRecordingLocation = location
+        pendingRecordingStyleName = styleName
         sessionQueue.async { [self] in
             guard !isWaitingToRecord && assetWriter == nil else { return }
             isWaitingToRecord = true
@@ -745,13 +751,20 @@ import Photos
             audioWriterInput = nil
             pixelBufferAdaptor = nil
             let outputURL = writer.outputURL
+            let savedLocation = pendingRecordingLocation
+            pendingRecordingLocation = nil
+            pendingRecordingStyleName = nil
             writer.finishWriting {
                 guard writer.status == .completed else {
                     Logger.camera.error("Video writing failed: \(writer.error?.localizedDescription ?? "unknown")")
                     return
                 }
                 PHPhotoLibrary.shared().performChanges({
-                    PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: outputURL)
+                    let request = PHAssetCreationRequest.forAsset()
+                    let options = PHAssetResourceCreationOptions()
+                    options.shouldMoveFile = true
+                    request.addResource(with: .video, fileURL: outputURL, options: options)
+                    request.location = savedLocation
                 }, completionHandler: { _, error in
                     if let error { Logger.camera.error("Video save failed: \(error.localizedDescription)") }
                 })
@@ -796,20 +809,21 @@ import Photos
             return
         }
 
-        // Video input
+        // Video codec — ProRes skips compression properties (uses its own quality tiers)
         let codecType: AVVideoCodecType = settings.codec == .h264 ? .h264 :
                                           settings.codec == .proRes && isProResRecordingSupported ? .proRes4444 : .hevc
-        let compressionProps: [String: Any] = [
-            AVVideoAverageBitRateKey: (width * height >= 3840 * 2160) ? 40_000_000 : 15_000_000,
-            AVVideoMaxKeyFrameIntervalKey: fps,
-            AVVideoExpectedSourceFrameRateKey: fps
-        ]
-        let videoOutputSettings: [String: Any] = [
+        var videoOutputSettings: [String: Any] = [
             AVVideoCodecKey: codecType,
             AVVideoWidthKey: width,
-            AVVideoHeightKey: height,
-            AVVideoCompressionPropertiesKey: compressionProps
+            AVVideoHeightKey: height
         ]
+        if codecType != .proRes4444 {
+            videoOutputSettings[AVVideoCompressionPropertiesKey] = [
+                AVVideoAverageBitRateKey: settings.videoBitRate,
+                AVVideoMaxKeyFrameIntervalKey: fps,
+                AVVideoExpectedSourceFrameRateKey: fps
+            ] as [String: Any]
+        }
         let videoInput = AVAssetWriterInput(mediaType: .video, outputSettings: videoOutputSettings)
         videoInput.expectsMediaDataInRealTime = true
 
@@ -823,13 +837,12 @@ import Photos
             sourcePixelBufferAttributes: pixelAttrs
         )
 
-        // Audio input — specify AAC settings for MP4 compatibility
-        // AVCaptureAudioDataOutput outputs LPCM; MP4 requires compressed audio (AAC)
+        // Audio input — AAC at sample rate and bitrate scaled to resolution
         let audioOutputSettings: [String: Any] = [
             AVFormatIDKey: kAudioFormatMPEG4AAC,
             AVNumberOfChannelsKey: 2,
-            AVSampleRateKey: 44100,
-            AVEncoderBitRateKey: 128000
+            AVSampleRateKey: settings.audioSampleRate,
+            AVEncoderBitRateKey: settings.audioBitRate
         ]
         let audioInput = AVAssetWriterInput(mediaType: .audio, outputSettings: audioOutputSettings)
         audioInput.expectsMediaDataInRealTime = true
@@ -840,6 +853,11 @@ import Photos
         }
         writer.add(videoInput)
         writer.add(audioInput)
+        writer.metadata = makeVideoMetadata(
+            settings: captureSettings,
+            location: pendingRecordingLocation,
+            styleName: pendingRecordingStyleName
+        )
         writer.startWriting()
         writer.startSession(atSourceTime: startTime)
 
@@ -857,6 +875,62 @@ import Photos
         Logger.camera.info("Video recording started: \(width)×\(height) \(fps)fps \(codecType.rawValue)")
     }
 
+    private func makeVideoMetadata(
+        settings: CaptureSettings,
+        location: CLLocation?,
+        styleName: String?
+    ) -> [AVMetadataItem] {
+        var items: [AVMutableMetadataItem] = []
+
+        func item(identifier: AVMetadataIdentifier, value: NSObject & NSCopying) -> AVMutableMetadataItem {
+            let i = AVMutableMetadataItem()
+            i.identifier = identifier
+            i.value = value
+            i.extendedLanguageTag = "und"
+            return i
+        }
+
+        items.append(item(identifier: .quickTimeMetadataCreationDate,
+                          value: ISO8601DateFormatter().string(from: Date()) as NSString))
+        items.append(item(identifier: .quickTimeMetadataMake,  value: "Apple" as NSString))
+        items.append(item(identifier: .quickTimeMetadataModel, value: UIDevice.current.model as NSString))
+        items.append(item(identifier: .quickTimeMetadataSoftware, value: "fexer" as NSString))
+
+        if let location {
+            let lat = location.coordinate.latitude
+            let lon = location.coordinate.longitude
+            let iso6709: String
+            if location.verticalAccuracy >= 0 {
+                iso6709 = String(format: "%+.4f%+.5f%+.0f/", lat, lon, location.altitude)
+            } else {
+                iso6709 = String(format: "%+.4f%+.5f/", lat, lon)
+            }
+            items.append(item(identifier: .quickTimeMetadataLocationISO6709, value: iso6709 as NSString))
+        }
+
+        // Camera capture settings as custom QuickTime metadata (mdta keyspace)
+        func custom(key: String, value: NSObject & NSCopying) -> AVMutableMetadataItem {
+            let i = AVMutableMetadataItem()
+            i.keySpace = .quickTimeMetadata
+            i.key = key as NSString
+            i.value = value
+            return i
+        }
+        items.append(custom(key: "com.fexer.camera.iso",
+                            value: Int(settings.isoValue) as NSNumber))
+        items.append(custom(key: "com.fexer.camera.shutterSpeed",
+                            value: CaptureSettings.formatShutterSpeed(
+                                CMTimeGetSeconds(settings.shutterSpeed)) as NSString))
+        items.append(custom(key: "com.fexer.camera.whiteBalanceKelvin",
+                            value: Int(settings.whiteBalance) as NSNumber))
+        items.append(custom(key: "com.fexer.camera.whiteBalanceTint",
+                            value: Int(settings.whiteBalanceTint) as NSNumber))
+        if let name = styleName {
+            items.append(custom(key: "com.fexer.style", value: name as NSString))
+        }
+        return items
+    }
+
     private func appendVideoFrame(_ ciImage: CIImage, time: CMTime) {
         guard let input = videoWriterInput,
               let adaptor = pixelBufferAdaptor,
@@ -870,15 +944,48 @@ import Photos
     }
 
     /// Checks if the current device supports ProRes recording.
+    /// Checks for 10-bit YCbCr capture formats, which ship only on ProRes-capable iPhones (13 Pro+).
     var isProResRecordingSupported: Bool {
         guard let device = currentDevice else { return false }
         return device.formats.contains { format in
-            let desc = format.formatDescription
-            return CMFormatDescriptionGetMediaSubType(desc) == kCVPixelFormatType_422YpCbCr10BiPlanarVideoRange
+            let sub = CMFormatDescriptionGetMediaSubType(format.formatDescription)
+            return sub == kCVPixelFormatType_422YpCbCr10BiPlanarVideoRange ||
+                   sub == kCVPixelFormatType_422YpCbCr10BiPlanarFullRange
         }
     }
 
     var isProResSupported: Bool { isProResRecordingSupported }
+
+    // MARK: - Video mode session preset
+
+    /// Reconfigures the capture session for video recording at the specified resolution.
+    /// Must NOT be called while recording is active.
+    func configureForVideoMode(resolution: VideoResolution) {
+        sessionQueue.async { [self] in
+            guard !isRecording, !isWaitingToRecord else { return }
+            let preset = resolution.sessionPreset
+            session.beginConfiguration()
+            if session.canSetSessionPreset(preset) {
+                session.sessionPreset = preset
+            } else {
+                session.sessionPreset = .hd1920x1080
+                Logger.camera.warning("4K preset unsupported on this device, falling back to 1080p")
+            }
+            session.commitConfiguration()
+            configureVideoRotation()
+            Task { @MainActor in self.captureSettings.videoSettings.resolution = resolution }
+        }
+    }
+
+    /// Restores the capture session preset to `.photo` (for still capture modes).
+    func configureForPhotoMode() {
+        sessionQueue.async { [self] in
+            guard !isRecording else { return }
+            session.beginConfiguration()
+            session.sessionPreset = .photo
+            session.commitConfiguration()
+        }
+    }
 
     // MARK: - Live Photo
 
@@ -933,6 +1040,25 @@ import Photos
                 device.activeVideoMaxFrameDuration = cmDuration
             }
         }
+    }
+
+    /// Returns the frame rates actually supported by the device at the given resolution.
+    /// Reads from the device format that matches the session preset, so the UI shows
+    /// only valid options instead of a hardcoded list.
+    func supportedFrameRates(for resolution: VideoResolution) -> [Int] {
+        let candidates = [24, 30, 60, 120, 240]
+        guard let device = currentDevice else { return [24, 30, 60] }
+        let preset = resolution.sessionPreset
+        // Find a format whose dimensions match the preset and collect its max FPS.
+        let targetDims: (Int32, Int32) = preset == .hd4K3840x2160 ? (3840, 2160) : (1920, 1080)
+        let matchingFormats = device.formats.filter { format in
+            let dims = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
+            return dims.width == targetDims.0 && dims.height == targetDims.1
+        }
+        let maxFPS = matchingFormats.flatMap { $0.videoSupportedFrameRateRanges }
+                                    .map { Int($0.maxFrameRate) }
+                                    .max() ?? 60
+        return candidates.filter { $0 <= maxFPS }
     }
 
     // MARK: - KVO Observations

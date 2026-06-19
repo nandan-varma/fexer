@@ -43,7 +43,8 @@ struct CameraView: View {
     @AppStorage("volumeButtonBehavior") private var volumeButtonBehavior  = "Shutter"
     @AppStorage("watermarkText")        private var watermarkText         = ""
     @AppStorage("longExposureDuration") private var longExposureDuration: Double = 4.0
-    @AppStorage("videoFrameRate")   private var videoFrameRate: Int    = 30
+    @AppStorage("videoFrameRate")      private var videoFrameRate: Int       = 30
+    @AppStorage("videoResolution")    private var videoResolutionRaw: String = VideoResolution.hd1080p.rawValue
     @AppStorage("isWBBracketEnabled") private var isWBBracketEnabled   = false
     @AppStorage("wbBracketKStep")   private var wbBracketKStep: Double = 500.0
     @AppStorage("selfTimerRepeat")  private var selfTimerRepeat: Int   = 1
@@ -60,6 +61,7 @@ struct CameraView: View {
     @State private var aelToastTask: Task<Void, Never>?
 
     private var cropRatio: CropRatio { CropRatio(rawValue: cropRatioRaw) ?? .full }
+    private var videoResolution: VideoResolution { VideoResolution(rawValue: videoResolutionRaw) ?? .hd1080p }
 
     init(cameraManager: CameraManager, stylesManager: StylesManager) {
         _cameraManager = State(initialValue: cameraManager)
@@ -149,6 +151,19 @@ struct CameraView: View {
         let settingsSync = captureBindings
             .onChange(of: videoFrameRate) { _, fps in
                 cameraManager.configureVideoFrameRate(fps)
+            }
+            .onChange(of: videoResolutionRaw) { _, raw in
+                let res = VideoResolution(rawValue: raw) ?? .hd1080p
+                if cameraViewModel.activeMode == .video {
+                    cameraManager.configureForVideoMode(resolution: res)
+                }
+            }
+            .onChange(of: cameraViewModel.activeMode) { _, newMode in
+                if newMode == .video {
+                    cameraManager.configureForVideoMode(resolution: videoResolution)
+                } else {
+                    cameraManager.configureForPhotoMode()
+                }
             }
         return settingsSync
     }
@@ -491,32 +506,7 @@ struct CameraView: View {
             Spacer()
             shutterButton
             Spacer()
-            recordButton
-        }
-    }
-
-    // MARK: - Record button
-
-    private var recordButton: some View {
-        let recording = cameraManager.isRecording
-        return Button {
-            if recording {
-                cameraManager.stopRecording()
-            } else {
-                cameraManager.startRecording()
-            }
-            HapticManager.medium()
-        } label: {
-            ZStack {
-                Circle()
-                    .stroke(.white, lineWidth: 3)
-                    .frame(width: 52, height: 52)
-                Circle()
-                    .fill(recording ? Color.red : Color.white.opacity(0.85))
-                    .frame(width: recording ? 22 : 40, height: recording ? 22 : 40)
-                    .clipShape(recording ? AnyShape(RoundedRectangle(cornerRadius: 4)) : AnyShape(Circle()))
-                    .animation(.easeInOut(duration: 0.2), value: recording)
-            }
+            Spacer().frame(width: 52, height: 52)
         }
     }
 
@@ -583,6 +573,24 @@ struct CameraView: View {
                         .frame(width: 62, height: 62)
                 }
                 .buttonStyle(ShutterButtonStyle())
+            } else if activeMode == .video {
+                // Video shutter — tap to start/stop recording
+                let recording = cameraManager.isRecording
+                Button { captureAction() } label: {
+                    ZStack {
+                        Circle()
+                            .fill(Color.red)
+                            .frame(width: 62, height: 62)
+                        if recording {
+                            RoundedRectangle(cornerRadius: 5)
+                                .fill(Color.white)
+                                .frame(width: 24, height: 24)
+                                .transition(.scale.combined(with: .opacity))
+                        }
+                    }
+                    .animation(.easeInOut(duration: 0.2), value: recording)
+                }
+                .buttonStyle(ShutterButtonStyle())
             } else {
                 // Normal shutter — tap to shoot, long-press to toggle AEL
                 Button { captureAction() } label: {
@@ -647,12 +655,18 @@ struct CameraView: View {
         }
     }
 
+    private func startVideoRecording() {
+        let location = appState.permissionsManager.currentLocation
+        let styleName = stylesManager.activeStyle?.name
+        cameraManager.startRecording(location: location, styleName: styleName)
+    }
+
     private func performCapture() {
         if cameraViewModel.activeMode == .video {
             if cameraManager.isRecording {
                 cameraManager.stopRecording()
             } else {
-                cameraManager.startRecording()
+                startVideoRecording()
             }
             HapticManager.medium()
             return
@@ -906,43 +920,60 @@ struct CameraView: View {
     }
 
     private var videoControlsRow: some View {
-        HStack(spacing: 12) {
-            // Frame rate picker
-            let supportedFPS = [24, 30, 60, 120, 240]
-            ForEach(supportedFPS, id: \.self) { fps in
-                let isActive = videoFrameRate == fps
+        VStack(spacing: 6) {
+            HStack(spacing: 12) {
+                // Frame rate picker — only show rates the device actually supports at the current resolution
+                let supportedFPS = cameraManager.supportedFrameRates(for: videoResolution)
+                ForEach(supportedFPS, id: \.self) { fps in
+                    let isActive = videoFrameRate == fps
+                    Button {
+                        videoFrameRate = fps
+                        cameraManager.configureVideoFrameRate(fps)
+                        HapticManager.selectionChanged()
+                    } label: {
+                        Text("\(fps)")
+                            .font(.system(size: 10, weight: isActive ? .bold : .medium, design: .monospaced))
+                            .foregroundStyle(isActive ? .black : .white.opacity(0.6))
+                            .padding(.horizontal, 8).padding(.vertical, 4)
+                            .background(isActive ? Color.yellow : Color.white.opacity(0.12),
+                                        in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                Spacer()
+
+                // Resolution toggle
                 Button {
-                    videoFrameRate = fps
-                    cameraManager.configureVideoFrameRate(fps)
-                    HapticManager.selectionChanged()
+                    let newRes: VideoResolution = videoResolution == .hd1080p ? .uhd4K : .hd1080p
+                    videoResolutionRaw = newRes.rawValue
+                    HapticManager.light()
                 } label: {
-                    Text("\(fps)")
-                        .font(.system(size: 10, weight: isActive ? .bold : .medium, design: .monospaced))
-                        .foregroundStyle(isActive ? .black : .white.opacity(0.6))
+                    Text(videoResolution.rawValue)
+                        .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(videoResolution == .uhd4K ? .yellow : .white.opacity(0.8))
                         .padding(.horizontal, 8).padding(.vertical, 4)
-                        .background(isActive ? Color.yellow : Color.white.opacity(0.12),
+                        .background(videoResolution == .uhd4K ? Color.yellow.opacity(0.18) : .white.opacity(0.12),
                                     in: Capsule())
                 }
                 .buttonStyle(.plain)
-            }
 
-            Spacer()
-
-            // Codec badge
-            if cameraManager.isProResSupported {
-                Button {
-                    let codecs = VideoCodec.allCases
-                    let idx = codecs.firstIndex(where: { $0 == cameraManager.captureSettings.videoSettings.codec }) ?? 0
-                    cameraManager.captureSettings.videoSettings.codec = codecs[(idx + 1) % codecs.count]
-                    HapticManager.light()
-                } label: {
-                    Text(cameraManager.captureSettings.videoSettings.codec.rawValue)
-                        .font(.system(size: 9, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(.white.opacity(0.8))
-                        .padding(.horizontal, 8).padding(.vertical, 4)
-                        .background(.white.opacity(0.12), in: Capsule())
+                // Codec badge (ProRes-capable devices only)
+                if cameraManager.isProResSupported {
+                    Button {
+                        let codecs = VideoCodec.allCases
+                        let idx = codecs.firstIndex(where: { $0 == cameraManager.captureSettings.videoSettings.codec }) ?? 0
+                        cameraManager.captureSettings.videoSettings.codec = codecs[(idx + 1) % codecs.count]
+                        HapticManager.light()
+                    } label: {
+                        Text(cameraManager.captureSettings.videoSettings.codec.rawValue)
+                            .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                            .foregroundStyle(.white.opacity(0.8))
+                            .padding(.horizontal, 8).padding(.vertical, 4)
+                            .background(.white.opacity(0.12), in: Capsule())
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
             }
         }
         .padding(.horizontal, 16)

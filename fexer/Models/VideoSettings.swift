@@ -31,4 +31,14 @@ struct VideoSettings {
     var resolution: VideoResolution = .hd1080p
     var frameRate: Int = 30
     var codec: VideoCodec = .hevc
+
+    var audioSampleRate: Double { resolution == .uhd4K ? 48_000 : 44_100 }
+    var audioBitRate: Int { resolution == .uhd4K ? 256_000 : 128_000 }
+
+    var videoBitRate: Int {
+        switch resolution {
+        case .uhd4K:   return 40_000_000
+        case .hd1080p: return 16_000_000
+        }
+    }
 }
