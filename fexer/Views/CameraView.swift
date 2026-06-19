@@ -29,6 +29,7 @@ struct CameraView: View {
     @AppStorage("isBracketingEnabled") private var isBracketingEnabled    = false
     @AppStorage("bracketEVStep")       private var bracketEVStep: Double  = 1.0
     @AppStorage("selfTimerDelay")      private var selfTimerDelay: Int    = 0
+    @AppStorage("focusPeakingColor")   private var focusPeakingColor: String = "red"
 
     private var cropRatio: CropRatio { CropRatio(rawValue: cropRatioRaw) ?? .full }
 
@@ -89,7 +90,6 @@ struct CameraView: View {
                     .padding(.top, max(60, (letterboxBarHeight ?? 0) + 16))
                     .padding(.leading, 16)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                    .allowsHitTesting(false)
             }
 
             // ── Level indicator — stays inside preview area ──────────────────────
@@ -178,6 +178,7 @@ struct CameraView: View {
         .onChange(of: showFocusPeaking)             { syncProcessor() }
         .onChange(of: showZebra)                    { syncProcessor() }
         .onChange(of: showFalseColor)               { syncProcessor() }
+        .onChange(of: focusPeakingColor)            { syncProcessor() }
     }
 
     // MARK: - Shutter row
@@ -294,34 +295,46 @@ struct CameraView: View {
         }
     }
 
-    // MARK: - Lens switcher
+    // MARK: - Zoom strip
 
     private var lensSwitcherRow: some View {
         let factors = cameraManager.availableZoomFactors
-        guard !factors.isEmpty else { return AnyView(EmptyView()) }
+        guard factors.count > 1 else { return AnyView(EmptyView()) }
+
+        let live = cameraManager.currentZoomFactor
+        let activeFactor = factors.min(by: { abs($0 - live) < abs($1 - live) }) ?? factors[0]
+        let isAtStop = abs(live - activeFactor) < 0.05
 
         return AnyView(
-            HStack(spacing: 12) {
+            HStack(spacing: 8) {
                 ForEach(factors, id: \.self) { factor in
-                    let isActive = abs(cameraManager.currentZoomFactor - factor) < 0.3
+                    let isActive = factor == activeFactor
                     Button {
                         cameraManager.setZoom(factor)
                         HapticManager.selectionChanged()
                     } label: {
-                        Text(zoomLabel(factor))
+                        Text(isActive && !isAtStop ? liveZoomLabel(live) : zoomStopLabel(factor))
                             .font(.system(size: 13, weight: isActive ? .bold : .medium, design: .monospaced))
                             .foregroundStyle(isActive ? .black : .white)
-                            .frame(width: 44, height: 30)
-                            .background(isActive ? Color.yellow : Color.white.opacity(0.2),
+                            .frame(height: 30)
+                            .padding(.horizontal, 10)
+                            .background(isActive ? Color.white : Color.white.opacity(0.15),
                                         in: Capsule())
                     }
                 }
             }
+            .frame(height: 36)
         )
     }
 
-    private func zoomLabel(_ factor: CGFloat) -> String {
-        factor < 1 ? "0.5×" : factor == 1 ? "1×" : "\(Int(factor))×"
+    private func zoomStopLabel(_ factor: CGFloat) -> String {
+        if factor < 1 { return "0.5\u{00D7}" }
+        if factor == 1 { return "1\u{00D7}" }
+        return "\(Int(factor))\u{00D7}"
+    }
+
+    private func liveZoomLabel(_ factor: CGFloat) -> String {
+        String(format: "%.1f\u{00D7}", factor)
     }
 
     // MARK: - Shooting mode label
@@ -362,7 +375,12 @@ struct CameraView: View {
     // MARK: - Helpers
 
     private func syncProcessor() {
-        cameraViewModel.syncOverlaysToProcessor(focusPeaking: showFocusPeaking, zebra: showZebra, falseColor: showFalseColor)
+        cameraViewModel.syncOverlaysToProcessor(
+            focusPeaking: showFocusPeaking,
+            zebra: showZebra,
+            falseColor: showFalseColor,
+            peakingColorName: focusPeakingColor
+        )
     }
 
     private func makeCaptureDelegate() -> CapturePhotoDelegate {
