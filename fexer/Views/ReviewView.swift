@@ -148,9 +148,10 @@ struct ReviewView: View {
             }
         }
         .gesture(
-            DragGesture()
+            DragGesture(minimumDistance: 20)
                 .onEnded { g in
-                    if g.translation.height > 80 { onDismiss?() }
+                    let isVertical = abs(g.translation.height) > abs(g.translation.width)
+                    if isVertical && g.translation.height > 80 { onDismiss?() }
                 }
         )
         .onTapGesture(count: 2) {

@@ -26,12 +26,11 @@ struct CameraView: View {
     @State private var stylesManager: StylesManager
     @State private var cameraViewModel: CameraViewModel
     @State private var stylesViewModel: StylesViewModel
+    @State private var galleryViewModel = GalleryViewModel()
     @State private var showReview = false
     @State private var capturedPhoto: CapturedPhoto?
     @State private var showSettings = false
     @State private var activeDelegates: [UUID: CapturePhotoDelegate] = [:]
-    @State private var showMeteringTooltip = false
-    @State private var meteringTooltipTask: Task<Void, Never>?
     @State private var recordingBlink = true
 
     @Environment(AppState.self) var appState
@@ -68,10 +67,10 @@ struct CameraView: View {
     @AppStorage("showVectorscope")       private var showVectorscope       = false
     @AppStorage("isCleanViewActive")     private var isCleanViewActive     = false
     @AppStorage("showEVIndicator")       private var showEVIndicator       = false
+    @AppStorage("showReviewAfterShot")   private var showReviewAfterShot   = false
     @AppStorage("zebraHighThreshold")    private var zebraHighThreshold: Double = 95.0
     @AppStorage("zebraLowThreshold")     private var zebraLowThreshold: Double  = 2.0
     @AppStorage("hintSwipeUpSeen")    private var hintSwipeUpSeen      = false
-    @AppStorage("hintBrightnessSeen") private var hintBrightnessSeen   = false
 
     @AppStorage("torchLevel")           private var torchLevel: Double = 1.0
     @AppStorage("stabilizationMode")    private var stabilizationModeRaw: String = StabilizationMode.auto.rawValue
@@ -87,7 +86,6 @@ struct CameraView: View {
     @State private var volumeObservation: NSKeyValueObservation?
     @State private var volumeInterruptionToken: NSObjectProtocol?
     @State private var showSwipeUpHint = false
-    @State private var showBrightnessHint = false
     @State private var aelToastText: String? = nil
     @State private var aelToastTask: Task<Void, Never>?
     @State private var recordingStartDate: Date? = nil
@@ -149,21 +147,6 @@ struct CameraView: View {
             .onChange(of: cameraViewModel.isPanelExpanded) { _, expanded in
                 if expanded && !hintSwipeUpSeen {
                     withAnimation { hintSwipeUpSeen = true }
-                }
-            }
-            .onChange(of: cameraViewModel.accumulatedExposureBias) { _, _ in
-                if !hintBrightnessSeen {
-                    hintBrightnessSeen = true
-                    withAnimation { showBrightnessHint = false }
-                }
-            }
-            .onChange(of: cameraViewModel.showFocusIndicator) { _, showing in
-                if showing && !hintBrightnessSeen && !showBrightnessHint {
-                    withAnimation(.easeIn(duration: 0.3)) { showBrightnessHint = true }
-                    Task {
-                        try? await Task.sleep(nanoseconds: 5_000_000_000)
-                        withAnimation(.easeOut(duration: 0.4)) { showBrightnessHint = false }
-                    }
                 }
             }
         let captureBindings = features
@@ -332,50 +315,6 @@ struct CameraView: View {
                 .allowsHitTesting(false)
         }
 
-        // ── Focus distance when manual focus is active ────────────────────────
-        if !cameraManager.captureSettings.isAutoFocus && !isCleanViewActive {
-            let dist = cameraManager.approximateFocusDistance(
-                lensPosition: cameraManager.captureSettings.focusDistance)
-            Text(dist)
-                .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                .foregroundStyle(.white.opacity(0.75))
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-                .padding(.top, CameraView.quickBarHeight + 66)
-                .padding(.trailing, 16)
-                .allowsHitTesting(false)
-        }
-
-        // ── Metering mode button + tooltip ───────────────────────────────────
-        VStack(alignment: .trailing, spacing: 4) {
-            Button {
-                let next = cameraManager.captureSettings.meteringMode.next
-                cameraManager.setMeteringMode(next)
-                HapticManager.light()
-                showMeteringTooltipBriefly()
-            } label: {
-                Image(systemName: cameraManager.captureSettings.meteringMode.systemImage)
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundStyle(.white)
-                    .rotationEffect(.degrees(DeviceOrientationTracker.shared.rotationAngle))
-                    .animation(.spring(response: 0.35, dampingFraction: 0.75),
-                               value: DeviceOrientationTracker.shared.rotationAngle)
-                    .frame(width: 32, height: 32)
-                    .background(.black.opacity(0.45), in: Circle())
-            }
-
-            if showMeteringTooltip {
-                Text(cameraManager.captureSettings.meteringMode.rawValue)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 8).padding(.vertical, 4)
-                    .background(.black.opacity(0.6), in: Capsule())
-                    .transition(.opacity)
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-        .padding(.top, CameraView.quickBarHeight + 10)
-        .padding(.trailing, 12)
-
         // ── Macro proximity indicator ─────────────────────────────────────────
         if cameraManager.isMacroSupported && cameraManager.currentZoomFactor < 0.8 {
             Text("MACRO")
@@ -483,16 +422,6 @@ struct CameraView: View {
                 .transition(.opacity)
         }
 
-        // ── Brightness zone hint (right-side drag) ───────────────────────────
-        if showBrightnessHint {
-            BrightnessHintView()
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
-                .padding(.trailing, 28)
-                .padding(.bottom, 200)
-                .allowsHitTesting(false)
-                .transition(.opacity)
-        }
-
         // ── Swipe-up hint ────────────────────────────────────────────────────
         if showSwipeUpHint && !hintSwipeUpSeen && !cameraViewModel.isPanelExpanded {
             SwipeUpHintView()
@@ -562,10 +491,18 @@ struct CameraView: View {
     @ViewBuilder
     private var modalOverlayLayer: some View {
         // ── Review ───────────────────────────────────────────────────────────
-        if showReview, let photo = capturedPhoto {
-            ReviewView(photo: photo) {
-                withAnimation(.easeInOut(duration: 0.3)) { showReview = false }
-            }
+        if showReview {
+            ReviewCarouselView(
+                initialPhoto: capturedPhoto,
+                galleryViewModel: galleryViewModel,
+                onDismiss: {
+                    withAnimation(.easeInOut(duration: 0.3)) { showReview = false }
+                },
+                onOpenFullGallery: {
+                    withAnimation(.easeInOut(duration: 0.3)) { showReview = false }
+                    appState.currentScreen = .gallery
+                }
+            )
             .transition(.move(edge: .trailing).combined(with: .opacity))
             .zIndex(10)
         }
@@ -593,7 +530,10 @@ struct CameraView: View {
     private var shutterRow: some View {
         HStack(alignment: .center) {
             if showGallery {
-                Button { appState.currentScreen = .gallery } label: {
+                Button {
+                    capturedPhoto = nil
+                    withAnimation(.easeInOut(duration: 0.3)) { showReview = true }
+                } label: {
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
                         .fill(.white.opacity(0.12))
                         .frame(width: 52, height: 52)
@@ -925,7 +865,9 @@ struct CameraView: View {
             assetLocalIdentifier: assetID
         )
         capturedPhoto = photo
-        withAnimation(.easeInOut(duration: 0.3)) { showReview = true }
+        if showReviewAfterShot {
+            withAnimation(.easeInOut(duration: 0.3)) { showReview = true }
+        }
     }
 
     // MARK: - Zoom strip
@@ -954,33 +896,30 @@ struct CameraView: View {
                     .transition(.opacity.combined(with: .scale(scale: 0.85, anchor: .bottom)))
                 }
 
-                HStack(spacing: 8) {
+                HStack(spacing: 10) {
                     ForEach(factors, id: \.self) { factor in
                         let isActive = factor == activeFactor
                         let labelText = isActive && !isAtStop ? liveZoomLabel(live) : zoomStopLabel(factor)
-                        zoomButtonView(factor: factor, isActive: isActive, labelText: labelText)
+                        lensButton(factor: factor, isActive: isActive, labelText: labelText)
                     }
                 }
-                .frame(height: 36)
             }
             .animation(.spring(response: 0.25, dampingFraction: 0.75), value: isZoomDialActive)
         )
     }
 
     @ViewBuilder
-    private func zoomButtonView(factor: CGFloat, isActive: Bool, labelText: String) -> some View {
+    private func lensButton(factor: CGFloat, isActive: Bool, labelText: String) -> some View {
         if isActive {
             Button {
                 if isZoomDialActive {
                     withAnimation(.spring(response: 0.2, dampingFraction: 0.8)) { isZoomDialActive = false }
-                } else {
-                    HapticManager.selectionChanged()
                 }
             } label: {
-                zoomButtonLabel(text: labelText, isActive: true)
+                lensButtonLabel(text: labelText, isActive: true)
             }
             .highPriorityGesture(
-                LongPressGesture(minimumDuration: 0.3)
+                LongPressGesture(minimumDuration: 0.35)
                     .onEnded { _ in
                         guard !isZoomDialActive else { return }
                         withAnimation(.spring(response: 0.25, dampingFraction: 0.75)) {
@@ -995,32 +934,45 @@ struct CameraView: View {
                 HapticManager.selectionChanged()
                 withAnimation(.spring(response: 0.2, dampingFraction: 0.8)) { isZoomDialActive = false }
             } label: {
-                zoomButtonLabel(text: labelText, isActive: false)
+                lensButtonLabel(text: labelText, isActive: false)
             }
         }
     }
 
     @ViewBuilder
-    private func zoomButtonLabel(text: String, isActive: Bool) -> some View {
+    private func lensButtonLabel(text: String, isActive: Bool) -> some View {
         Text(text)
-            .font(.system(size: 13, weight: isActive ? .bold : .medium, design: .monospaced))
+            .font(.system(size: 14, weight: isActive ? .bold : .semibold, design: .monospaced))
             .foregroundStyle(isActive ? .black : .white)
-            .frame(height: 30)
-            .padding(.horizontal, 10)
-            .background(isActive ? Color.white : Color.white.opacity(0.15), in: Capsule())
+            .frame(minWidth: 44, minHeight: 40)
+            .padding(.horizontal, 4)
+            .background(
+                isActive
+                    ? AnyShapeStyle(Color.yellow)
+                    : AnyShapeStyle(.ultraThinMaterial),
+                in: Circle()
+            )
+            .animation(.spring(response: 0.2, dampingFraction: 0.8), value: isActive)
     }
 
-    private func zoomStopLabel(_ factor: CGFloat) -> String {
-        let rounded = (factor * 10).rounded() / 10
-        if rounded == rounded.rounded() {
-            return "\(Int(rounded))\u{00D7}"
+    // Converts a raw AVFoundation videoZoomFactor to an optical label using the hardware's
+    // main-camera reference point (e.g., raw 1.0 on a triple camera with mainFactor=2 → ".5×",
+    // raw 2.0 → "1×", raw 6.0 → "3×"). Matches stock iOS camera label format.
+    private func opticalLabel(_ rawFactor: CGFloat) -> String {
+        let optical = rawFactor / cameraManager.mainCameraZoomFactor
+        if optical < 1.0 {
+            let s = String(format: "%g", optical)  // e.g. "0.5", "0.75"
+            let trimmed = s.hasPrefix("0") ? String(s.dropFirst()) : s  // ".5", ".75"
+            return trimmed + "\u{00D7}"
         }
-        return String(format: "%.1f\u{00D7}", rounded)
+        let r = (optical * 10).rounded() / 10
+        if r == r.rounded() { return "\(Int(r))\u{00D7}" }
+        return String(format: "%.1f\u{00D7}", r)
     }
 
-    private func liveZoomLabel(_ factor: CGFloat) -> String {
-        String(format: "%.1f\u{00D7}", factor)
-    }
+    private func zoomStopLabel(_ factor: CGFloat) -> String { opticalLabel(factor) }
+
+    private func liveZoomLabel(_ factor: CGFloat) -> String { opticalLabel(factor) }
 
     // MARK: - Shooting mode picker + advisory
 
@@ -1488,18 +1440,6 @@ struct CameraView: View {
         return String(format: "%02d:%02d:%02d:%02d", h, m, s, fr)
     }
 
-    // Show metering mode name for 1.5s then fade out
-    private func showMeteringTooltipBriefly() {
-        meteringTooltipTask?.cancel()
-        withAnimation(.easeIn(duration: 0.15)) { showMeteringTooltip = true }
-        meteringTooltipTask = Task {
-            try? await Task.sleep(nanoseconds: 1_500_000_000)
-            guard !Task.isCancelled else { return }
-            await MainActor.run {
-                withAnimation(.easeOut(duration: 0.3)) { showMeteringTooltip = false }
-            }
-        }
-    }
 
     private func makeCaptureDelegate() -> CapturePhotoDelegate {
         let captureLocation = appState.permissionsManager.currentLocation
@@ -1512,7 +1452,9 @@ struct CameraView: View {
         let isAnamorphic = cameraManager.processor.isAnamorphicDesqueezeEnabled
         let onShowReview: (CapturedPhoto) -> Void = { [self] photo in
             capturedPhoto = photo
-            withAnimation(.easeInOut(duration: 0.3)) { showReview = true }
+            if showReviewAfterShot {
+                withAnimation(.easeInOut(duration: 0.3)) { showReview = true }
+            }
         }
         let onThumbGenerated: (UIImage?) -> Void = { [self] thumb in
             if let thumb { lastCapturedThumb = thumb }

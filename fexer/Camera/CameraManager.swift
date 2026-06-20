@@ -196,10 +196,10 @@ import Photos
         }
         Task { @MainActor in self.availableLenses = lenses }
 
-        guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back),
+        guard let device = Self.bestCamera(for: .back),
               let input = try? AVCaptureDeviceInput(device: device)
         else {
-            Logger.camera.error("configureSession: failed to access wide-angle camera or create device input")
+            Logger.camera.error("configureSession: failed to access back camera or create device input")
             session.commitConfiguration()
             return
         }
@@ -656,7 +656,7 @@ import Photos
         sessionQueue.async { [self] in
             let currentPosition = currentDevice?.position ?? .back
             let newPosition: AVCaptureDevice.Position = currentPosition == .back ? .front : .back
-            guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: newPosition),
+            guard let device = Self.bestCamera(for: newPosition),
                   let newInput = try? AVCaptureDeviceInput(device: device)
             else {
                 Logger.camera.error("Failed to flip camera: cannot access device at position \(newPosition.rawValue)")
@@ -1078,15 +1078,31 @@ import Photos
 
     // MARK: - Zoom Levels
 
+    /// Raw AVFoundation zoom factors for each optical stop on the current device.
+    /// The first element is `minAvailableVideoZoomFactor`; subsequent elements are the
+    /// crossover points reported by `virtualDeviceSwitchOverVideoZoomFactors`.
+    /// Single-lens devices return a one-element array, which hides the lens switcher UI.
     var availableZoomFactors: [CGFloat] {
-        guard let device = currentDevice else { return [1.0] }
+        guard let device = currentDevice else { return [] }
         let switchOvers = device.virtualDeviceSwitchOverVideoZoomFactors.map { CGFloat($0.doubleValue) }
-        var factors: [CGFloat] = [1.0]
-        // Insert 0.5× for ultrawide (zoom factor 1 on a triple/dual-wide system)
-        let hasUltraWide = device.constituentDevices.contains { $0.deviceType == .builtInUltraWideCamera }
-        if hasUltraWide { factors.insert(0.5, at: 0) }
-        factors.append(contentsOf: switchOvers.filter { $0 > 1.0 })
-        return factors
+        return [device.minAvailableVideoZoomFactor] + switchOvers
+    }
+
+    /// Raw zoom factor at which the main (wide-angle) constituent camera begins.
+    /// Divide any raw `videoZoomFactor` by this value to get the user-facing optical label
+    /// (e.g., raw 2.0 / mainFactor 2.0 = "1×", raw 1.0 / mainFactor 2.0 = ".5×").
+    /// Returns `minAvailableVideoZoomFactor` when no virtual device is active.
+    var mainCameraZoomFactor: CGFloat {
+        guard let device = currentDevice else { return 1.0 }
+        let constituents = device.constituentDevices
+        let switchOvers = device.virtualDeviceSwitchOverVideoZoomFactors.map { CGFloat($0.doubleValue) }
+        // Constituents are ordered wide → narrow; switchOvers[i] = transition from [i] to [i+1].
+        // The main wide-angle camera starts at switchOvers[mainIdx - 1], or at minZoom if it's first.
+        guard let mainIdx = constituents.firstIndex(where: { $0.deviceType == .builtInWideAngleCamera }),
+              mainIdx > 0, mainIdx - 1 < switchOvers.count else {
+            return device.minAvailableVideoZoomFactor
+        }
+        return switchOvers[mainIdx - 1]
     }
 
     // MARK: - Macro Mode (Phase 6)
@@ -1456,6 +1472,35 @@ extension CameraManager: AVCaptureAudioDataOutputSampleBufferDelegate {
         let rms = sampleCount > 0 ? sqrt(sumSq / Float(sampleCount)) : 0
         // Update at ~10fps (every ~4800 samples at 48kHz)
         Task { @MainActor in self.audioLevel = self.audioLevel * 0.7 + rms * 0.3 }
+    }
+}
+
+// MARK: - Device selection
+
+extension CameraManager {
+    /// Returns the best color camera for the given position by querying the hardware.
+    /// Selection is dynamic: the device whose `constituentDevices` count is highest is preferred,
+    /// which naturally picks virtual multi-lens devices (triple > dual > single) without
+    /// hardcoding any device-type priority order.
+    /// `DiscoverySession` acts as the search space; the hardware reports what actually exists.
+    static func bestCamera(for position: AVCaptureDevice.Position) -> AVCaptureDevice? {
+        // List covers all color-video device types available as of iOS 18.
+        // The selection below is dynamic — this is only the discovery search space.
+        let colorCameraTypes: [AVCaptureDevice.DeviceType] = [
+            .builtInWideAngleCamera,
+            .builtInUltraWideCamera,
+            .builtInTelephotoCamera,
+            .builtInDualCamera,
+            .builtInDualWideCamera,
+            .builtInTripleCamera,
+        ]
+        let devices = AVCaptureDevice.DiscoverySession(
+            deviceTypes: colorCameraTypes, mediaType: .video, position: position
+        ).devices
+        // Virtual multi-lens devices expose constituent lenses via constituentDevices.
+        // Single physical devices have an empty constituentDevices array.
+        // Picking the device with the most constituents selects the widest multi-lens system.
+        return devices.max { $0.constituentDevices.count < $1.constituentDevices.count }
     }
 }
 

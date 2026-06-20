@@ -80,6 +80,7 @@ private struct CaptureSection: View {
     @AppStorage("wbBracketKStep")       private var wbBracketKStep: Double = 500.0
     @AppStorage("burstCount")           private var burstCount: Int       = 10
     @AppStorage("isTrapFocusEnabled")   private var isTrapFocusEnabled   = false
+    @AppStorage("showReviewAfterShot")  private var showReviewAfterShot  = false
 
     var body: some View {
         Section("Capture") {
@@ -148,6 +149,10 @@ private struct CaptureSection: View {
 
             Toggle(isOn: $isTrapFocusEnabled) {
                 Label("Trap Focus", systemImage: "scope")
+            }
+
+            Toggle(isOn: $showReviewAfterShot) {
+                Label("Preview After Shot", systemImage: "photo.on.rectangle")
             }
         }
     }
