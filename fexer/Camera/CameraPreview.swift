@@ -26,6 +26,9 @@ struct CameraPreview: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: MTKView, context: Context) {
+        // Re-arm the draw loop on every SwiftUI update — iOS may suspend it
+        // when the view is covered (e.g. by the splash screen).
+        uiView.isPaused = false
         context.coordinator.cropRatio = cropRatio
         context.coordinator.onTapToFocus = onTapToFocus
         context.coordinator.onDoubleTap = onDoubleTap

@@ -2,9 +2,37 @@ import AVFoundation
 import CoreMedia
 
 enum CaptureFormat: String, CaseIterable {
+    case heif = "HEIF"
     case jpeg = "JPEG"
     case raw = "RAW"
     case rawPlusJpeg = "RAW+JPEG"
+}
+
+enum StabilizationMode: String, CaseIterable, Identifiable {
+    case off         = "Off"
+    case standard    = "Standard"
+    case cinematic   = "Cinematic"
+    case auto        = "Auto"
+
+    var id: String { rawValue }
+
+    var avMode: AVCaptureVideoStabilizationMode {
+        switch self {
+        case .off:        return .off
+        case .standard:   return .standard
+        case .cinematic:  return .cinematic
+        case .auto:       return .auto
+        }
+    }
+}
+
+enum VideoColorSpace: String, CaseIterable, Identifiable {
+    case sRGB      = "sRGB"
+    case p3        = "P3"
+    case hlg       = "HLG"
+    case appleLog  = "Log"
+
+    var id: String { rawValue }
 }
 
 struct CaptureSettings {
@@ -14,17 +42,30 @@ struct CaptureSettings {
     var whiteBalanceTint: Float = 0        // -150 (green) … +150 (magenta)
     var focusDistance: Float = 0.5
     var exposureCompensation: Float = 0
+    var exposureTargetOffset: Float = 0    // live EV offset from meter neutral (KVO)
     var meteringMode: MeteringMode = .matrix
     var isAELocked: Bool = false
+    var lensAperture: Float = 1.8          // read-only: updated from device.lensAperture
+    var isTrapFocusEnabled: Bool = false
 
     var isAutoISO: Bool = true
     var isAutoShutter: Bool = true
     var isAutoWhiteBalance: Bool = true
     var isAutoFocus: Bool = true
 
-    var captureFormat: CaptureFormat = .jpeg
+    var captureFormat: CaptureFormat = .heif
     var isProRAW: Bool = false
     var videoSettings = VideoSettings()
+
+    // Torch
+    var isTorchOn: Bool = false
+    var torchLevel: Float = 1.0            // 0.01 … 1.0
+
+    // Video-only
+    var stabilizationMode: StabilizationMode = .auto
+    var videoColorSpace: VideoColorSpace = .sRGB
+    var isHDREnabled: Bool = false
+    var isOpticalZoomLocked: Bool = false  // clamp zoom to nearest optical factor
 
     /// AF-C (.continuousAutoFocus) tracks continuously; AF-S (.autoFocus) focuses once then locks.
     var focusMode: AVCaptureDevice.FocusMode = .continuousAutoFocus

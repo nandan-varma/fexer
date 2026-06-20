@@ -38,7 +38,7 @@ struct CameraView: View {
     @AppStorage("selfTimerDelay")       private var selfTimerDelay: Int   = 0
     @AppStorage("focusPeakingColor")    private var focusPeakingColor: String = "red"
     @AppStorage("timelapseInterval")    private var timelapseInterval: Double = 5.0
-    @AppStorage("defaultCaptureFormat") private var defaultCaptureFormat  = "JPEG"
+    @AppStorage("defaultCaptureFormat") private var defaultCaptureFormat  = "HEIF"
     @AppStorage("isProRAWEnabled")      private var isProRAWEnabled       = false
     @AppStorage("volumeButtonBehavior") private var volumeButtonBehavior  = "Shutter"
     @AppStorage("watermarkText")        private var watermarkText         = ""
@@ -54,13 +54,29 @@ struct CameraView: View {
     @AppStorage("hintSwipeUpSeen")    private var hintSwipeUpSeen      = false
     @AppStorage("hintBrightnessSeen") private var hintBrightnessSeen   = false
 
+    @AppStorage("torchLevel")           private var torchLevel: Double = 1.0
+    @AppStorage("stabilizationMode")    private var stabilizationModeRaw: String = StabilizationMode.auto.rawValue
+    @AppStorage("videoColorSpace")      private var videoColorSpaceRaw: String  = VideoColorSpace.sRGB.rawValue
+    @AppStorage("isHDREnabled")         private var isHDREnabled        = false
+    @AppStorage("isOpticalZoomLocked")  private var isOpticalZoomLocked = false
+    @AppStorage("isTrapFocusEnabled")   private var isTrapFocusEnabled  = false
+
     @State private var isZoomDialActive = false
+    @State private var showPresetsSheet = false
 
     @State private var volumeObservation: NSKeyValueObservation?
     @State private var showSwipeUpHint = false
     @State private var showBrightnessHint = false
     @State private var aelToastText: String? = nil
     @State private var aelToastTask: Task<Void, Never>?
+    @State private var recordingStartDate: Date? = nil
+
+    private var stabilizationMode: StabilizationMode {
+        StabilizationMode(rawValue: stabilizationModeRaw) ?? .auto
+    }
+    private var videoColorSpace: VideoColorSpace {
+        VideoColorSpace(rawValue: videoColorSpaceRaw) ?? .sRGB
+    }
 
     private var cropRatio: CropRatio { CropRatio(rawValue: cropRatioRaw) ?? .full }
     private var videoResolution: VideoResolution { VideoResolution(rawValue: videoResolutionRaw) ?? .hd1080p }
@@ -140,7 +156,7 @@ struct CameraView: View {
                 if recording { recordingBlink.toggle() }
             }
             .onChange(of: defaultCaptureFormat) { _, v in
-                cameraManager.captureSettings.captureFormat = CaptureFormat(rawValue: v) ?? .jpeg
+                cameraManager.captureSettings.captureFormat = CaptureFormat(rawValue: v) ?? .heif
             }
             .onChange(of: isProRAWEnabled) { _, v in
                 cameraManager.setProRAWEnabled(v)
@@ -227,30 +243,74 @@ struct CameraView: View {
 
         // ── Quick-access bar — top of viewfinder ────────────────────────────
         VStack {
-            QuickAccessBar(cameraManager: cameraManager)
-                .environment(appState)
+            QuickAccessBar(cameraManager: cameraManager, onShowPresets: {
+                showPresetsSheet = true
+            })
+            .environment(appState)
             Spacer()
         }
 
-        // ── Recording indicator — blinking red dot + elapsed time ────────────
+        // ── Recording indicator — blinking red dot + timecode + audio level ──
         if cameraManager.isRecording {
-            HStack(spacing: 6) {
+            HStack(spacing: 8) {
                 Circle()
                     .fill(Color.red)
                     .frame(width: 8, height: 8)
                     .opacity(recordingBlink ? 1 : 0.2)
                     .animation(.easeInOut(duration: 0.6).repeatForever(), value: recordingBlink)
-                Text(formatRecordingTime(cameraManager.recordingDuration))
+                Text(formatTimecode(cameraManager.recordingDuration))
                     .font(.system(size: 13, weight: .semibold, design: .monospaced))
                     .foregroundStyle(.white)
+                AudioLevelMeterView(level: cameraManager.audioLevel)
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
             .background(.black.opacity(0.55), in: Capsule())
+            .rotationEffect(.degrees(DeviceOrientationTracker.shared.rotationAngle))
+            .animation(.spring(response: 0.35, dampingFraction: 0.75),
+                       value: DeviceOrientationTracker.shared.rotationAngle)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .padding(.top, CameraView.quickBarHeight + 8)
             .allowsHitTesting(false)
             .transition(.opacity)
+        }
+
+        // ── EV offset indicator — shows exposureTargetOffset when auto-exposure active ──
+        let evOffset = cameraManager.captureSettings.exposureTargetOffset
+        if !isCleanViewActive && !cameraManager.captureSettings.isAELocked &&
+            (cameraManager.captureSettings.isAutoISO || cameraManager.captureSettings.isAutoShutter) {
+            EVOffsetIndicator(offset: evOffset,
+                              isAELocked: cameraManager.captureSettings.isAELocked)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .padding(.top, CameraView.quickBarHeight + 72)
+                .padding(.leading, 16)
+                .allowsHitTesting(false)
+                .transition(.opacity)
+        }
+
+        // ── Aperture badge (read-only hardware value) ────────────────────────
+        if !isCleanViewActive {
+            let aperture = cameraManager.captureSettings.lensAperture
+            Text(String(format: "ƒ/%.1f", aperture))
+                .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                .foregroundStyle(.white.opacity(0.55))
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                .padding(.top, CameraView.quickBarHeight + 52)
+                .padding(.trailing, 52)
+                .allowsHitTesting(false)
+        }
+
+        // ── Focus distance when manual focus is active ────────────────────────
+        if !cameraManager.captureSettings.isAutoFocus && !isCleanViewActive {
+            let dist = cameraManager.approximateFocusDistance(
+                lensPosition: cameraManager.captureSettings.focusDistance)
+            Text(dist)
+                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                .foregroundStyle(.white.opacity(0.75))
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                .padding(.top, CameraView.quickBarHeight + 66)
+                .padding(.trailing, 16)
+                .allowsHitTesting(false)
         }
 
         // ── Metering mode button + tooltip ───────────────────────────────────
@@ -264,6 +324,9 @@ struct CameraView: View {
                 Image(systemName: cameraManager.captureSettings.meteringMode.systemImage)
                     .font(.system(size: 16, weight: .medium))
                     .foregroundStyle(.white)
+                    .rotationEffect(.degrees(DeviceOrientationTracker.shared.rotationAngle))
+                    .animation(.spring(response: 0.35, dampingFraction: 0.75),
+                               value: DeviceOrientationTracker.shared.rotationAngle)
                     .frame(width: 32, height: 32)
                     .background(.black.opacity(0.45), in: Circle())
             }
@@ -387,8 +450,9 @@ struct CameraView: View {
         // ── Brightness zone hint (right-side drag) ───────────────────────────
         if showBrightnessHint {
             BrightnessHintView()
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .centerLastTextBaseline)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
                 .padding(.trailing, 28)
+                .padding(.bottom, 200)
                 .allowsHitTesting(false)
                 .transition(.opacity)
         }
@@ -480,6 +544,12 @@ struct CameraView: View {
             .transition(.opacity)
             .zIndex(11)
         }
+
+        // ── Capture presets sheet ────────────────────────────────────────────
+        Color.clear
+            .sheet(isPresented: $showPresetsSheet) {
+                CapturePresetsView(cameraManager: cameraManager, stylesManager: stylesManager)
+            }
     }
 
     // MARK: - Shutter row
@@ -499,6 +569,9 @@ struct CameraView: View {
                             Image(systemName: "photo.stack")
                                 .font(.system(size: 20, weight: .medium))
                                 .foregroundStyle(.white.opacity(0.9))
+                                .rotationEffect(.degrees(DeviceOrientationTracker.shared.rotationAngle))
+                                .animation(.spring(response: 0.35, dampingFraction: 0.75),
+                                           value: DeviceOrientationTracker.shared.rotationAngle)
                         )
                 }
             } else {
@@ -667,8 +740,10 @@ struct CameraView: View {
         if cameraViewModel.activeMode == .video {
             if cameraManager.isRecording {
                 cameraManager.stopRecording()
+                recordingStartDate = nil
             } else {
                 startVideoRecording()
+                recordingStartDate = Date()
             }
             HapticManager.medium()
             return
@@ -676,6 +751,11 @@ struct CameraView: View {
         if cameraViewModel.activeMode == .longExposure {
             performLongExposureCapture()
             return
+        }
+        // Screen flash for front-facing camera (no hardware flash on front)
+        let isFront = cameraManager.currentDevice?.position == .front
+        if isFront && cameraManager.flashMode != .off {
+            UIScreen.main.brightness = 1.0
         }
         HapticManager.shutter()
         let delegate = makeCaptureDelegate()
@@ -718,17 +798,50 @@ struct CameraView: View {
             f.inputImage = out
             out = f.outputImage ?? out
         }
+        // Crop in CI space — free transform on the lazy CIImage graph, no extra decode/encode
+        if cropRatio != .full, let aspect = cropRatio.portraitAspect {
+            let ext = out.extent
+            let currentAspect = ext.width / ext.height
+            let cropRect: CGRect
+            if aspect <= currentAspect {
+                let newW = ext.height * aspect
+                cropRect = CGRect(x: ext.origin.x + (ext.width - newW) / 2, y: ext.origin.y,
+                                  width: newW, height: ext.height)
+            } else {
+                let newH = ext.width / aspect
+                cropRect = CGRect(x: ext.origin.x, y: ext.origin.y + (ext.height - newH) / 2,
+                                  width: ext.width, height: newH)
+            }
+            out = out.cropped(to: cropRect)
+        }
         guard let sRGB = CGColorSpace(name: CGColorSpace.sRGB),
-              let cg = CIContext.shared.createCGImage(out, from: out.extent, format: .RGBA8, colorSpace: sRGB),
-              let jpeg = UIImage(cgImage: cg).jpegData(compressionQuality: 0.95)
+              var cg = CIContext.shared.createCGImage(out, from: out.extent, format: .RGBA8, colorSpace: sRGB)
         else { return }
 
-        var data = jpeg
-        if cropRatio != .full, let cropped = Self.cropImageData(data, to: cropRatio) { data = cropped }
-        if !watermark.isEmpty, let marked = Self.burnWatermark(in: data, text: watermark) { data = marked }
+        // Apply watermark onto the rendered CGImage — no second JPEG decode needed
+        if !watermark.isEmpty {
+            let size = CGSize(width: cg.width, height: cg.height)
+            let fmt = UIGraphicsImageRendererFormat(); fmt.scale = 1
+            let rendered = UIGraphicsImageRenderer(size: size, format: fmt).image { _ in
+                UIImage(cgImage: cg).draw(in: CGRect(origin: .zero, size: size))
+                let fontSize = max(24, size.width * 0.022)
+                let attrs: [NSAttributedString.Key: Any] = [
+                    .font: UIFont.systemFont(ofSize: fontSize, weight: .semibold),
+                    .foregroundColor: UIColor.white.withAlphaComponent(0.65)
+                ]
+                let str = NSAttributedString(string: watermark, attributes: attrs)
+                let strSize = str.size()
+                let padding = fontSize * 1.4
+                str.draw(at: CGPoint(x: size.width - strSize.width - padding,
+                                     y: size.height - strSize.height - padding))
+            }
+            if let wCG = rendered.cgImage { cg = wCG }
+        }
+
+        guard let jpeg = UIImage(cgImage: cg).jpegData(compressionQuality: 0.95) else { return }
 
         PHPhotoLibrary.shared().performChanges {
-            PHAssetCreationRequest.forAsset().addResource(with: .photo, data: data, options: nil)
+            PHAssetCreationRequest.forAsset().addResource(with: .photo, data: jpeg, options: nil)
         } completionHandler: { _, error in
             if let error { Logger.camera.error("Long exposure save: \(error.localizedDescription)") }
         }
@@ -975,8 +1088,8 @@ struct CameraView: View {
 
     private var videoControlsRow: some View {
         VStack(spacing: 6) {
-            HStack(spacing: 12) {
-                // Frame rate picker — only show rates the device actually supports at the current resolution
+            HStack(spacing: 8) {
+                // Frame rate picker — only show rates the device actually supports
                 let supportedFPS = cameraManager.supportedFrameRates(for: videoResolution)
                 ForEach(supportedFPS, id: \.self) { fps in
                     let isActive = videoFrameRate == fps
@@ -989,21 +1102,43 @@ struct CameraView: View {
                             .font(.system(size: 10, weight: isActive ? .bold : .medium, design: .monospaced))
                             .foregroundStyle(isActive ? .black : .white.opacity(0.6))
                             .padding(.horizontal, 8).padding(.vertical, 4)
-                            .background(isActive ? Color.yellow : Color.white.opacity(0.12),
-                                        in: Capsule())
+                            .background(isActive ? Color.yellow : Color.white.opacity(0.12), in: Capsule())
                     }
                     .buttonStyle(.plain)
                 }
 
                 Spacer()
 
+                // Slow-Mo button (when device supports high-FPS)
+                if cameraManager.isSlowMotionSupported {
+                    let isSlowMo = videoResolution == .slowMo
+                    Button {
+                        let newRes: VideoResolution = isSlowMo ? .hd1080p : .slowMo
+                        videoResolutionRaw = newRes.rawValue
+                        if newRes.isSlowMotion {
+                            cameraManager.configureForSlowMotion(fps: cameraManager.maxSlowMotionFPS)
+                        } else {
+                            cameraManager.configureForVideoMode(resolution: newRes)
+                        }
+                        HapticManager.light()
+                    } label: {
+                        Text(isSlowMo ? "\(cameraManager.maxSlowMotionFPS)fps" : "Slo-Mo")
+                            .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                            .foregroundStyle(isSlowMo ? .black : .white.opacity(0.8))
+                            .padding(.horizontal, 8).padding(.vertical, 4)
+                            .background(isSlowMo ? Color.yellow : .white.opacity(0.12), in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                }
+
                 // Resolution toggle
                 Button {
+                    guard videoResolution != .slowMo else { return }
                     let newRes: VideoResolution = videoResolution == .hd1080p ? .uhd4K : .hd1080p
                     videoResolutionRaw = newRes.rawValue
                     HapticManager.light()
                 } label: {
-                    Text(videoResolution.rawValue)
+                    Text(videoResolution == .slowMo ? "1080p" : videoResolution.rawValue)
                         .font(.system(size: 9, weight: .semibold, design: .monospaced))
                         .foregroundStyle(videoResolution == .uhd4K ? .yellow : .white.opacity(0.8))
                         .padding(.horizontal, 8).padding(.vertical, 4)
@@ -1014,20 +1149,92 @@ struct CameraView: View {
 
                 // Codec badge (ProRes-capable devices only)
                 if cameraManager.isProResSupported {
+                    let activeCodec = cameraManager.captureSettings.videoSettings.codec
                     Button {
                         let codecs = VideoCodec.allCases
-                        let idx = codecs.firstIndex(where: { $0 == cameraManager.captureSettings.videoSettings.codec }) ?? 0
+                        let idx = codecs.firstIndex(where: { $0 == activeCodec }) ?? 0
                         cameraManager.captureSettings.videoSettings.codec = codecs[(idx + 1) % codecs.count]
                         HapticManager.light()
                     } label: {
-                        Text(cameraManager.captureSettings.videoSettings.codec.rawValue)
+                        Text(activeCodec.rawValue)
                             .font(.system(size: 9, weight: .semibold, design: .monospaced))
-                            .foregroundStyle(.white.opacity(0.8))
+                            .foregroundStyle(activeCodec == .proRes ? .yellow : .white.opacity(0.8))
                             .padding(.horizontal, 8).padding(.vertical, 4)
-                            .background(.white.opacity(0.12), in: Capsule())
+                            .background(activeCodec == .proRes ? Color.yellow.opacity(0.18) : .white.opacity(0.12),
+                                        in: Capsule())
                     }
                     .buttonStyle(.plain)
                 }
+            }
+
+            // Second row: stabilization + color space + HDR
+            HStack(spacing: 8) {
+                // Stabilization picker
+                let stabModes: [StabilizationMode] = [.off, .standard, .cinematic, .auto]
+                Menu {
+                    ForEach(stabModes) { mode in
+                        Button {
+                            stabilizationModeRaw = mode.rawValue
+                            cameraManager.setVideoStabilizationMode(mode)
+                            HapticManager.selectionChanged()
+                        } label: {
+                            Label(mode.rawValue, systemImage: stabilizationMode == mode ? "checkmark" : "")
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "hand.raised.slash")
+                            .font(.system(size: 9))
+                        Text(stabilizationMode.rawValue)
+                            .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                    }
+                    .foregroundStyle(stabilizationMode == .off ? .white.opacity(0.5) : .white.opacity(0.9))
+                    .padding(.horizontal, 8).padding(.vertical, 4)
+                    .background(.white.opacity(0.1), in: Capsule())
+                }
+                .buttonStyle(.plain)
+
+                // Color space picker
+                let availableSpaces: [VideoColorSpace] = cameraManager.isAppleLogSupported
+                    ? VideoColorSpace.allCases
+                    : [.sRGB, .p3, .hlg]
+                Menu {
+                    ForEach(availableSpaces) { cs in
+                        Button {
+                            videoColorSpaceRaw = cs.rawValue
+                            cameraManager.setVideoColorSpace(cs)
+                            HapticManager.selectionChanged()
+                        } label: {
+                            Label(cs.rawValue, systemImage: videoColorSpace == cs ? "checkmark" : "")
+                        }
+                    }
+                } label: {
+                    Text(videoColorSpace.rawValue)
+                        .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(videoColorSpace != .sRGB ? .cyan : .white.opacity(0.6))
+                        .padding(.horizontal, 8).padding(.vertical, 4)
+                        .background(videoColorSpace != .sRGB ? Color.cyan.opacity(0.15) : .white.opacity(0.1),
+                                    in: Capsule())
+                }
+                .buttonStyle(.plain)
+
+                // HDR toggle (when device supports HDR formats)
+                if cameraManager.isHDRFormatSupported {
+                    Button {
+                        isHDREnabled.toggle()
+                        cameraManager.setHDREnabled(isHDREnabled)
+                        HapticManager.light()
+                    } label: {
+                        Text("HDR")
+                            .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                            .foregroundStyle(isHDREnabled ? .black : .white.opacity(0.6))
+                            .padding(.horizontal, 8).padding(.vertical, 4)
+                            .background(isHDREnabled ? Color.yellow : .white.opacity(0.1), in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                Spacer()
             }
         }
         .padding(.horizontal, 16)
@@ -1079,19 +1286,26 @@ struct CameraView: View {
         volumeObservation = nil
         cameraManager.stopSession()
         UIApplication.shared.isIdleTimerDisabled = false
+        DeviceOrientationTracker.shared.stop()
     }
 
     private func onCameraViewAppear() {
         HapticManager.warmUp()
+        DeviceOrientationTracker.shared.start()
         cameraManager.startSession()
         syncProcessor()
         cameraManager.processor.onPixelBuffer = stylesViewModel.onFrameAvailable
+        // Wire trap focus — when camera locks, fire shutter
+        cameraManager.setTrapFocusCallback { [self] in
+            guard cameraManager.captureSettings.isTrapFocusEnabled else { return }
+            performCapture()
+        }
         UIApplication.shared.isIdleTimerDisabled = true
         Task { await appState.permissionsManager.requestPhotoLibraryAccess() }
         Task { await appState.permissionsManager.requestMicrophoneAccess() }
         appState.permissionsManager.requestLocationAccess()
         cameraViewModel.timelapseInterval = timelapseInterval
-        cameraManager.captureSettings.captureFormat = CaptureFormat(rawValue: defaultCaptureFormat) ?? .jpeg
+        cameraManager.captureSettings.captureFormat = CaptureFormat(rawValue: defaultCaptureFormat) ?? .heif
         cameraManager.setProRAWEnabled(isProRAWEnabled)
         setupVolumeButtonObserver()
         if !hintSwipeUpSeen { scheduleSwipeUpHint() }
@@ -1113,9 +1327,14 @@ struct CameraView: View {
         }
     }
 
-    private func formatRecordingTime(_ seconds: TimeInterval) -> String {
-        let s = Int(seconds)
-        return String(format: "%02d:%02d", s / 60, s % 60)
+    private func formatTimecode(_ seconds: TimeInterval) -> String {
+        let fps = videoFrameRate
+        let totalFrames = Int(seconds * Double(fps))
+        let fr = totalFrames % fps
+        let s  = (totalFrames / fps) % 60
+        let m  = (totalFrames / fps / 60) % 60
+        let h  = totalFrames / fps / 3600
+        return String(format: "%02d:%02d:%02d:%02d", h, m, s, fr)
     }
 
     // Show metering mode name for 1.5s then fade out
@@ -1151,81 +1370,30 @@ struct CameraView: View {
                     Logger.camera.error("fileDataRepresentation returned nil")
                     return
                 }
-
-                // Bake LUT and/or anamorphic desqueeze into captured image.
-                // Portrait photos stay upright via .applyOrientationProperty.
-                let styledData: Data = {
-                    let needsLUT = captureFilter != nil && !photo.isRawPhoto
-                    let needsDesqueeze = isAnamorphic && !photo.isRawPhoto
-                    guard needsLUT || needsDesqueeze,
-                          let source = CGImageSourceCreateWithData(rawData as CFData, nil),
-                          let uti = CGImageSourceGetType(source),
-                          let ciImage = CIImage(data: rawData, options: [.applyOrientationProperty: true])
-                    else { return rawData }
-
-                    var out = ciImage
-
-                    if needsLUT, let filter = captureFilter {
-                        filter.inputImage = out
-                        out = filter.outputImage ?? out
-                    }
-
-                    // Apply 2× horizontal desqueeze to match what the preview showed
-                    if needsDesqueeze {
-                        out = out.transformed(by: CGAffineTransform(scaleX: 2.0, y: 1.0))
-                    }
-
-                    guard let sRGB = CGColorSpace(name: CGColorSpace.sRGB),
-                          let cgImage = CIContext.shared.createCGImage(
-                              out, from: out.extent, format: .RGBA8, colorSpace: sRGB)
-                    else { return rawData }
-
-                    let mutableData = NSMutableData()
-                    guard let dest = CGImageDestinationCreateWithData(mutableData, uti, 1, nil)
-                    else { return rawData }
-
-                    var props = (CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [String: Any]) ?? [:]
-                    props[kCGImagePropertyOrientation as String] = 1
-                    if var tiff = props[kCGImagePropertyTIFFDictionary as String] as? [String: Any] {
-                        tiff[kCGImagePropertyTIFFOrientation as String] = 1
-                        props[kCGImagePropertyTIFFDictionary as String] = tiff
-                    }
-                    CGImageDestinationAddImage(dest, cgImage, props as CFDictionary)
-                    guard CGImageDestinationFinalize(dest) else { return rawData }
-                    return mutableData as Data
-                }()
-
-                // Apply crop to match viewfinder ratio (RAW skipped — raw data is always full-frame)
-                var processedData = styledData
-                if !photo.isRawPhoto && capturedCropRatio != .full {
-                    processedData = Self.cropImageData(processedData, to: capturedCropRatio) ?? processedData
+                // Return immediately so AVFoundation fires didFinishCaptureFor (and clears
+                // isCapturing) as soon as the sensor is done — not after post-processing.
+                Task.detached(priority: .userInitiated) {
+                    let processedData = CameraView.processCapture(
+                        rawData: rawData,
+                        isRaw: photo.isRawPhoto,
+                        captureFilter: captureFilter,
+                        isAnamorphic: isAnamorphic,
+                        cropRatio: capturedCropRatio,
+                        watermark: capturedWatermark,
+                        activeStyle: activeStyle
+                    )
+                    saveToPhotoLibrary(data: processedData, photo: photo, location: captureLocation)
+                    guard shouldShowReview else { return }
+                    let captured = CapturedPhoto(
+                        jpegData: processedData,
+                        captureSettings: captureSettings,
+                        appliedStyle: activeStyle,
+                        styleIntensity: styleIntensity,
+                        location: captureLocation,
+                        exifMetadata: photo.metadata
+                    )
+                    await MainActor.run { onShowReview(captured) }
                 }
-
-                // Burn watermark text onto non-RAW images
-                if !photo.isRawPhoto && !capturedWatermark.isEmpty {
-                    processedData = Self.burnWatermark(in: processedData, text: capturedWatermark) ?? processedData
-                }
-
-                let dataToSave: Data
-                if let style = activeStyle, !photo.isRawPhoto {
-                    dataToSave = ExifReader.embedStyleTag(in: processedData, styleName: style.name) ?? processedData
-                } else {
-                    dataToSave = processedData
-                }
-
-                saveToPhotoLibrary(data: dataToSave, photo: photo, location: captureLocation)
-
-                guard shouldShowReview else { return }
-
-                let captured = CapturedPhoto(
-                    jpegData: processedData,
-                    captureSettings: captureSettings,
-                    appliedStyle: activeStyle,
-                    styleIntensity: styleIntensity,
-                    location: captureLocation,
-                    exifMetadata: photo.metadata
-                )
-                onShowReview(captured)
             },
             onCaptureDone: { [cameraManager] delegateID in
                 Task { @MainActor [self] in
@@ -1265,6 +1433,132 @@ struct CameraView: View {
     }
 
     // MARK: - Image post-processing helpers
+
+    /// Fused post-capture pipeline: LUT bake + desqueeze + crop + watermark + XMP tag in one pass.
+    /// Runs off the AVFoundation callback thread so isCapturing clears immediately after sensor readout.
+    private static func processCapture(
+        rawData: Data,
+        isRaw: Bool,
+        captureFilter: LUTFilter?,
+        isAnamorphic: Bool,
+        cropRatio: CropRatio,
+        watermark: String,
+        activeStyle: PhotoStyle?
+    ) -> Data {
+        let needsLUT        = captureFilter != nil && !isRaw
+        let needsDesqueeze  = isAnamorphic && !isRaw
+        let needsCrop       = !isRaw && cropRatio != .full
+        let needsWatermark  = !isRaw && !watermark.isEmpty
+        let needsStyleTag   = activeStyle != nil && !isRaw
+
+        if !needsLUT && !needsDesqueeze && !needsCrop && !needsWatermark {
+            // Fast path: no pixel work — add XMP tag via source-copy if needed (no full re-encode)
+            if let style = activeStyle { return ExifReader.embedStyleTag(in: rawData, styleName: style.name) ?? rawData }
+            return rawData
+        }
+
+        guard let source = CGImageSourceCreateWithData(rawData as CFData, nil),
+              let uti = CGImageSourceGetType(source),
+              let ciImage = CIImage(data: rawData, options: [.applyOrientationProperty: true])
+        else {
+            if needsStyleTag, let style = activeStyle { return ExifReader.embedStyleTag(in: rawData, styleName: style.name) ?? rawData }
+            return rawData
+        }
+
+        var out = ciImage
+
+        if needsLUT, let filter = captureFilter {
+            filter.inputImage = out
+            out = filter.outputImage ?? out
+        }
+
+        // Apply 2× horizontal desqueeze to match what the preview showed
+        if needsDesqueeze {
+            out = out.transformed(by: CGAffineTransform(scaleX: 2.0, y: 1.0))
+        }
+
+        // Crop in CI space — a free transform on the lazy graph, avoids a second decode/encode cycle
+        if needsCrop, let aspect = cropRatio.portraitAspect {
+            let ext = out.extent
+            let currentAspect = ext.width / ext.height
+            let cropRect: CGRect
+            if aspect <= currentAspect {
+                let newW = ext.height * aspect
+                cropRect = CGRect(x: ext.origin.x + (ext.width - newW) / 2, y: ext.origin.y,
+                                  width: newW, height: ext.height)
+            } else {
+                let newH = ext.width / aspect
+                cropRect = CGRect(x: ext.origin.x, y: ext.origin.y + (ext.height - newH) / 2,
+                                  width: ext.width, height: newH)
+            }
+            out = out.cropped(to: cropRect)
+        }
+
+        guard let sRGB = CGColorSpace(name: CGColorSpace.sRGB) else { return rawData }
+
+        // Build metadata props once (shared between both paths)
+        var props = (CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [String: Any]) ?? [:]
+        props[kCGImagePropertyOrientation as String] = 1
+        if var tiff = props[kCGImagePropertyTIFFDictionary as String] as? [String: Any] {
+            tiff[kCGImagePropertyTIFFOrientation as String] = 1
+            props[kCGImagePropertyTIFFDictionary as String] = tiff
+        }
+        if let style = activeStyle {
+            var xmp = props["{XMP}"] as? [String: Any] ?? [:]
+            xmp["fexer:AppliedStyle"] = style.name
+            props["{XMP}"] = xmp
+        }
+
+        if !needsWatermark {
+            // Fast path: encode directly from CIImage (GPU→hardware encoder, no 48MB CGImage buffer).
+            // CGImageDestinationAddImageFromSource WITHOUT kCGImageDestinationLossyCompressionQuality
+            // performs a lossless metadata-only write — compressed pixels are copied unchanged.
+            let qualityKey = CIImageRepresentationOption(rawValue: kCGImageDestinationLossyCompressionQuality as String)
+            let ciOpts: [CIImageRepresentationOption: Any] = [qualityKey: 0.92]
+            let utiStr = uti as String
+            let encodedData: Data?
+            if utiStr == "public.heic" || utiStr == "public.heif" {
+                encodedData = CIContext.shared.heifRepresentation(of: out, format: .RGBA8, colorSpace: sRGB, options: ciOpts)
+            } else {
+                encodedData = CIContext.shared.jpegRepresentation(of: out, colorSpace: sRGB, options: ciOpts)
+            }
+            guard let ciEncoded = encodedData,
+                  let ciSrc = CGImageSourceCreateWithData(ciEncoded as CFData, nil)
+            else { return rawData }
+            let mutableData = NSMutableData()
+            guard let dest = CGImageDestinationCreateWithData(mutableData, uti, 1, nil) else { return rawData }
+            CGImageDestinationAddImageFromSource(dest, ciSrc, 0, props as CFDictionary)
+            guard CGImageDestinationFinalize(dest) else { return rawData }
+            return mutableData as Data
+        }
+
+        // Watermark path: needs a CGImage to draw text onto
+        guard var cgImage = CIContext.shared.createCGImage(out, from: out.extent, format: .RGBA8, colorSpace: sRGB)
+        else { return rawData }
+
+        let size = CGSize(width: cgImage.width, height: cgImage.height)
+        let fmt = UIGraphicsImageRendererFormat(); fmt.scale = 1
+        let rendered = UIGraphicsImageRenderer(size: size, format: fmt).image { _ in
+            UIImage(cgImage: cgImage).draw(in: CGRect(origin: .zero, size: size))
+            let fontSize = max(24, size.width * 0.022)
+            let attrs: [NSAttributedString.Key: Any] = [
+                .font: UIFont.systemFont(ofSize: fontSize, weight: .semibold),
+                .foregroundColor: UIColor.white.withAlphaComponent(0.65)
+            ]
+            let str = NSAttributedString(string: watermark, attributes: attrs)
+            let strSize = str.size()
+            let padding = fontSize * 1.4
+            str.draw(at: CGPoint(x: size.width - strSize.width - padding,
+                                 y: size.height - strSize.height - padding))
+        }
+        if let wCG = rendered.cgImage { cgImage = wCG }
+
+        let mutableData = NSMutableData()
+        guard let dest = CGImageDestinationCreateWithData(mutableData, uti, 1, nil) else { return rawData }
+        CGImageDestinationAddImage(dest, cgImage, props as CFDictionary)
+        guard CGImageDestinationFinalize(dest) else { return rawData }
+        return mutableData as Data
+    }
 
     /// Center-crops JPEG data to match the given crop ratio. Metadata is preserved.
     private static func cropImageData(_ data: Data, to ratio: CropRatio) -> Data? {

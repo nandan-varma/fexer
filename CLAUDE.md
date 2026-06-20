@@ -18,6 +18,42 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
 
 SourceKit shows many false-positive errors (UIKit types "unavailable in macOS", cross-file references "not found") because it indexes against the macOS SDK. Ignore them; `xcodebuild` against the iOS SDK is the truth.
 
+## Project Layout
+
+```
+fexer/
+├── App/                          # AppState.swift, FeatureFlags.swift
+├── Camera/                       # CameraManager, CaptureProcessor, filters, CameraPreview
+├── Models/                       # ShootingMode, CaptureSettings, CapturedPhoto, EditState, VideoSettings
+├── ViewModels/                   # CameraViewModel, StylesViewModel, GalleryViewModel
+├── Utilities/                    # PermissionsManager, CaptureService, HapticManager,
+│                                 # ExifReader, HistogramCalculator, LUTLoader, CIContext+Shared
+├── Styles/                       # StylesManager, LUTFilter, StyleTransforms, SceneClassifier,
+│                                 # StylePreviewRenderer
+├── Views/
+│   ├── CameraView.swift          # Main camera UI (1100+ lines)
+│   ├── ViewfinderView.swift      # MTKView + overlay composition
+│   ├── ReviewView.swift          # Post-capture review
+│   ├── EditView.swift            # Non-destructive editor
+│   ├── GalleryView.swift         # Photo Library grid
+│   ├── SettingsView.swift        # Preferences
+│   ├── OnboardingView.swift      # First-run permissions
+│   ├── SplashView.swift          # Launch animation (aperture iris)
+│   ├── QuickAccessBar.swift      # Customizable bottom toolbar
+│   ├── ApertureLogoView.swift    # Programmatic aperture animation
+│   ├── Overlays/                 # Histogram, Waveform, Vectorscope, LevelIndicator,
+│   │                             # GridOverlay, FocusPeakingOverlay, ZebraOverlay,
+│   │                             # GestureHintOverlay
+│   ├── ControlsPanel/            # ManualControlsPanel, VerticalDialSlider, ISOSlider,
+│   │                             # ShutterSlider, WhiteBalanceSlider, FocusSlider,
+│   │                             # AutoToggleButton
+│   ├── StylePicker/              # StylePickerView, StyleCategoryView, StyleThumbnailView,
+│   │                             # StyleBeforeAfterView, StyleAdjustmentsRow
+│   └── SupportingTypes/          # CapturePhotoDelegate, ShutterButtonStyle, VolumeHUDSuppressor
+├── Resources/LUTs/               # 21× .cube LUT files
+└── Tests/fexerTests/             # CameraManagerTests, ViewModelTests, UtilitiesTests
+```
+
 ## Architecture
 
 ### Threading model — the critical invariant
@@ -32,7 +68,7 @@ com.fexer.session  (sessionQueue, .userInteractive)
 
 **Rule:** AVFoundation calls (`lockForConfiguration`, `setExposureModeCustom`, etc.) must stay on `sessionQueue`. Any mutation of `@Observable` properties that SwiftUI reads must cross back with `Task { @MainActor in ... }`. Never call `UIView.setNeedsDisplay` from `sessionQueue` — use the MTKView's continuous render mode instead (`isPaused = false`, `enableSetNeedsDisplay = false`).
 
-Classes with explicit `nonisolated` methods that may be called from non-MainActor contexts: `StylePreviewRenderer` (all public methods), `StylesViewModel.onFrameAvailable`. These use `NSLock` for internal thread safety rather than actor isolation.
+Classes with explicit `nonisolated` methods that may be called from non-MainActor contexts: `StylePreviewRenderer` (all public methods), `StylesViewModel.onFrameAvailable`. These use `OSAllocatedUnfairLock` for internal thread safety rather than actor isolation.
 
 ### Camera pipeline (frame path)
 
@@ -43,16 +79,16 @@ AVCaptureVideoDataOutput
       ├── [2] LUTFilter (CIColorCubeWithColorSpace) — skipped when false color active
       ├── [3] FocusPeakingFilter (CIColorKernel) — optional, always on top
       ├── [4] ZebraFilter (CIColorKernel) — optional, skipped when false color active
-      └── CIImage stored in latestImage (NSLock)
+      └── CIImage stored in imageLock (OSAllocatedUnfairLock)
             ↓
 CameraPreview.Coordinator.draw(in: MTKView) — continuous 60fps
 ```
 
 **Pipeline order rationale:** False color must see the ungraded signal (diagnostic tool), LUT is the creative grade, peaking and zebra are analysis tools drawn on top of whatever the user is monitoring.
 
-`CaptureProcessor.lutFilter` is read from `sessionQueue` but written from `MainActor` — guarded by `lutFilterLock` (NSLock). The single shared `CIContext(mtlDevice:)` is never recreated; recreating it per-frame is expensive.
+All mutable state in `CaptureProcessor` that crosses the sessionQueue/MainActor boundary uses `OSAllocatedUnfairLock`: `imageLock`, `lutFilterLock`, `peakingColorLock`, `flagsLock`, `zebraTimeLock`, `anamorphicLock`, `longExpActiveLock`. The single shared `CIContext(mtlDevice:)` is never recreated; recreating it per-frame is expensive.
 
-Video frames arrive in landscape orientation. `configureVideoRotation()` sets `connection.videoRotationAngle = 90` immediately after `session.commitConfiguration()` to deliver portrait-upright frames. This must also be called after `flipCamera()`.
+Video frames arrive in landscape orientation. `configureVideoRotation()` sets `connection.videoRotationAngle = 90` immediately after `session.commitConfiguration()` to deliver portrait-upright frames. This must also be called after `flipCamera()`. The rotation setup is deferred ~150ms after `startRunning()` to allow AVFoundation stabilization and prevent Fig error -12710.
 
 #### Tap-to-focus coordinate mapping
 
@@ -74,10 +110,11 @@ Swapping x/y when recovering screen position is intentional — do not "simplify
 | Class | Thread | Owns |
 |---|---|---|
 | `CameraManager` | `@Observable`, properties read on MainActor, mutations dispatched to `sessionQueue` | `AVCaptureSession`, `AVCapturePhotoOutput`, `AVCaptureVideoDataOutput`, KVO observations, `previewImageSize` |
-| `CaptureProcessor` | `sessionQueue` | Per-frame CI filter chain, histogram computation (every 3rd frame), `NSLock`-protected `latestImage`, `onPixelBuffer` callback (fires every 60th frame) |
-| `CameraViewModel` | `@MainActor` | UI gesture state, overlay toggles, histogram data, self-timer, AE lock toggle |
+| `CaptureProcessor` | `sessionQueue` | Per-frame CI filter chain, histogram computation (every 3rd frame), `OSAllocatedUnfairLock`-protected `latestImage`, `onPixelBuffer` callback (fires on first frame, then every 60th) |
+| `CameraViewModel` | `@MainActor` | UI gesture state, overlay toggles, histogram data, self-timer, AE lock toggle, burst/timelapse state |
 | `StylesManager` | `@Observable` | LUT catalog, active style, `SceneClassifier`; `activeLUTFilter()` falls back to procedural generation |
 | `StylesViewModel` | `@Observable` | Thumbnail cache, wires `CaptureProcessor.onPixelBuffer` → `StylePreviewRenderer` |
+| `GalleryViewModel` | `@Observable` | Photo Library fetch, PHImageManager, PHPhotoLibraryChangeObserver |
 | `AppState` | `@Observable`, singleton | Screen routing (`currentScreen`), quick-access bar order |
 
 ### Rendering
@@ -125,6 +162,8 @@ User drags VerticalDialSlider
 
 WB uses `WhiteBalanceTemperatureAndTintValues` with both temperature (Kelvin) and tint (-150 green … +150 magenta). The `TintStrip` in `ManualControlsPanel` appears only when WB is in manual mode. **Crash risk:** each WB gain channel **must** be clamped to `[1.0, device.maxWhiteBalanceGain]` before calling `setWhiteBalanceModeLocked(with:)` — unclamped gains throw `NSInvalidArgumentException`. See `CameraManager.setWhiteBalance(kelvin:tint:)`.
 
+The `WBPreset` enum (in `Models/ShootingMode.swift`) defines 7 presets: Auto (nil Kelvin), Day (5600 K), Cloud (6500 K), Shade (7500 K), Bulb (3200 K), Fluor (4000 K), Flash (5500 K). The preset row in `ManualControlsPanel` shows these as horizontal chips; selecting one calls `CameraManager.setWhiteBalance(kelvin:tint:)` with the preset's Kelvin value.
+
 ### Style system
 
 `PhotoStyle.catalog` defines 21 styles across Film / Genre / Mood categories. Each style references a `.cube` filename. If the file isn't found, `LUTLoader.effectiveLUT(for:)` generates LUT data procedurally:
@@ -138,6 +177,26 @@ LUTLoader.effectiveLUT(for: style)
 ```
 
 `StyleTransforms.swift` contains per-style parametric definitions. `StylePreviewRenderer` generates thumbnails from the live frame by applying the same `LUTLoader.effectiveLUT` path. Thumbnails are requested in `.onAppear`; if `lastFramePixelBuffer` is nil at that point (camera not started yet), `StylesViewModel.retryPendingThumbnailsOnce()` retries on the first `onPixelBuffer` callback.
+
+### Non-destructive editing
+
+`EditState` (in `Models/EditState.swift`) holds all post-capture adjustments applied non-destructively:
+
+| Property | CIFilter | Range |
+|---|---|---|
+| `exposure` | CIExposureAdjust inputEV | -2…+2 |
+| `contrast` | CIColorControls inputContrast delta | -0.5…+0.5 |
+| `shadows` | CIHighlightShadowAdjust inputShadowAmount | -1…+1 |
+| `highlights` | CIHighlightShadowAdjust inputHighlightAmount | -1…+1 |
+| `saturation` | CIColorControls inputSaturation delta | -1…+1 |
+| `vibrance` | CIVibrance inputAmount | -1…+1 |
+| `warmth` | CITemperatureAndTint shift | -1…+1 |
+| `sharpness` | CISharpenLuminance | 0…1 |
+| `vignette` | CIVignette inputIntensity | 0…1 |
+| `cropRect` | normalized 0…1 crop rectangle | nil = full |
+| `rotationDegrees` | straighten | -45…+45, snaps to 0 on double-tap |
+
+`EditView.swift` presents these as sliders with a before/after toggle. The applied filter chain is re-rendered on export; the original pixel data is never mutated.
 
 ### Shooting mode state machine
 
@@ -182,8 +241,8 @@ Shutter tap → CameraView.handleShutter()
 | Mode | Status | Notes |
 |---|---|---|
 | Photo | ✅ Complete | AEB, RAW, RAW+JPEG, watermark, LUT bake |
-| Video | ✅ Complete | AVAssetWriter, LUT baked-in, GPS metadata, resolution switching |
-| Long Exposure | ✅ Complete | `CIMaximumCompositing` over N frames in `CaptureProcessor` |
+| Video | ✅ Complete | AVAssetWriter, LUT baked-in, GPS metadata, resolution/codec/FPS switching |
+| Long Exposure | ✅ Complete | `CIMaximumCompositing` over N frames in `CaptureProcessor` (capped at 60 frames ≈ 480 MB) |
 | Burst | ✅ Complete | 10 frames × 100 ms in `CameraViewModel.startBurst` |
 | Self-timer | ✅ Complete | Repeat count + countdown in `CameraViewModel` |
 | Timelapse | ✅ Complete | Configurable interval; each frame saved as individual JPEG |
@@ -193,9 +252,23 @@ Shutter tap → CameraView.handleShutter()
 
 ### Feature flags and `@AppStorage` persistence
 
-`App/FeatureFlags.swift` — all flags are currently `true`. Runtime visibility is controlled per-feature via `@AppStorage` keys shared between `CameraView` and `SettingsView` (e.g. `"showGrid"`, `"showHistogram"`, `"showStylePicker"`). After changing a flag that controls a processor-side filter (focus peaking, zebra, false color, LUT), call `cameraViewModel.syncOverlaysToProcessor()`.
+`App/FeatureFlags.swift` — currently only `FeatureFlags.levelIndicator = true`. Runtime visibility for all other features is controlled via `@AppStorage` keys shared between `CameraView` and `SettingsView` (e.g. `"showGrid"`, `"showHistogram"`, `"showStylePicker"`). After changing a flag that controls a processor-side filter (focus peaking, zebra, false color, LUT), call `cameraViewModel.syncOverlaysToProcessor()`.
 
 `@AppStorage` keys are the persistence layer — there is no separate UserDefaults wrapper. `CameraView` holds the keys and syncs them to `CameraManager`/`CameraViewModel` via `.onChange` modifiers at the bottom of `mainContent`. When adding a new persisted setting, declare it in `CameraView`, mirror it to `SettingsView` by using the same key string, and add an `.onChange` handler to apply it.
+
+Key `@AppStorage` keys:
+- Overlays: `showHistogram`, `showGrid`, `showFocusPeaking`, `showZebra`, `showLevelIndicator`, `showFalseColor`, `showWaveform`, `showVectorscope`, `isCleanViewActive`, `histogramMode`
+- Capture: `isBracketingEnabled`, `bracketEVStep`, `selfTimerDelay`, `selfTimerRepeat`, `isProRAWEnabled`, `defaultCaptureFormat`, `isWBBracketEnabled`, `wbBracketKStep`, `focusPeakingColor`
+- Video: `videoFrameRate`, `videoResolution`
+- Other: `cropRatio`, `timelapseInterval`, `longExposureDuration`, `volumeButtonBehavior`, `watermarkText`
+
+### Utility classes
+
+- **`PermissionsManager`** — wraps camera, microphone, photo library, and location authorization in a single `@Observable` class; also owns `CLLocationManager` for GPS tagging.
+- **`HapticManager`** — lazy `UIFeedbackGenerator` singletons (`shutter`, `focus`, `selection`, `error`). Call sites just use `HapticManager.shared.shutter.impactOccurred()`.
+- **`ExifReader`** — ImageIO-based extraction of ISO, shutter, aperture, WB temperature, GPS coordinates, and capture timestamp from JPEG data.
+- **`VolumeHUDSuppressor`** — mutes the system volume pop-up that would otherwise appear during photo capture triggered by the volume button.
+- **`HistogramCalculator`** — uses `CIAreaHistogram` to produce a normalized 256-bin RGBL histogram; called every 3rd frame from `CaptureProcessor`.
 
 ### `CIContext.shared`
 
@@ -220,7 +293,6 @@ Use `Logger` from `OSLog` instead of `print`. The app defines per-category logge
 ### CIFilter / Metal safety
 
 CIFilter lookups and `MTLCreateSystemDefaultDevice()` use `fatalError` with descriptive messages rather than force-unwraps. These are programmer errors (missing filter name, no Metal support) that should fail catastrophically — never silently.
-
 
 ### Orientation lock
 

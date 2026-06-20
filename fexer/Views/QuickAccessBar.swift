@@ -4,6 +4,7 @@ import AVFoundation
 struct QuickAccessBar: View {
     @Environment(AppState.self) private var appState
     let cameraManager: CameraManager
+    var onShowPresets: (() -> Void)?
 
     @AppStorage("showGrid")             private var showGrid             = false
     @AppStorage("showHistogram")        private var showHistogram        = true
@@ -54,6 +55,9 @@ struct QuickAccessBar: View {
                     .foregroundStyle(active ? Color.yellow : Color.white.opacity(0.6))
                     .contentTransition(.symbolEffect(.replace))
                     .animation(.easeInOut(duration: 0.15), value: active)
+                    .rotationEffect(.degrees(DeviceOrientationTracker.shared.rotationAngle))
+                    .animation(.spring(response: 0.35, dampingFraction: 0.75),
+                               value: DeviceOrientationTracker.shared.rotationAngle)
                     .frame(width: 44, height: 38)
                     .background(
                         active ? Color.yellow.opacity(0.18) : Color.white.opacity(0.06),
@@ -84,6 +88,8 @@ struct QuickAccessBar: View {
             case .auto:             return "bolt.badge.automatic"
             @unknown default:       return "bolt.slash"
             }
+        case .torch:
+            return cameraManager.captureSettings.isTorchOn ? "flashlight.on.fill" : "flashlight.off.fill"
         default:
             return item.systemImageName
         }
@@ -91,23 +97,27 @@ struct QuickAccessBar: View {
 
     private func isActive(_ item: QuickAccessItem) -> Bool {
         switch item {
-        case .flash:          return cameraManager.flashMode != .off
-        case .timer:          return selfTimerDelay > 0
-        case .grid:           return showGrid
-        case .histogram:      return showHistogram
-        case .flipCamera:     return false
-        case .focusPeaking:   return showFocusPeaking
-        case .zebra:          return showZebra
-        case .levelIndicator: return showLevelIndicator
-        case .livePhoto:      return cameraManager.isLivePhotoEnabled
-        case .format:         return defaultFormat != "JPEG"
-        case .falseColor:     return showFalseColor
-        case .bracketAEB:     return isBracketingEnabled
-        case .afMode:         return cameraManager.captureSettings.focusMode == .continuousAutoFocus
-        case .wbBracket:      return isWBBracketEnabled
-        case .waveform:       return showWaveform
-        case .vectorscope:    return showVectorscope
-        case .cleanView:      return isCleanViewActive
+        case .flash:           return cameraManager.flashMode != .off
+        case .torch:           return cameraManager.captureSettings.isTorchOn
+        case .timer:           return selfTimerDelay > 0
+        case .grid:            return showGrid
+        case .histogram:       return showHistogram
+        case .flipCamera:      return false
+        case .focusPeaking:    return showFocusPeaking
+        case .zebra:           return showZebra
+        case .levelIndicator:  return showLevelIndicator
+        case .livePhoto:       return cameraManager.isLivePhotoEnabled
+        case .format:          return defaultFormat != "JPEG"
+        case .falseColor:      return showFalseColor
+        case .bracketAEB:      return isBracketingEnabled
+        case .afMode:          return cameraManager.captureSettings.focusMode == .continuousAutoFocus
+        case .wbBracket:       return isWBBracketEnabled
+        case .waveform:        return showWaveform
+        case .vectorscope:     return showVectorscope
+        case .cleanView:       return isCleanViewActive
+        case .opticalZoomLock: return cameraManager.captureSettings.isOpticalZoomLocked
+        case .trapFocus:       return cameraManager.captureSettings.isTrapFocusEnabled
+        case .presets:         return false
         }
     }
 
@@ -120,6 +130,7 @@ struct QuickAccessBar: View {
             if !cameraManager.captureSettings.isAutoFocus { return "M" }
             return cameraManager.captureSettings.focusMode == .continuousAutoFocus ? "C" : "S"
         case .wbBracket: return isWBBracketEnabled ? "WB" : nil
+        case .opticalZoomLock: return cameraManager.captureSettings.isOpticalZoomLocked ? "OPT" : nil
         default:         return nil
         }
     }
@@ -134,6 +145,10 @@ struct QuickAccessBar: View {
             case .auto:       cameraManager.flashMode = .off
             @unknown default: cameraManager.flashMode = .off
             }
+        case .torch:
+            HapticManager.light()
+            let newState = !cameraManager.captureSettings.isTorchOn
+            cameraManager.setTorch(on: newState, level: cameraManager.captureSettings.torchLevel)
         case .timer:
             HapticManager.light()
             let steps = [0, 2, 5, 10]
@@ -189,6 +204,15 @@ struct QuickAccessBar: View {
         case .cleanView:
             HapticManager.light()
             isCleanViewActive.toggle()
+        case .opticalZoomLock:
+            HapticManager.light()
+            cameraManager.captureSettings.isOpticalZoomLocked.toggle()
+        case .trapFocus:
+            HapticManager.light()
+            cameraManager.captureSettings.isTrapFocusEnabled.toggle()
+        case .presets:
+            HapticManager.light()
+            onShowPresets?()
         }
     }
 }

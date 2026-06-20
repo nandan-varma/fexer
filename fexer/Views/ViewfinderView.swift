@@ -8,6 +8,11 @@ struct ViewfinderView: View {
     var body: some View {
         GeometryReader { geo in
             ZStack {
+                #if targetEnvironment(simulator)
+                simulatorPlaceholder
+                    .frame(width: geo.size.width, height: geo.size.height)
+                    .ignoresSafeArea()
+                #else
                 // Camera preview (fills entire screen).
                 // Single-tap (focus) and double-tap (reset) are both handled inside
                 // CameraPreview's UIKit layer so there is no SwiftUI overlay blocking taps.
@@ -47,9 +52,29 @@ struct ViewfinderView: View {
                             removal: .opacity
                         ))
                 }
+                #endif
             }
         }
     }
+
+    #if targetEnvironment(simulator)
+    private var simulatorPlaceholder: some View {
+        ZStack {
+            Color(white: 0.12)
+            VStack(spacing: 12) {
+                Image(systemName: "camera.slash")
+                    .font(.system(size: 48, weight: .thin))
+                    .foregroundStyle(.white.opacity(0.4))
+                Text("Camera unavailable in Simulator")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.4))
+                Text("Run on a physical iOS device")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.white.opacity(0.25))
+            }
+        }
+    }
+    #endif
 
     private var focusSquare: some View {
         let isLocked = cameraViewModel.isFocusLocked

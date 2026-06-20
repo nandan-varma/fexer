@@ -1,10 +1,13 @@
 import AVFoundation
+import Photos
 import OSLog
 
 final class CapturePhotoDelegate: NSObject, AVCapturePhotoCaptureDelegate {
     let id: UUID
     private let onProcessed: (AVCapturePhoto, Bool) -> Void
     private let onCaptureDone: (UUID) -> Void
+    // Holds the Live Photo .mov URL until didFinishCapture fires
+    private var livePhotoMovieURL: URL?
 
     init(id: UUID = UUID(),
          onProcessed: @escaping (AVCapturePhoto, Bool) -> Void,
@@ -33,8 +36,39 @@ final class CapturePhotoDelegate: NSObject, AVCapturePhotoCaptureDelegate {
     }
 
     func photoOutput(_ output: AVCapturePhotoOutput,
+                     didFinishRecordingLivePhotoMovieForEventualFileAt outputFileURL: URL,
+                     resolvedSettings: AVCaptureResolvedPhotoSettings) {
+        livePhotoMovieURL = outputFileURL
+    }
+
+    func photoOutput(_ output: AVCapturePhotoOutput,
+                     didFinishProcessingLivePhotoToMovieFileAt outputFileURL: URL,
+                     duration: CMTime,
+                     photoDisplayTime: CMTime,
+                     resolvedSettings: AVCaptureResolvedPhotoSettings,
+                     error: Error?) {
+        if let error {
+            Logger.camera.error("Live Photo movie error: \(error.localizedDescription)")
+            return
+        }
+        livePhotoMovieURL = outputFileURL
+    }
+
+    func photoOutput(_ output: AVCapturePhotoOutput,
                      didFinishCaptureFor resolvedSettings: AVCaptureResolvedPhotoSettings,
                      error: Error?) {
+        // Save Live Photo .mov paired with HEIC if available
+        if let movieURL = livePhotoMovieURL {
+            PHPhotoLibrary.shared().performChanges({
+                let request = PHAssetCreationRequest.forAsset()
+                let opts = PHAssetResourceCreationOptions()
+                opts.shouldMoveFile = true
+                // PHAssetResourceType.photo and .pairedVideo must share the same request
+                request.addResource(with: .pairedVideo, fileURL: movieURL, options: opts)
+            }, completionHandler: { _, err in
+                if let err { Logger.camera.error("Live Photo .mov save failed: \(err.localizedDescription)") }
+            })
+        }
         onCaptureDone(id)
     }
 }

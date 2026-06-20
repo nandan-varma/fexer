@@ -103,6 +103,7 @@ enum MeteringMode: String, CaseIterable {
 
 enum QuickAccessItem: String, CaseIterable, Identifiable {
     case flash = "Flash"
+    case torch = "Torch"
     case timer = "Timer"
     case grid = "Grid"
     case histogram = "Histogram"
@@ -119,28 +120,35 @@ enum QuickAccessItem: String, CaseIterable, Identifiable {
     case waveform    = "Waveform"
     case vectorscope = "Vectorscope"
     case cleanView   = "Clean View"
+    case opticalZoomLock = "ZoomLock"
+    case trapFocus = "TrapFocus"
+    case presets = "Presets"
 
     var id: String { rawValue }
 
     var systemImageName: String {
         switch self {
-        case .flash: return "bolt"
-        case .timer: return "timer"
-        case .grid: return "grid"
-        case .histogram: return "waveform.path.ecg"
-        case .flipCamera: return "arrow.triangle.2.circlepath.camera"
-        case .focusPeaking: return "scope"
-        case .zebra: return "strikethrough"
-        case .levelIndicator: return "level"
-        case .livePhoto: return "livephoto"
-        case .format: return "doc.badge.gearshape"
-        case .falseColor: return "camera.filters"
-        case .bracketAEB: return "plusminus"
-        case .afMode: return "viewfinder.circle"
-        case .wbBracket:   return "thermometer.sun"
-        case .waveform:    return "waveform"
-        case .vectorscope: return "circle.grid.cross"
-        case .cleanView:   return "eye.slash"
+        case .flash:           return "bolt"
+        case .torch:           return "flashlight.off.fill"
+        case .timer:           return "timer"
+        case .grid:            return "grid"
+        case .histogram:       return "waveform.path.ecg"
+        case .flipCamera:      return "arrow.triangle.2.circlepath.camera"
+        case .focusPeaking:    return "scope"
+        case .zebra:           return "strikethrough"
+        case .levelIndicator:  return "level"
+        case .livePhoto:       return "livephoto"
+        case .format:          return "doc.badge.gearshape"
+        case .falseColor:      return "camera.filters"
+        case .bracketAEB:      return "plusminus"
+        case .afMode:          return "viewfinder.circle"
+        case .wbBracket:       return "thermometer.sun"
+        case .waveform:        return "waveform"
+        case .vectorscope:     return "circle.grid.cross"
+        case .cleanView:       return "eye.slash"
+        case .opticalZoomLock: return "lock.fill"
+        case .trapFocus:       return "camera.aperture"
+        case .presets:         return "square.stack.3d.down.right"
         }
     }
 }

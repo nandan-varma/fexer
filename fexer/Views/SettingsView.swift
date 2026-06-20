@@ -30,14 +30,14 @@ struct SettingsView: View {
 
 private struct CameraSection: View {
     @Bindable var cameraManager: CameraManager
-    @AppStorage("defaultCaptureFormat") private var defaultFormat = "JPEG"
+    @AppStorage("defaultCaptureFormat") private var defaultFormat = "HEIF"
     @AppStorage("isProRAWEnabled")      private var isProRAW = false
     @AppStorage("isLocationEnabled")    private var isLocationEnabled = true
 
     var body: some View {
         Section {
             Picker(selection: $defaultFormat) {
-                ForEach(["JPEG", "RAW", "RAW+JPEG"], id: \.self) { Text($0) }
+                ForEach(["HEIF", "JPEG", "RAW", "RAW+JPEG"], id: \.self) { Text($0) }
             } label: {
                 Label("Format", systemImage: "camera.aperture")
             }

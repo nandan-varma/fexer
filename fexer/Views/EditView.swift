@@ -21,6 +21,9 @@ struct EditView: View {
     @GestureState private var isPressingOriginal = false
     @GestureState private var liveCropDrag: CGSize = .zero
     @GestureState private var liveCropScale: CGFloat = 1
+    @State private var selectedHSLBand: Int = 0
+    @State private var selectedCurveChannel: CurveChannel = .master
+    @State private var showLUTImporter = false
 
     private let ciContext = CIContext(options: [.useSoftwareRenderer: false])
 
@@ -47,6 +50,11 @@ struct EditView: View {
             originalImage = photo.jpegData.flatMap(UIImage.init(data:))
             renderPreview()
             HapticManager.warmUp()
+        }
+        .sheet(isPresented: $showLUTImporter) {
+            LUTImporterView(bookmark: $state.importedLUTBookmark) {
+                renderPreview()
+            }
         }
     }
 
@@ -212,7 +220,8 @@ struct EditView: View {
 
     @ViewBuilder
     private var contextualControls: some View {
-        if mode == .adjust {
+        switch mode {
+        case .adjust:
             VStack(spacing: 6) {
                 HStack {
                     Text(adjustment.title)
@@ -222,7 +231,6 @@ struct EditView: View {
                         .font(.system(size: 13, weight: .semibold, design: .monospaced))
                         .foregroundStyle(adjustment.value(from: state) == 0 ? Color.secondary : Color.yellow)
                 }
-
                 ZStack {
                     Rectangle()
                         .fill(.white.opacity(0.18))
@@ -237,15 +245,19 @@ struct EditView: View {
             }
             .padding(.horizontal, 24)
             .padding(.top, 12)
-        } else {
-            cropControls
-                .padding(.top, 10)
+        case .hsl:
+            hslPanel.padding(.vertical, 8)
+        case .curves:
+            curvesPanel.padding(.vertical, 8)
+        case .crop:
+            cropControls.padding(.top, 10)
         }
     }
 
     private var bottomRail: some View {
         VStack(spacing: 8) {
-            if mode == .adjust {
+            switch mode {
+            case .adjust:
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 10) {
                         ForEach(Adjustment.allCases) { item in
@@ -254,15 +266,34 @@ struct EditView: View {
                     }
                     .padding(.horizontal, 18)
                 }
-            } else {
+            case .crop:
                 aspectRatioRail
+            case .hsl, .curves:
+                EmptyView()
             }
 
-            HStack(spacing: 56) {
-                modeButton(.adjust)
-                modeButton(.crop)
+            HStack {
+                HStack(spacing: 26) {
+                    modeButton(.adjust)
+                    modeButton(.hsl)
+                    modeButton(.curves)
+                    modeButton(.crop)
+                }
+                .frame(maxWidth: .infinity)
+
+                Button { showLUTImporter = true } label: {
+                    VStack(spacing: 3) {
+                        Image(systemName: state.importedLUTBookmark != nil ? "cube.fill" : "cube")
+                            .font(.system(size: 17, weight: .medium))
+                        Text("LUT")
+                            .font(.system(size: 10, weight: .medium))
+                    }
+                    .foregroundStyle(state.importedLUTBookmark != nil ? .yellow : .white.opacity(0.55))
+                    .frame(width: 48)
+                }
+                .buttonStyle(.plain)
             }
-            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 12)
             .padding(.top, 4)
         }
         .padding(.vertical, 10)
@@ -547,6 +578,85 @@ struct EditView: View {
             filter.sharpness = state.sharpness
             image = filter.outputImage ?? image
         }
+
+        // Master tone curve (equal adjustment to all channels)
+        if state.curveMaster != EditState.identityCurve {
+            let pts = state.curveMaster
+            let f = CIFilter.toneCurve()
+            f.inputImage = image
+            f.point0 = CGPoint(x: CGFloat(pts[0].x), y: CGFloat(pts[0].y))
+            f.point1 = CGPoint(x: CGFloat(pts[1].x), y: CGFloat(pts[1].y))
+            f.point2 = CGPoint(x: CGFloat(pts[2].x), y: CGFloat(pts[2].y))
+            f.point3 = CGPoint(x: CGFloat(pts[3].x), y: CGFloat(pts[3].y))
+            f.point4 = CGPoint(x: CGFloat(pts[4].x), y: CGFloat(pts[4].y))
+            image = f.outputImage ?? image
+        }
+
+        // Per-channel R/G/B curves + HSL band mixer via baked 17³ LUT
+        if state.hasHSLAdjustments || state.hasCurveAdjustments {
+            let dim = 17
+            var cube = [Float](repeating: 0, count: dim * dim * dim * 4)
+            let bandCenters: [Float]    = [0.0, 0.083, 0.167, 0.333, 0.5, 0.611, 0.778, 0.917]
+            let bandHalfWidths: [Float] = [0.083, 0.056, 0.056, 0.111, 0.056, 0.111, 0.083, 0.056]
+            let bandValues = state.allHSLBands.map { state[keyPath: $0.1] }
+
+            for bi in 0..<dim {
+                for gi in 0..<dim {
+                    for ri in 0..<dim {
+                        var rv = Float(ri) / Float(dim - 1)
+                        var gv = Float(gi) / Float(dim - 1)
+                        var bv = Float(bi) / Float(dim - 1)
+
+                        if state.hasCurveAdjustments {
+                            rv = evalCurve(state.curveR, at: rv)
+                            gv = evalCurve(state.curveG, at: gv)
+                            bv = evalCurve(state.curveB, at: bv)
+                        }
+
+                        if state.hasHSLAdjustments {
+                            var (h, s, l) = rgb2hsl(r: rv, g: gv, b: bv)
+                            var hShift: Float = 0, sDelta: Float = 0, lDelta: Float = 0
+                            for i in 0..<8 {
+                                let band = bandValues[i]
+                                guard band.isNonZero else { continue }
+                                let dist = hueDistance(h, bandCenters[i])
+                                let hw = bandHalfWidths[i]
+                                let inf = max(0, 1 - (dist / hw) * (dist / hw))
+                                hShift += band.hue / 360.0 * inf
+                                sDelta += band.saturation * inf
+                                lDelta += band.luminance * inf
+                            }
+                            h = (h + hShift).truncatingRemainder(dividingBy: 1)
+                            if h < 0 { h += 1 }
+                            s = max(0, min(1, s + sDelta))
+                            l = max(0, min(1, l + lDelta))
+                            (rv, gv, bv) = hsl2rgb(h: h, s: s, l: l)
+                        }
+
+                        let idx = (bi * dim * dim + gi * dim + ri) * 4
+                        cube[idx]     = max(0, min(1, rv))
+                        cube[idx + 1] = max(0, min(1, gv))
+                        cube[idx + 2] = max(0, min(1, bv))
+                        cube[idx + 3] = 1.0
+                    }
+                }
+            }
+            let cubeData = Data(bytes: cube, count: cube.count * MemoryLayout<Float>.size)
+            if let flt = CIFilter(name: "CIColorCubeWithColorSpace"),
+               let sRGB = CGColorSpace(name: CGColorSpace.sRGB) {
+                flt.setValue(Float(dim), forKey: "inputCubeDimension")
+                flt.setValue(cubeData, forKey: "inputCubeData")
+                flt.setValue(sRGB, forKey: "inputColorSpace")
+                flt.setValue(image, forKey: kCIInputImageKey)
+                image = flt.outputImage ?? image
+            }
+        }
+
+        // Custom imported LUT (.cube file via security-scoped bookmark)
+        if let bookmark = state.importedLUTBookmark {
+            image = applyImportedLUT(to: image, bookmark: bookmark) ?? image
+        }
+
         if state.vignette != 0 {
             let filter = CIFilter.vignette()
             filter.inputImage = image
@@ -607,6 +717,262 @@ struct EditView: View {
         ))
     }
 
+    // MARK: - HSL Panel
+
+    @ViewBuilder private var hslPanel: some View {
+        VStack(spacing: 10) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(0..<8, id: \.self) { index in
+                        let bandInfo = state.allHSLBands[index]
+                        let band = state[keyPath: bandInfo.1]
+                        let isSelected = selectedHSLBand == index
+                        let isChanged = band != HSLBand()
+                        Button {
+                            selectedHSLBand = index
+                            HapticManager.selectionChanged()
+                        } label: {
+                            Text(bandInfo.0)
+                                .font(.system(size: 11, weight: .semibold))
+                                .padding(.horizontal, 12)
+                                .frame(height: 28)
+                                .background(isSelected ? hslBandColor(index) : Color.white.opacity(isChanged ? 0.15 : 0.07))
+                                .foregroundStyle(isSelected ? .black : (isChanged ? .yellow : .white))
+                                .clipShape(Capsule())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 18)
+            }
+
+            let kp = state.allHSLBands[selectedHSLBand].1
+            VStack(spacing: 8) {
+                hslSliderRow("Hue", range: -180...180, format: "%+.0f°",
+                    get: { Double(state[keyPath: kp].hue) },
+                    set: { v in var b = state[keyPath: kp]; b.hue = Float(v); state[keyPath: kp] = b; renderPreview() })
+                hslSliderRow("Saturation", range: -1...1, format: "%+.2f",
+                    get: { Double(state[keyPath: kp].saturation) },
+                    set: { v in var b = state[keyPath: kp]; b.saturation = Float(v); state[keyPath: kp] = b; renderPreview() })
+                hslSliderRow("Luminance", range: -1...1, format: "%+.2f",
+                    get: { Double(state[keyPath: kp].luminance) },
+                    set: { v in var b = state[keyPath: kp]; b.luminance = Float(v); state[keyPath: kp] = b; renderPreview() })
+            }
+            .padding(.horizontal, 18)
+        }
+    }
+
+    private func hslBandColor(_ index: Int) -> Color {
+        [Color.red, .orange, .yellow, .green, .cyan, .blue, .purple, .pink][index]
+    }
+
+    private func hslSliderRow(
+        _ label: String, range: ClosedRange<Double>, format: String,
+        get: @escaping () -> Double, set: @escaping (Double) -> Void
+    ) -> some View {
+        let val = get()
+        return HStack {
+            Text(label)
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+                .frame(width: 78, alignment: .leading)
+            Slider(value: Binding(get: get, set: set), in: range)
+                .tint(.yellow)
+            Text(String(format: format, val))
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundStyle(val == 0 ? Color.white.opacity(0.4) : Color.yellow)
+                .frame(width: 44, alignment: .trailing)
+        }
+    }
+
+    // MARK: - Curves Panel
+
+    @ViewBuilder private var curvesPanel: some View {
+        VStack(spacing: 8) {
+            HStack(spacing: 0) {
+                ForEach(CurveChannel.allCases) { channel in
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.15)) { selectedCurveChannel = channel }
+                    } label: {
+                        Text(channel.rawValue)
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(selectedCurveChannel == channel ? .black : channel.color.opacity(0.85))
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 30)
+                            .background(selectedCurveChannel == channel ? channel.color : .clear,
+                                        in: RoundedRectangle(cornerRadius: 6))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+            .padding(.horizontal, 18)
+
+            let pts = state[keyPath: selectedCurveChannel.keyPath]
+            let channelColor = selectedCurveChannel.color
+            Canvas { ctx, size in
+                let sorted = pts.sorted { $0.x < $1.x }
+
+                ctx.stroke(Path { p in
+                    for t: CGFloat in [0.25, 0.5, 0.75] {
+                        p.move(to: CGPoint(x: size.width * t, y: 0))
+                        p.addLine(to: CGPoint(x: size.width * t, y: size.height))
+                        p.move(to: CGPoint(x: 0, y: size.height * (1 - t)))
+                        p.addLine(to: CGPoint(x: size.width, y: size.height * (1 - t)))
+                    }
+                }, with: .color(.white.opacity(0.1)), lineWidth: 0.5)
+
+                ctx.stroke(Path { p in
+                    p.move(to: CGPoint(x: 0, y: size.height))
+                    p.addLine(to: CGPoint(x: size.width, y: 0))
+                }, with: .color(.white.opacity(0.2)), style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
+
+                var curvePath = Path()
+                for i in 0...48 {
+                    let x = Float(i) / 48.0
+                    var y = x
+                    for j in 1..<sorted.count {
+                        let p0 = sorted[j-1], p1 = sorted[j]
+                        if x <= p1.x {
+                            let t = (x - p0.x) / max(p1.x - p0.x, 0.001)
+                            y = p0.y + t * (p1.y - p0.y)
+                            break
+                        }
+                        if j == sorted.count - 1 { y = p1.y }
+                    }
+                    let cp = CGPoint(x: CGFloat(x) * size.width, y: (1 - CGFloat(y)) * size.height)
+                    if i == 0 { curvePath.move(to: cp) } else { curvePath.addLine(to: cp) }
+                }
+                ctx.stroke(curvePath, with: .color(channelColor), lineWidth: 2)
+
+                for pt in sorted {
+                    let cx = CGFloat(pt.x) * size.width
+                    let cy = (1 - CGFloat(pt.y)) * size.height
+                    ctx.fill(Path(ellipseIn: CGRect(x: cx-5, y: cy-5, width: 10, height: 10)), with: .color(.white))
+                    ctx.fill(Path(ellipseIn: CGRect(x: cx-3, y: cy-3, width: 6, height: 6)), with: .color(channelColor))
+                }
+            }
+            .frame(height: 90)
+            .background(Color.white.opacity(0.05))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .padding(.horizontal, 18)
+
+            let kp = selectedCurveChannel.keyPath
+            let ptLabels = ["Blacks", "Shadows", "Mids", "Lights", "Whites"]
+            VStack(spacing: 5) {
+                ForEach(0..<5, id: \.self) { i in
+                    HStack {
+                        Text(ptLabels[i])
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 56, alignment: .leading)
+                        Slider(value: Binding(
+                            get: { Double(state[keyPath: kp][i].y) },
+                            set: { v in var arr = state[keyPath: kp]; arr[i].y = Float(v); state[keyPath: kp] = arr; renderPreview() }
+                        ), in: 0...1)
+                        .tint(selectedCurveChannel.color)
+                        Text(String(format: "%.2f", state[keyPath: kp][i].y))
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 32, alignment: .trailing)
+                    }
+                }
+            }
+            .padding(.horizontal, 18)
+        }
+    }
+
+    // MARK: - Static helpers for applyEdits
+
+    nonisolated private static func evalCurve(_ pts: [SIMD2<Float>], at x: Float) -> Float {
+        let s = pts.sorted { $0.x < $1.x }
+        guard s.count >= 2 else { return x }
+        if x <= s[0].x { return s[0].y }
+        if x >= s[s.count - 1].x { return s[s.count - 1].y }
+        for i in 1..<s.count {
+            if x <= s[i].x {
+                let t = (x - s[i-1].x) / max(s[i].x - s[i-1].x, 0.001)
+                return s[i-1].y + t * (s[i].y - s[i-1].y)
+            }
+        }
+        return x
+    }
+
+    nonisolated private static func rgb2hsl(r: Float, g: Float, b: Float) -> (Float, Float, Float) {
+        let mx = max(r, g, b), mn = min(r, g, b)
+        let l = (mx + mn) * 0.5
+        let d = mx - mn
+        guard d > 0.001 else { return (0, 0, l) }
+        let s = l > 0.5 ? d / (2 - mx - mn) : d / (mx + mn)
+        var h: Float
+        if mx == r       { h = ((g - b) / d).truncatingRemainder(dividingBy: 6) / 6 }
+        else if mx == g  { h = ((b - r) / d + 2) / 6 }
+        else             { h = ((r - g) / d + 4) / 6 }
+        if h < 0 { h += 1 }
+        return (h, s, l)
+    }
+
+    nonisolated private static func hsl2rgb(h: Float, s: Float, l: Float) -> (Float, Float, Float) {
+        guard s > 0.001 else { return (l, l, l) }
+        let q = l < 0.5 ? l * (1 + s) : l + s - l * s
+        let p = 2 * l - q
+        return (hue2rgb(p: p, q: q, t: h + 1.0/3),
+                hue2rgb(p: p, q: q, t: h),
+                hue2rgb(p: p, q: q, t: h - 1.0/3))
+    }
+
+    nonisolated private static func hue2rgb(p: Float, q: Float, t: Float) -> Float {
+        var t = t
+        if t < 0 { t += 1 }; if t > 1 { t -= 1 }
+        if t < 1.0/6 { return p + (q - p) * 6 * t }
+        if t < 0.5   { return q }
+        if t < 2.0/3 { return p + (q - p) * (2.0/3 - t) * 6 }
+        return p
+    }
+
+    nonisolated private static func hueDistance(_ a: Float, _ b: Float) -> Float {
+        let d = abs(a - b); return min(d, 1 - d)
+    }
+
+    nonisolated private static func applyImportedLUT(to image: CIImage, bookmark: Data) -> CIImage? {
+        var isStale = false
+        guard let url = try? URL(resolvingBookmarkData: bookmark, options: .withoutUI,
+                                 relativeTo: nil, bookmarkDataIsStale: &isStale),
+              !isStale, url.startAccessingSecurityScopedResource() else { return nil }
+        defer { url.stopAccessingSecurityScopedResource() }
+        guard let content = try? String(contentsOf: url, encoding: .utf8),
+              let (cubeData, dim) = parseCubeContent(content),
+              let sRGB = CGColorSpace(name: CGColorSpace.sRGB),
+              let flt = CIFilter(name: "CIColorCubeWithColorSpace") else { return nil }
+        flt.setValue(Float(dim), forKey: "inputCubeDimension")
+        flt.setValue(cubeData, forKey: "inputCubeData")
+        flt.setValue(sRGB, forKey: "inputColorSpace")
+        flt.setValue(image, forKey: kCIInputImageKey)
+        return flt.outputImage
+    }
+
+    nonisolated private static func parseCubeContent(_ content: String) -> (Data, Int)? {
+        var size = 0
+        var entries: [Float] = []
+        for line in content.components(separatedBy: .newlines) {
+            let t = line.trimmingCharacters(in: .whitespaces)
+            guard !t.isEmpty, !t.hasPrefix("#") else { continue }
+            let upper = t.uppercased()
+            if upper.hasPrefix("LUT_3D_SIZE") {
+                size = Int(t.components(separatedBy: .whitespaces).last ?? "") ?? 0
+            } else if upper.hasPrefix("TITLE") || upper.hasPrefix("DOMAIN") {
+                continue
+            } else {
+                let c = t.components(separatedBy: .whitespaces)
+                if c.count >= 3, let rv = Float(c[0]), let gv = Float(c[1]), let bv = Float(c[2]) {
+                    entries.append(contentsOf: [rv, gv, bv, 1.0])
+                }
+            }
+        }
+        guard size > 1, entries.count == size * size * size * 4 else { return nil }
+        return (Data(bytes: entries, count: entries.count * MemoryLayout<Float>.size), size)
+    }
+
     private func saveEdits() {
         guard let data = photo.jpegData,
               let input = CIImage(data: data, options: [.applyOrientationProperty: true]) else { return }
@@ -650,10 +1016,53 @@ struct EditView: View {
 
 private enum EditorMode: String, CaseIterable {
     case adjust
+    case hsl
+    case curves
     case crop
 
-    var title: String { rawValue.capitalized }
-    var symbol: String { self == .adjust ? "slider.horizontal.3" : "crop.rotate" }
+    var title: String {
+        switch self {
+        case .adjust: "Adjust"
+        case .hsl:    "Color"
+        case .curves: "Curves"
+        case .crop:   "Crop"
+        }
+    }
+    var symbol: String {
+        switch self {
+        case .adjust: "slider.horizontal.3"
+        case .hsl:    "paintpalette"
+        case .curves: "chart.line.uptrend.xyaxis"
+        case .crop:   "crop.rotate"
+        }
+    }
+}
+
+private enum CurveChannel: String, CaseIterable, Identifiable {
+    case master = "Master"
+    case red    = "Red"
+    case green  = "Green"
+    case blue   = "Blue"
+
+    var id: String { rawValue }
+
+    var keyPath: WritableKeyPath<EditState, [SIMD2<Float>]> {
+        switch self {
+        case .master: \.curveMaster
+        case .red:    \.curveR
+        case .green:  \.curveG
+        case .blue:   \.curveB
+        }
+    }
+
+    var color: Color {
+        switch self {
+        case .master: .white
+        case .red:    .red
+        case .green:  .green
+        case .blue:   .blue
+        }
+    }
 }
 
 private enum CropParameter: String, CaseIterable, Identifiable {

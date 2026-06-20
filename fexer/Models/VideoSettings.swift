@@ -1,14 +1,23 @@
 import AVFoundation
 
 enum VideoResolution: String, CaseIterable, Identifiable {
-    case hd1080p = "1080p"
-    case uhd4K   = "4K"
+    case hd1080p   = "1080p"
+    case uhd4K     = "4K"
+    case slowMo    = "Slo-Mo"
 
     var id: String { rawValue }
 
     var sessionPreset: AVCaptureSession.Preset {
-        self == .uhd4K ? .hd4K3840x2160 : .hd1920x1080
+        switch self {
+        case .uhd4K:   return .hd4K3840x2160
+        case .slowMo:  return .hd1920x1080   // high-fps at 1080p
+        case .hd1080p: return .hd1920x1080
+        }
     }
+
+    /// When true, the session is configured for high-FPS capture and output
+    /// is played back at a lower rate to produce slow motion.
+    var isSlowMotion: Bool { self == .slowMo }
 }
 
 enum VideoCodec: String, CaseIterable, Identifiable {
@@ -25,20 +34,26 @@ enum VideoCodec: String, CaseIterable, Identifiable {
         case .proRes: return .proRes4444
         }
     }
+
+    /// ProRes requires .mov container; others default to .mp4.
+    var fileExtension: String { self == .proRes ? "mov" : "mp4" }
+    var fileType: AVFileType  { self == .proRes ? .mov  : .mp4  }
 }
 
 struct VideoSettings {
     var resolution: VideoResolution = .hd1080p
     var frameRate: Int = 30
     var codec: VideoCodec = .hevc
+    /// Playback frame rate for slow-motion (e.g. capture at 240fps, play at 30fps).
+    var slowMotionPlaybackFPS: Int = 30
 
     var audioSampleRate: Double { resolution == .uhd4K ? 48_000 : 44_100 }
     var audioBitRate: Int { resolution == .uhd4K ? 256_000 : 128_000 }
 
     var videoBitRate: Int {
         switch resolution {
-        case .uhd4K:   return 40_000_000
-        case .hd1080p: return 16_000_000
+        case .uhd4K:              return 40_000_000
+        case .hd1080p, .slowMo:  return 16_000_000
         }
     }
 }

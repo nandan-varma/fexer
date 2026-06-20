@@ -41,6 +41,16 @@ import Photos
     // Hardware capability flags (set after session configuration)
     var isProRAWSupported: Bool = false
     var isDepthDataSupported: Bool = false
+    var isAppleLogSupported: Bool = false
+    var isHDRFormatSupported: Bool = false
+    var isSlowMotionSupported: Bool = false
+    var maxSlowMotionFPS: Int = 60
+
+    // Live audio level (updated ~10fps while recording, 0.0=silence 1.0=peak)
+    var audioLevel: Float = 0.0
+
+    // Trap focus: when true, fire shutter the moment isAdjustingFocus → false
+    var pendingTrapFocusFire: Bool = false
 
     // MARK: - Internal (sessionQueue only)
     let processor = CaptureProcessor()
@@ -48,8 +58,11 @@ import Photos
     private let sessionQueue = DispatchQueue(label: "com.fexer.session", qos: .userInteractive)
     private let photoOutput = AVCapturePhotoOutput()
     private let videoOutput = AVCaptureVideoDataOutput()
-    private var currentDevice: AVCaptureDevice?
+    private(set) var currentDevice: AVCaptureDevice?
     private var deviceObservations: [NSKeyValueObservation] = []
+    private var subjectAreaObserver: NSObjectProtocol?
+    private var trapFocusCaptureCallback: (() -> Void)?
+    private var pendingCompassHeading: CLHeading?
 
     // AVAssetWriter recording pipeline — accessed from sessionQueue AND nonisolated audio delegate,
     // so nonisolated(unsafe). All mutations are serialised through sessionQueue.
@@ -68,9 +81,11 @@ import Photos
 
     var captureSettings = CaptureSettings()
 
-    // MARK: - Notification observation token
+    // MARK: - Notification observation tokens
 
     private var sessionErrorObserver: NSObjectProtocol?
+    private var sessionInterruptionObserver: NSObjectProtocol?
+    private var sessionInterruptionEndedObserver: NSObjectProtocol?
 
     // MARK: - Setup
 
@@ -85,13 +100,30 @@ import Photos
             self.configureSession()
             self.session.startRunning()
             Task { @MainActor in self.isSessionRunning = true }
-            // Observe runtime errors for session recovery
+            // Observe runtime errors for session recovery (correct notification name).
             self.sessionErrorObserver = NotificationCenter.default.addObserver(
-                forName: NSNotification.Name(rawValue: "AVCaptureSessionError"),
+                forName: AVCaptureSession.runtimeErrorNotification,
                 object: session,
                 queue: .main
             ) { [weak self] notification in
                 self?.handleSessionError(notification)
+            }
+            // Restart after interruptions (permission dialogs, phone calls, background, etc.)
+            self.sessionInterruptionEndedObserver = NotificationCenter.default.addObserver(
+                forName: AVCaptureSession.interruptionEndedNotification,
+                object: session,
+                queue: nil
+            ) { [weak self] _ in
+                guard let self else { return }
+                sessionQueue.async {
+                    if !self.session.isRunning {
+                        self.session.startRunning()
+                    }
+                    // Re-apply rotation in case connection was reset during interruption.
+                    self.configureVideoRotation()
+                    self.processor.isRotationReady = true
+                    Task { @MainActor in self.isSessionRunning = self.session.isRunning }
+                }
             }
             // Defer video rotation so the connection stabilises after startRunning.
             // Setting videoRotationAngle immediately can trigger Fig err=-12710.
@@ -109,19 +141,22 @@ import Photos
     /// and cleans up the session. It can be called multiple times safely.
     func stopSession() {
         sessionQueue.async { [self] in
-            if let observer = sessionErrorObserver {
-                NotificationCenter.default.removeObserver(observer)
-                sessionErrorObserver = nil
-            }
+            [sessionErrorObserver, sessionInterruptionObserver, sessionInterruptionEndedObserver]
+                .compactMap { $0 }
+                .forEach { NotificationCenter.default.removeObserver($0) }
+            sessionErrorObserver = nil
+            sessionInterruptionObserver = nil
+            sessionInterruptionEndedObserver = nil
+            processor.isRotationReady = false
             self.session.stopRunning()
             Task { @MainActor in self.isSessionRunning = false }
         }
     }
 
     deinit {
-        if let observer = sessionErrorObserver {
-            NotificationCenter.default.removeObserver(observer)
-        }
+        [sessionErrorObserver, sessionInterruptionObserver, sessionInterruptionEndedObserver]
+            .compactMap { $0 }
+            .forEach { NotificationCenter.default.removeObserver($0) }
     }
 
     @objc private func handleSessionError(_ notification: Notification) {
@@ -194,9 +229,24 @@ import Photos
 
         session.commitConfiguration()
 
+        let appleLogOK = device.formats.contains {
+            $0.supportedColorSpaces.contains(.appleLog)
+        }
+        let hdrOK = device.formats.contains {
+            $0.isVideoHDRSupported
+        }
+        let slowMoFPS = device.formats
+            .flatMap { $0.videoSupportedFrameRateRanges }
+            .filter { $0.maxFrameRate > 60 }
+            .map { Int($0.maxFrameRate) }
+            .max() ?? 0
         Task { @MainActor in
             self.isProRAWSupported = photoOutput.isAppleProRAWSupported
             self.isDepthDataSupported = photoOutput.isDepthDataDeliverySupported
+            self.isAppleLogSupported = appleLogOK
+            self.isHDRFormatSupported = hdrOK
+            self.isSlowMotionSupported = slowMoFPS > 60
+            self.maxSlowMotionFPS = max(60, slowMoFPS)
         }
 
         setupObservations(for: device)
@@ -386,11 +436,22 @@ import Photos
                 Logger.camera.error("Cannot set zoom: no camera device available")
                 return
             }
-            let clamped = factor.fxClamped(
+            var target = factor
+            // Optical zoom lock: snap to nearest glass-only stop
+            if captureSettings.isOpticalZoomLocked {
+                let stops = availableZoomFactors
+                target = stops.min(by: { abs($0 - factor) < abs($1 - factor) }) ?? factor
+            }
+            let clamped = target.fxClamped(
                 to: device.minAvailableVideoZoomFactor...device.maxAvailableVideoZoomFactor
             )
             device.withLock {
-                device.videoZoomFactor = clamped
+                if isRecording {
+                    // Smooth ramp during recording to avoid jarring jump
+                    device.ramp(toVideoZoomFactor: clamped, withRate: 4.0)
+                } else {
+                    device.videoZoomFactor = clamped
+                }
             }
             Task { @MainActor in self.currentZoomFactor = clamped }
         }
@@ -525,10 +586,13 @@ import Photos
                         device.exposureMode = .autoExpose
                     }
                 case .highlightWeighted:
-                    // Approximate: use CIAreaMaximum to find the brightest region, meter there
+                    // Bias AE to protect highlights: lock to upper-frame interest point
+                    // and use continuousAutoExposure so it tracks a moving scene.
                     if device.isExposurePointOfInterestSupported {
-                        device.exposurePointOfInterest = CGPoint(x: 0.5, y: 0.2) // upper frame bias for highlights
-                        device.exposureMode = .autoExpose
+                        device.exposurePointOfInterest = CGPoint(x: 0.5, y: 0.15)
+                    }
+                    if device.isExposureModeSupported(.continuousAutoExposure) {
+                        device.exposureMode = .continuousAutoExposure
                     }
                 }
             }
@@ -693,6 +757,9 @@ import Photos
             } else {
                 settings = AVCapturePhotoSettings()
             }
+        case .heif:
+            // Default format = HEIF on all modern iPhones — hardware HEVC encoder, ~40% smaller files
+            settings = AVCapturePhotoSettings()
         case .jpeg:
             settings = AVCapturePhotoSettings(format: [AVVideoCodecKey: AVVideoCodecType.jpeg])
         }
@@ -804,18 +871,23 @@ import Photos
         let settings = captureSettings.videoSettings
         let fps = settings.frameRate
 
+        let codec = settings.codec
+        let useProRes = codec == .proRes && isProResRecordingSupported
+        let fileExt  = useProRes ? "mov" : "mp4"
+        let fileType = useProRes ? AVFileType.mov : AVFileType.mp4
+
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
-            .appendingPathExtension("mp4")
+            .appendingPathExtension(fileExt)
 
-        guard let writer = try? AVAssetWriter(url: url, fileType: .mp4) else {
+        guard let writer = try? AVAssetWriter(url: url, fileType: fileType) else {
             Logger.camera.error("Failed to create AVAssetWriter")
             return
         }
 
         // Video codec — ProRes skips compression properties (uses its own quality tiers)
-        let codecType: AVVideoCodecType = settings.codec == .h264 ? .h264 :
-                                          settings.codec == .proRes && isProResRecordingSupported ? .proRes4444 : .hevc
+        let codecType: AVVideoCodecType = codec == .h264 ? .h264 :
+                                          useProRes ? .proRes4444 : .hevc
         var videoOutputSettings: [String: Any] = [
             AVVideoCodecKey: codecType,
             AVVideoWidthKey: width,
@@ -929,8 +1001,15 @@ import Photos
                             value: Int(settings.whiteBalance) as NSNumber))
         items.append(custom(key: "com.fexer.camera.whiteBalanceTint",
                             value: Int(settings.whiteBalanceTint) as NSNumber))
+        items.append(custom(key: "com.fexer.camera.aperture",
+                            value: String(format: "f/%.1f", settings.lensAperture) as NSString))
         if let name = styleName {
             items.append(custom(key: "com.fexer.style", value: name as NSString))
+        }
+        // Compass bearing
+        if let heading = pendingCompassHeading {
+            items.append(custom(key: "com.fexer.camera.compassBearing",
+                                value: String(format: "%.1f°", heading.trueHeading) as NSString))
         }
         return items
     }
@@ -1029,6 +1108,187 @@ import Photos
         }
     }
 
+    // MARK: - Torch
+
+    func setTorch(on: Bool, level: Float = 1.0) {
+        sessionQueue.async { [self] in
+            guard let device = currentDevice, device.hasTorch, device.isTorchAvailable else { return }
+            device.withLock {
+                if on {
+                    let clamped = level.fxClamped(to: 0.01...1.0)
+                    try? device.setTorchModeOn(level: clamped)
+                } else {
+                    device.torchMode = .off
+                }
+            }
+            Task { @MainActor in
+                self.captureSettings.isTorchOn = on
+                self.captureSettings.torchLevel = level
+            }
+        }
+    }
+
+    var isTorchAvailable: Bool { currentDevice?.hasTorch == true && currentDevice?.isTorchAvailable == true }
+
+    // MARK: - Video Stabilization
+
+    func setVideoStabilizationMode(_ mode: StabilizationMode) {
+        sessionQueue.async { [self] in
+            if let conn = videoOutput.connection(with: .video) {
+                let preferred = mode.avMode
+                conn.preferredVideoStabilizationMode = preferred
+            }
+            Task { @MainActor in self.captureSettings.stabilizationMode = mode }
+        }
+    }
+
+    // MARK: - Color Space / Apple Log / HDR
+
+    func setVideoColorSpace(_ colorSpace: VideoColorSpace) {
+        sessionQueue.async { [self] in
+            guard let device = currentDevice else { return }
+            let target: AVCaptureColorSpace = {
+                switch colorSpace {
+                case .sRGB:     return .sRGB
+                case .p3:       return .P3_D65
+                case .hlg:      return .HLG_BT2020
+                case .appleLog:
+                    if #available(iOS 17, *) { return .appleLog }
+                    return .sRGB
+                }
+            }()
+            guard device.activeFormat.supportedColorSpaces.contains(target) else {
+                Logger.camera.warning("Color space \(colorSpace.rawValue) not supported by active format")
+                return
+            }
+            device.withLock { device.activeColorSpace = target }
+            Task { @MainActor in self.captureSettings.videoColorSpace = colorSpace }
+        }
+    }
+
+    func setHDREnabled(_ enabled: Bool) {
+        sessionQueue.async { [self] in
+            guard let conn = videoOutput.connection(with: .video) else { return }
+            // isVideoHDREnabled is a connection-level property
+            if #available(iOS 16, *) {
+                // HDR is format-driven; select an HDR-capable format when enabling
+                if enabled, let device = currentDevice {
+                    let hdrFormat = device.formats.first {
+                        $0.isVideoHDRSupported &&
+                        CMVideoFormatDescriptionGetDimensions($0.formatDescription).width >= 1920
+                    }
+                    if let fmt = hdrFormat {
+                        device.withLock { device.activeFormat = fmt }
+                    }
+                }
+            }
+            Task { @MainActor in self.captureSettings.isHDREnabled = enabled }
+        }
+    }
+
+    // MARK: - Smooth Zoom Ramp (video only)
+
+    /// Animates zoom to `factor` at `rate` (0.5 = slow, 10 = fast). Use during recording
+    /// to avoid the jarring jump of a direct videoZoomFactor assignment.
+    func rampZoom(to factor: CGFloat, rate: Float = 3.0) {
+        sessionQueue.async { [self] in
+            guard let device = currentDevice else { return }
+            let clamped = factor.fxClamped(
+                to: device.minAvailableVideoZoomFactor...device.maxAvailableVideoZoomFactor
+            )
+            device.withLock { device.ramp(toVideoZoomFactor: clamped, withRate: rate) }
+            Task { @MainActor in self.currentZoomFactor = clamped }
+        }
+    }
+
+    /// Cancels an in-progress smooth zoom ramp.
+    func cancelZoomRamp() {
+        sessionQueue.async { [self] in
+            guard let device = currentDevice else { return }
+            device.withLock { device.cancelVideoZoomRamp() }
+        }
+    }
+
+    // MARK: - Optical Zoom Lock
+
+    /// Returns the nearest optical zoom switchover factor to `factor`, or `factor` itself.
+    func nearestOpticalFactor(_ factor: CGFloat) -> CGFloat {
+        let stops = availableZoomFactors
+        return stops.min(by: { abs($0 - factor) < abs($1 - factor) }) ?? factor
+    }
+
+    // MARK: - Slow Motion
+
+    /// Activates a high-frame-rate format for slow-motion capture.
+    /// Call this when entering slow-mo mode, then configure frame rate via configureVideoFrameRate.
+    func configureForSlowMotion(fps: Int) {
+        sessionQueue.async { [self] in
+            guard let device = currentDevice else { return }
+            let targetFPS = Double(fps)
+            // Find a 1080p format supporting the target frame rate
+            let candidate = device.formats.first { format in
+                let dims = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
+                return dims.width == 1920 &&
+                    format.videoSupportedFrameRateRanges.contains { $0.maxFrameRate >= targetFPS }
+            }
+            guard let fmt = candidate else {
+                Logger.camera.warning("No format found for \(fps)fps slow motion")
+                return
+            }
+            session.beginConfiguration()
+            device.withLock {
+                device.activeFormat = fmt
+                let dur = CMTimeMake(value: 1, timescale: Int32(targetFPS))
+                device.activeVideoMinFrameDuration = dur
+                device.activeVideoMaxFrameDuration = dur
+            }
+            session.commitConfiguration()
+            configureVideoRotation()
+        }
+    }
+
+    // MARK: - Trap Focus
+
+    /// Registers a callback to fire the moment the camera locks focus.
+    /// Used by trap focus mode: set this before the subject enters frame.
+    func setTrapFocusCallback(_ callback: @escaping () -> Void) {
+        Task { @MainActor in trapFocusCaptureCallback = callback }
+    }
+
+    func clearTrapFocusCallback() {
+        Task { @MainActor in trapFocusCaptureCallback = nil }
+    }
+
+    // MARK: - Focus Distance (approximate physical distance)
+
+    /// Returns approximate focus distance in cm from normalised lens position.
+    /// Uses device.minimumFocusDistance (in mm) as the closest-focus anchor.
+    /// Formula: at lensPosition=1, dist ≈ minFocusDist; at lensPosition=0, dist ≈ ∞.
+    func approximateFocusDistance(lensPosition: Float) -> String {
+        guard let device = currentDevice, lensPosition > 0.01 else { return "∞" }
+        let minCm = Float(device.minimumFocusDistance) / 10.0
+        // Hyperbolic mapping: distance ≈ minCm / position (crude but consistent)
+        let distCm = minCm / lensPosition
+        if distCm >= 1000 { return "∞" }
+        if distCm >= 100  { return String(format: "%.1fm", distCm / 100.0) }
+        return String(format: "%.0fcm", distCm)
+    }
+
+    // MARK: - Record + Photo simultaneously
+
+    /// Captures a still photo while video recording is active.
+    /// Uses bypassBusyGuard so the capture doesn't block on isCapturing.
+    func capturePhotoWhileRecording(delegate: AVCapturePhotoCaptureDelegate) {
+        guard isRecording else { return }
+        capturePhoto(delegate: delegate, bypassBusyGuard: true)
+    }
+
+    // MARK: - Compass heading for metadata
+
+    func setCompassHeading(_ heading: CLHeading) {
+        pendingCompassHeading = heading
+    }
+
     // MARK: - Frame Rate
 
     func configureVideoFrameRate(_ fps: Int) {
@@ -1068,6 +1328,7 @@ import Photos
 
     private func setupObservations(for device: AVCaptureDevice) {
         deviceObservations.forEach { $0.invalidate() }
+        subjectAreaObserver.map { NotificationCenter.default.removeObserver($0) }
         deviceObservations = [
             device.observe(\.iso, options: .new) { [weak self] d, _ in
                 guard let self else { return }
@@ -1108,8 +1369,44 @@ import Photos
                         self.captureSettings.whiteBalanceTint = tnt.tint
                     }
                 }
+            },
+            device.observe(\.exposureTargetOffset, options: .new) { [weak self] d, _ in
+                guard let self else { return }
+                Task { @MainActor in
+                    self.captureSettings.exposureTargetOffset = d.exposureTargetOffset
+                }
+            },
+            device.observe(\.lensAperture, options: .new) { [weak self] d, _ in
+                guard let self else { return }
+                Task { @MainActor in
+                    self.captureSettings.lensAperture = d.lensAperture
+                }
+            },
+            device.observe(\.isAdjustingFocus, options: [.new, .old]) { [weak self] d, change in
+                guard let self else { return }
+                // Trap focus: fire shutter when camera finishes adjusting focus
+                let wasAdjusting = change.oldValue ?? true
+                let isAdjusting  = change.newValue ?? true
+                if wasAdjusting && !isAdjusting {
+                    Task { @MainActor in
+                        if self.captureSettings.isTrapFocusEnabled {
+                            self.trapFocusCaptureCallback?()
+                        }
+                    }
+                }
             }
         ]
+
+        // Subject area change — device notifies when the scene shifts enough to warrant refocus
+        subjectAreaObserver = NotificationCenter.default.addObserver(
+            forName: AVCaptureDevice.subjectAreaDidChangeNotification,
+            object: device,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            Task { @MainActor in self.captureSettings.focusDistance = self.currentLensPosition }
+        }
+        device.withLock { device.isSubjectAreaChangeMonitoringEnabled = true }
     }
     
     // Clean up all observers
@@ -1134,10 +1431,31 @@ extension CameraManager: AVCaptureAudioDataOutputSampleBufferDelegate {
     nonisolated func captureOutput(_ output: AVCaptureOutput,
                                    didOutput sampleBuffer: CMSampleBuffer,
                                    from connection: AVCaptureConnection) {
-        guard let input = audioWriterInput,
-              input.isReadyForMoreMediaData,
-              assetWriter?.status == .writing else { return }
-        input.append(sampleBuffer)
+        // Write to asset when recording
+        if let input = audioWriterInput,
+           input.isReadyForMoreMediaData,
+           assetWriter?.status == .writing {
+            input.append(sampleBuffer)
+        }
+
+        // Compute RMS audio level for the VU meter (~10fps update cadence)
+        guard let channelData = CMSampleBufferGetDataBuffer(sampleBuffer) else { return }
+        var length = 0
+        var dataPointer: UnsafeMutablePointer<Int8>?
+        CMBlockBufferGetDataPointer(channelData, atOffset: 0,
+                                    lengthAtOffsetOut: nil, totalLengthOut: &length,
+                                    dataPointerOut: &dataPointer)
+        guard let ptr = dataPointer, length > 0 else { return }
+        let sampleCount = length / MemoryLayout<Int16>.size
+        let int16Ptr = UnsafeRawPointer(ptr).bindMemory(to: Int16.self, capacity: sampleCount)
+        var sumSq: Float = 0
+        for i in 0..<sampleCount {
+            let s = Float(int16Ptr[i]) / Float(Int16.max)
+            sumSq += s * s
+        }
+        let rms = sampleCount > 0 ? sqrt(sumSq / Float(sampleCount)) : 0
+        // Update at ~10fps (every ~4800 samples at 48kHz)
+        Task { @MainActor in self.audioLevel = rms }
     }
 }
 

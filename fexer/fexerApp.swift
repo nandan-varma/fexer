@@ -85,17 +85,23 @@ struct RootView: View {
 
     var body: some View {
         ZStack {
-            // Main content renders underneath so the camera session can warm up
-            // while the splash is still visible.
-            mainContent
-
             if showSplash {
                 SplashView { showSplash = false }
                     .transition(.opacity)
                     .zIndex(1)
+            } else {
+                mainContent
+                    .transition(.opacity)
             }
         }
         .animation(.easeInOut(duration: 0.35), value: showSplash)
+        .onAppear {
+            // Pre-warm the camera session during the splash so CameraPreview
+            // gets a live image the moment it appears, avoiding a black frame.
+            if cameraStatus == .authorized {
+                cameraManager.startSession()
+            }
+        }
     }
 
     @ViewBuilder
