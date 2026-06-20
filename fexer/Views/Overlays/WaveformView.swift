@@ -1,24 +1,30 @@
 import SwiftUI
 
-/// Luma waveform monitor approximated from histogram data.
-/// Shows signal distribution vertically (0% IRE at bottom, 100% at top)
-/// with horizontal gridlines at 20% intervals.
+/// Luma waveform monitor — spatial per-pixel density map.
+/// X axis = horizontal position in the frame (left → right).
+/// Y axis = luma level (0% IRE at bottom, 100% IRE at top).
+/// Each (column, luma) cell is lit according to how many source pixels
+/// fall at that luminance within that horizontal slice.
 struct WaveformView: View {
-    let data: HistogramData
+    let data: WaveformData
+    /// Zebra high/low thresholds (0–1) shown as horizontal guide lines.
+    var highThreshold: Float = 0.95
+    var lowThreshold: Float = 0.02
 
     var body: some View {
         ZStack(alignment: .bottomLeading) {
             Canvas { context, size in
-                guard !data.luma.isEmpty else { return }
+                guard !data.isEmpty else { return }
 
                 let w = size.width
                 let h = size.height
-                let count = data.luma.count
-                let maxVal = data.luma.max() ?? 1
-                guard maxVal > 0 else { return }
+                let W = WaveformData.cols
+                let H = WaveformData.rows
+                let cellW = w / CGFloat(W)
+                let cellH = h / CGFloat(H)
 
-                // IRE gridlines at 20%, 40%, 60%, 80%
-                for pct in stride(from: 0.2, through: 0.8, by: 0.2) {
+                // IRE gridlines at 0%, 20%, 40%, 60%, 80%, 100%
+                for pct in stride(from: 0.0, through: 1.0, by: 0.2) {
                     let y = h - CGFloat(pct) * h
                     var line = Path()
                     line.move(to: CGPoint(x: 0, y: y))
@@ -26,19 +32,43 @@ struct WaveformView: View {
                     context.stroke(line, with: .color(.white.opacity(0.12)), lineWidth: 0.5)
                 }
 
-                // Waveform — draw each histogram bin as a vertical bar
-                for i in 0..<count {
-                    let x = CGFloat(i) / CGFloat(count) * w
-                    let intensity = CGFloat(data.luma[i]) / CGFloat(maxVal)
-                    let barH = intensity * h
+                // Zebra threshold guide lines
+                let highY = h - CGFloat(highThreshold) * h
+                var highLine = Path()
+                highLine.move(to: CGPoint(x: 0, y: highY))
+                highLine.addLine(to: CGPoint(x: w, y: highY))
+                context.stroke(highLine, with: .color(.red.opacity(0.55)), lineWidth: 0.75)
 
-                    // Color the waveform: green for normal, red above 95%, blue below 2%
-                    let pct = CGFloat(i) / CGFloat(count)
-                    let color: Color = pct > 0.95 ? .red : pct < 0.02 ? Color(red: 0, green: 0.4, blue: 1) : Color(red: 0.2, green: 0.9, blue: 0.2)
+                let lowY = h - CGFloat(lowThreshold) * h
+                var lowLine = Path()
+                lowLine.move(to: CGPoint(x: 0, y: lowY))
+                lowLine.addLine(to: CGPoint(x: w, y: lowY))
+                context.stroke(lowLine, with: .color(Color(red: 0, green: 0.4, blue: 1).opacity(0.55)), lineWidth: 0.75)
 
-                    var bar = Path()
-                    bar.addRect(CGRect(x: x, y: h - barH, width: max(1, w / CGFloat(count)), height: barH))
-                    context.fill(bar, with: .color(color.opacity(0.7)))
+                // Density map — draw each lit cell as a colored rectangle
+                for col in 0..<W {
+                    for bin in 0..<H {
+                        let density = data[col, bin]
+                        guard density > 0.01 else { continue }
+
+                        let x = CGFloat(col) * cellW
+                        // bin 0 = 0% IRE (bottom) → y = h; bin H-1 = 100% (top) → y = 0
+                        let y = h - CGFloat(bin + 1) * cellH
+                        let lumaPct = Float(bin) / Float(H - 1)
+
+                        let color: Color
+                        if lumaPct >= highThreshold {
+                            color = .red
+                        } else if lumaPct <= lowThreshold {
+                            color = Color(red: 0, green: 0.4, blue: 1)
+                        } else {
+                            color = Color(red: 0.15, green: 0.85, blue: 0.25)
+                        }
+
+                        var cell = Path()
+                        cell.addRect(CGRect(x: x, y: y, width: max(1, cellW), height: max(1, cellH)))
+                        context.fill(cell, with: .color(color.opacity(Double(density) * 0.85 + 0.1)))
+                    }
                 }
             }
 

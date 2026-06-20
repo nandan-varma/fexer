@@ -227,6 +227,7 @@ private struct ViewfinderSection: View {
     @AppStorage("showWaveform")       private var showWaveform       = false
     @AppStorage("showVectorscope")    private var showVectorscope    = false
     @AppStorage("showLevelIndicator") private var showLevelIndicator = false
+    @AppStorage("showEVIndicator")    private var showEVIndicator    = false
     @AppStorage("showGrid")           private var showGrid           = false
     @AppStorage("gridType")           private var gridType           = "Thirds"
     @AppStorage("cropRatio")          private var cropRatioRaw       = CropRatio.full.rawValue
@@ -247,6 +248,10 @@ private struct ViewfinderSection: View {
 
             Toggle(isOn: $showLevelIndicator) {
                 Label("Horizon Level", systemImage: "level")
+            }
+
+            Toggle(isOn: $showEVIndicator) {
+                Label("EV Meter", systemImage: "plusminus.circle")
             }
 
             Toggle(isOn: $showGrid) {
@@ -280,10 +285,12 @@ private struct ViewfinderSection: View {
 // MARK: - Analysis Tools
 
 private struct AnalysisSection: View {
-    @AppStorage("showFocusPeaking")  private var showFocusPeaking  = false
-    @AppStorage("focusPeakingColor") private var focusPeakingColor: String = "red"
-    @AppStorage("showZebra")         private var showZebra         = false
-    @AppStorage("showFalseColor")    private var showFalseColor    = false
+    @AppStorage("showFocusPeaking")   private var showFocusPeaking   = false
+    @AppStorage("focusPeakingColor")  private var focusPeakingColor: String = "red"
+    @AppStorage("showZebra")          private var showZebra          = false
+    @AppStorage("zebraHighThreshold") private var zebraHighThreshold: Double = 95.0
+    @AppStorage("zebraLowThreshold")  private var zebraLowThreshold: Double  = 2.0
+    @AppStorage("showFalseColor")     private var showFalseColor     = false
 
     var body: some View {
         Section {
@@ -303,13 +310,42 @@ private struct AnalysisSection: View {
                 Label("Zebra Stripes", systemImage: "rectangle.split.2x1.fill")
             }
 
+            if showZebra {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text("High (overexposure)")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Text("\(Int(zebraHighThreshold.rounded()))%")
+                            .font(.system(.subheadline, design: .monospaced))
+                            .foregroundStyle(.red)
+                    }
+                    Slider(value: $zebraHighThreshold, in: 70...100, step: 1)
+                        .tint(.red)
+
+                    HStack {
+                        Text("Low (underexposure)")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Text("\(Int(zebraLowThreshold.rounded()))%")
+                            .font(.system(.subheadline, design: .monospaced))
+                            .foregroundStyle(.blue)
+                    }
+                    Slider(value: $zebraLowThreshold, in: 0...15, step: 1)
+                        .tint(.blue)
+                }
+                .padding(.vertical, 4)
+            }
+
             Toggle(isOn: $showFalseColor) {
                 Label("False Color", systemImage: "thermometer.medium")
             }
         } header: {
             Text("Analysis Tools")
         } footer: {
-            Text("Focus peaking highlights in-focus edges. Zebra marks overexposed regions. False color maps luminance to a diagnostic palette.")
+            Text("Focus peaking highlights in-focus edges. Zebra marks clipping zones — threshold lines also appear on the waveform monitor. False color maps luminance to a diagnostic palette.")
         }
     }
 
@@ -345,7 +381,7 @@ private struct AnalysisSection: View {
 
 private struct StylesSection: View {
     @Bindable var stylesManager: StylesManager
-    @AppStorage("showStylePicker") private var showStylePicker = true
+    @AppStorage("showStylePicker") private var showStylePicker = false
 
     var body: some View {
         Section("Styles") {

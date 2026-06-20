@@ -43,7 +43,7 @@ struct CameraView: View {
     @AppStorage("showFocusPeaking")     private var showFocusPeaking      = false
     @AppStorage("showZebra")            private var showZebra             = false
     @AppStorage("showLevelIndicator")   private var showLevelIndicator    = false
-    @AppStorage("showStylePicker")      private var showStylePicker       = true
+    @AppStorage("showStylePicker")      private var showStylePicker       = false
     @AppStorage("showShootingModes")    private var showShootingModes     = true
     @AppStorage("showGallery")          private var showGallery           = true
     @AppStorage("cropRatio")            private var cropRatioRaw          = CropRatio.full.rawValue
@@ -64,9 +64,12 @@ struct CameraView: View {
     @AppStorage("wbBracketKStep")   private var wbBracketKStep: Double = 500.0
     @AppStorage("selfTimerRepeat")  private var selfTimerRepeat: Int   = 1
     @AppStorage("burstCount")       private var burstCount: Int        = 10
-    @AppStorage("showWaveform")       private var showWaveform         = false
-    @AppStorage("showVectorscope")    private var showVectorscope      = false
-    @AppStorage("isCleanViewActive")  private var isCleanViewActive    = false
+    @AppStorage("showWaveform")          private var showWaveform          = false
+    @AppStorage("showVectorscope")       private var showVectorscope       = false
+    @AppStorage("isCleanViewActive")     private var isCleanViewActive     = false
+    @AppStorage("showEVIndicator")       private var showEVIndicator       = false
+    @AppStorage("zebraHighThreshold")    private var zebraHighThreshold: Double = 95.0
+    @AppStorage("zebraLowThreshold")     private var zebraLowThreshold: Double  = 2.0
     @AppStorage("hintSwipeUpSeen")    private var hintSwipeUpSeen      = false
     @AppStorage("hintBrightnessSeen") private var hintBrightnessSeen   = false
 
@@ -136,6 +139,10 @@ struct CameraView: View {
             .onChange(of: showFocusPeaking)             { syncProcessor() }
             .onChange(of: showZebra)                    { syncProcessor() }
             .onChange(of: showFalseColor)               { syncProcessor() }
+            .onChange(of: showWaveform)                 { syncProcessor() }
+            .onChange(of: showVectorscope)              { syncProcessor() }
+            .onChange(of: zebraHighThreshold)           { syncProcessor() }
+            .onChange(of: zebraLowThreshold)            { syncProcessor() }
         let features = lifecycle
             .onChange(of: focusPeakingColor)            { syncProcessor() }
             .onChange(of: isCleanViewActive)            { syncProcessor() }
@@ -302,7 +309,7 @@ struct CameraView: View {
 
         // ── EV offset indicator — shows exposureTargetOffset when auto-exposure active ──
         let evOffset = cameraManager.captureSettings.exposureTargetOffset
-        if !isCleanViewActive && !cameraManager.captureSettings.isAELocked &&
+        if showEVIndicator && !isCleanViewActive && !cameraManager.captureSettings.isAELocked &&
             (cameraManager.captureSettings.isAutoISO || cameraManager.captureSettings.isAutoShutter) {
             EVOffsetIndicator(offset: evOffset,
                               isAELocked: cameraManager.captureSettings.isAELocked)
@@ -391,17 +398,21 @@ struct CameraView: View {
         }
 
         // ── Waveform monitor ──────────────────────────────────────────────────
-        if showWaveform && !isCleanViewActive && !cameraViewModel.histogram.luma.isEmpty {
-            WaveformView(data: cameraViewModel.histogram)
-                .padding(.top, CameraView.quickBarHeight + 8)
-                .padding(.leading, showHistogram ? 152 : 16)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .allowsHitTesting(false)
+        if showWaveform && !isCleanViewActive && !cameraViewModel.waveform.isEmpty {
+            WaveformView(
+                data: cameraViewModel.waveform,
+                highThreshold: Float(zebraHighThreshold / 100),
+                lowThreshold: Float(zebraLowThreshold / 100)
+            )
+            .padding(.top, CameraView.quickBarHeight + 8)
+            .padding(.leading, showHistogram ? 152 : 16)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .allowsHitTesting(false)
         }
 
         // ── Vectorscope ───────────────────────────────────────────────────────
-        if showVectorscope && !isCleanViewActive {
-            VectorscopeView()
+        if showVectorscope && !isCleanViewActive && !cameraViewModel.vectorscope.isEmpty {
+            VectorscopeView(data: cameraViewModel.vectorscope)
                 .padding(.top, CameraView.quickBarHeight + 8)
                 .padding(.trailing, 16)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
@@ -1407,7 +1418,11 @@ struct CameraView: View {
             focusPeaking: showFocusPeaking && !isCleanViewActive,
             zebra: showZebra && !isCleanViewActive,
             falseColor: showFalseColor && !isCleanViewActive,
-            peakingColorName: focusPeakingColor
+            waveform: showWaveform && !isCleanViewActive,
+            vectorscope: showVectorscope && !isCleanViewActive,
+            peakingColorName: focusPeakingColor,
+            zebraHighThreshold: Float(zebraHighThreshold / 100),
+            zebraLowThreshold: Float(zebraLowThreshold / 100)
         )
     }
 

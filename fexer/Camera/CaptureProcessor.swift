@@ -18,8 +18,10 @@ final class CaptureProcessor: NSObject {
     /// Latest rendered CIImage for MTKView (thread-safe via OSAllocatedUnfairLock)
     private let imageLock = OSAllocatedUnfairLock(initialState: Optional<CIImage>.none)
 
-    // Histogram data published to UI (swapped atomically)
+    // Histogram / monitoring data published to UI
     var onHistogramUpdate: (([Float], [Float], [Float], [Float]) -> Void)?
+    var onWaveformUpdate: ((WaveformData) -> Void)?
+    var onVectorscopeUpdate: ((VectorscopeData) -> Void)?
     var onFrameAvailable: (() -> Void)?
     var onPreviewSizeKnown: ((CGSize) -> Void)?
     /// Called with the raw pixel buffer ~once per second (for thumbnail generation).
@@ -61,19 +63,40 @@ final class CaptureProcessor: NSObject {
         set { peakingColorLock.withLock { $0 = newValue } }
     }
 
-    private let flagsLock = OSAllocatedUnfairLock(initialState: (false, false, false))
+    private let flagsLock = OSAllocatedUnfairLock(
+        initialState: (peaking: false, zebra: false, falseColor: false, waveform: false, vectorscope: false)
+    )
 
     var isFocusPeakingEnabled: Bool {
-        get { flagsLock.withLock { $0.0 } }
-        set { flagsLock.withLock { $0.0 = newValue } }
+        get { flagsLock.withLock { $0.peaking } }
+        set { flagsLock.withLock { $0.peaking = newValue } }
     }
     var isZebraEnabled: Bool {
-        get { flagsLock.withLock { $0.1 } }
-        set { flagsLock.withLock { $0.1 = newValue } }
+        get { flagsLock.withLock { $0.zebra } }
+        set { flagsLock.withLock { $0.zebra = newValue } }
     }
     var isFalseColorEnabled: Bool {
-        get { flagsLock.withLock { $0.2 } }
-        set { flagsLock.withLock { $0.2 = newValue } }
+        get { flagsLock.withLock { $0.falseColor } }
+        set { flagsLock.withLock { $0.falseColor = newValue } }
+    }
+    var isWaveformEnabled: Bool {
+        get { flagsLock.withLock { $0.waveform } }
+        set { flagsLock.withLock { $0.waveform = newValue } }
+    }
+    var isVectorscopeEnabled: Bool {
+        get { flagsLock.withLock { $0.vectorscope } }
+        set { flagsLock.withLock { $0.vectorscope = newValue } }
+    }
+
+    // Zebra threshold storage (sessionQueue-safe via lock)
+    private let zebraThresholdLock = OSAllocatedUnfairLock(initialState: (high: Float(0.95), low: Float(0.02)))
+    var zebraHighThreshold: Float {
+        get { zebraThresholdLock.withLock { $0.high } }
+        set { zebraThresholdLock.withLock { $0.high = newValue } }
+    }
+    var zebraLowThreshold: Float {
+        get { zebraThresholdLock.withLock { $0.low } }
+        set { zebraThresholdLock.withLock { $0.low = newValue } }
     }
 
     // Anamorphic 2× desqueeze (thread-safe: set from MainActor, read from sessionQueue)
@@ -211,8 +234,11 @@ extension CaptureProcessor: AVCaptureVideoDataOutputSampleBufferDelegate {
 
         // Zebra stripes (skipped when false color is on — redundant)
         if isZebraEnabled && !isFalseColorEnabled {
+            let thresholds = zebraThresholdLock.withLock { $0 }
             zebraFilter.inputImage = image
             zebraFilter.inputTime = getZebraTime()
+            zebraFilter.inputOverThreshold = thresholds.high
+            zebraFilter.inputUnderThreshold = thresholds.low
             if let output = zebraFilter.outputImage {
                 image = output
             }
@@ -221,12 +247,22 @@ extension CaptureProcessor: AVCaptureVideoDataOutputSampleBufferDelegate {
         onProcessedFrame?(image, presentationTime)
         setLatestImage(image)
 
-        // Histogram every 2nd frame (~30fps at 60fps session) — computed off sessionQueue
+        // Histogram + waveform + vectorscope every 2nd frame (~30 fps) — off sessionQueue
         if frameCount % 2 == 0 {
-            let image = rawImage
+            let capturedImage = rawImage
             let context = ciContext
+            let needsWaveform = isWaveformEnabled
+            let needsVectorscope = isVectorscopeEnabled
             histogramQueue.async { [self] in
-                computeHistogram(from: image, context: context)
+                computeHistogram(from: capturedImage, context: context)
+                if needsWaveform {
+                    let data = HistogramCalculator.computeWaveform(from: capturedImage, context: context)
+                    Task { @MainActor in onWaveformUpdate?(data) }
+                }
+                if needsVectorscope {
+                    let data = HistogramCalculator.computeVectorscope(from: capturedImage, context: context)
+                    Task { @MainActor in onVectorscopeUpdate?(data) }
+                }
             }
         }
     }

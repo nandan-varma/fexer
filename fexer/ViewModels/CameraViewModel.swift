@@ -14,6 +14,7 @@ struct HistogramData {
     }
 }
 
+
 @Observable
 final class CameraViewModel {
     let cameraManager: CameraManager
@@ -48,8 +49,10 @@ final class CameraViewModel {
     var timelapseInterval: Double = 5.0
     private var timelapseTask: Task<Void, Never>?
 
-    // Histogram data — single property update fires one SwiftUI notification per frame
-    var histogram = HistogramData()
+    // Monitoring overlay data — updated from histogramQueue (~30 Hz)
+    var histogram    = HistogramData()
+    var waveform     = WaveformData()
+    var vectorscope  = VectorscopeData()
 
     // Exposure compensation (driven by right-side swipe)
     var accumulatedExposureBias: Float = 0
@@ -81,6 +84,12 @@ final class CameraViewModel {
             Task { @MainActor in
                 self?.histogram = HistogramData(red: r, green: g, blue: b, luma: l)
             }
+        }
+        cameraManager.processor.onWaveformUpdate = { [weak self] data in
+            Task { @MainActor in self?.waveform = data }
+        }
+        cameraManager.processor.onVectorscopeUpdate = { [weak self] data in
+            Task { @MainActor in self?.vectorscope = data }
         }
     }
 
@@ -219,17 +228,25 @@ final class CameraViewModel {
 
     // MARK: - Overlay Sync
 
-    /// Caller passes AppStorage flags in so this class doesn't need to own them.
+    /// Caller passes AppStorage flags so this class doesn't need to own them.
     func syncOverlaysToProcessor(
         focusPeaking: Bool = false,
         zebra: Bool = false,
         falseColor: Bool = false,
-        peakingColorName: String = "red"
+        waveform: Bool = false,
+        vectorscope: Bool = false,
+        peakingColorName: String = "red",
+        zebraHighThreshold: Float = 0.95,
+        zebraLowThreshold: Float = 0.02
     ) {
         cameraManager.processor.isFocusPeakingEnabled = focusPeaking
         cameraManager.processor.isZebraEnabled = zebra
         cameraManager.processor.isFalseColorEnabled = falseColor
+        cameraManager.processor.isWaveformEnabled = waveform
+        cameraManager.processor.isVectorscopeEnabled = vectorscope
         cameraManager.processor.peakingColor = Self.ciColor(forPeakingColorName: peakingColorName)
+        cameraManager.processor.zebraHighThreshold = zebraHighThreshold
+        cameraManager.processor.zebraLowThreshold = zebraLowThreshold
         let filter = stylesManager.activeLUTFilter()
         cameraManager.processor.lutFilter = filter
     }
