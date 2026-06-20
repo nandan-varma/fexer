@@ -72,8 +72,5 @@ final class StylesManager {
         guard isSmartStylesEnabled else { return }
         sceneClassifier.processFrame(pixelBuffer)
         suggestedStyle = sceneClassifier.suggestedStyle
-        if let suggested = sceneClassifier.suggestedStyle, activeStyle == nil {
-            activeStyle = suggested
-        }
     }
 }

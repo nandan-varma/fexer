@@ -81,6 +81,8 @@ import Photos
 
     var captureSettings = CaptureSettings()
 
+    @ObservationIgnored private lazy var iso8601Formatter = ISO8601DateFormatter()
+
     // MARK: - Notification observation tokens
 
     private var sessionErrorObserver: NSObjectProtocol?
@@ -967,7 +969,7 @@ import Photos
         }
 
         items.append(item(identifier: .quickTimeMetadataCreationDate,
-                          value: ISO8601DateFormatter().string(from: Date()) as NSString))
+                          value: iso8601Formatter.string(from: Date()) as NSString))
         items.append(item(identifier: .quickTimeMetadataMake,  value: "Apple" as NSString))
         items.append(item(identifier: .quickTimeMetadataModel, value: UIDevice.current.model as NSString))
         items.append(item(identifier: .quickTimeMetadataSoftware, value: "fexer" as NSString))
@@ -1036,8 +1038,6 @@ import Photos
                    sub == kCVPixelFormatType_422YpCbCr10BiPlanarFullRange
         }
     }
-
-    var isProResSupported: Bool { isProResRecordingSupported }
 
     // MARK: - Video mode session preset
 
@@ -1455,7 +1455,7 @@ extension CameraManager: AVCaptureAudioDataOutputSampleBufferDelegate {
         }
         let rms = sampleCount > 0 ? sqrt(sumSq / Float(sampleCount)) : 0
         // Update at ~10fps (every ~4800 samples at 48kHz)
-        Task { @MainActor in self.audioLevel = rms }
+        Task { @MainActor in self.audioLevel = self.audioLevel * 0.7 + rms * 0.3 }
     }
 }
 

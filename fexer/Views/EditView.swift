@@ -24,8 +24,9 @@ struct EditView: View {
     @State private var selectedHSLBand: Int = 0
     @State private var selectedCurveChannel: CurveChannel = .master
     @State private var showLUTImporter = false
+    @State private var draggedCurveIndex: Int? = nil
 
-    private let ciContext = CIContext(options: [.useSoftwareRenderer: false])
+    private let ciContext: CIContext = .shared
 
     var body: some View {
         ZStack {
@@ -599,6 +600,10 @@ struct EditView: View {
             let bandCenters: [Float]    = [0.0, 0.083, 0.167, 0.333, 0.5, 0.611, 0.778, 0.917]
             let bandHalfWidths: [Float] = [0.083, 0.056, 0.056, 0.111, 0.056, 0.111, 0.083, 0.056]
             let bandValues = state.allHSLBands.map { state[keyPath: $0.1] }
+            // Sort once outside the loop; evalCurve sorts per call which is 3×4913 = 14K sorts.
+            let sortedCurveR = state.curveR.sorted { $0.x < $1.x }
+            let sortedCurveG = state.curveG.sorted { $0.x < $1.x }
+            let sortedCurveB = state.curveB.sorted { $0.x < $1.x }
 
             for bi in 0..<dim {
                 for gi in 0..<dim {
@@ -608,9 +613,9 @@ struct EditView: View {
                         var bv = Float(bi) / Float(dim - 1)
 
                         if state.hasCurveAdjustments {
-                            rv = evalCurve(state.curveR, at: rv)
-                            gv = evalCurve(state.curveG, at: gv)
-                            bv = evalCurve(state.curveB, at: bv)
+                            rv = evalSortedCurve(sortedCurveR, at: rv)
+                            gv = evalSortedCurve(sortedCurveG, at: gv)
+                            bv = evalSortedCurve(sortedCurveB, at: bv)
                         }
 
                         if state.hasHSLAdjustments {
@@ -810,46 +815,55 @@ struct EditView: View {
 
             let pts = state[keyPath: selectedCurveChannel.keyPath]
             let channelColor = selectedCurveChannel.color
-            Canvas { ctx, size in
-                let sorted = pts.sorted { $0.x < $1.x }
+            GeometryReader { geo in
+                ZStack {
+                    Canvas { ctx, size in
+                        let sorted = pts.sorted { $0.x < $1.x }
 
-                ctx.stroke(Path { p in
-                    for t: CGFloat in [0.25, 0.5, 0.75] {
-                        p.move(to: CGPoint(x: size.width * t, y: 0))
-                        p.addLine(to: CGPoint(x: size.width * t, y: size.height))
-                        p.move(to: CGPoint(x: 0, y: size.height * (1 - t)))
-                        p.addLine(to: CGPoint(x: size.width, y: size.height * (1 - t)))
-                    }
-                }, with: .color(.white.opacity(0.1)), lineWidth: 0.5)
+                        ctx.stroke(Path { p in
+                            for t: CGFloat in [0.25, 0.5, 0.75] {
+                                p.move(to: CGPoint(x: size.width * t, y: 0))
+                                p.addLine(to: CGPoint(x: size.width * t, y: size.height))
+                                p.move(to: CGPoint(x: 0, y: size.height * (1 - t)))
+                                p.addLine(to: CGPoint(x: size.width, y: size.height * (1 - t)))
+                            }
+                        }, with: .color(.white.opacity(0.1)), lineWidth: 0.5)
 
-                ctx.stroke(Path { p in
-                    p.move(to: CGPoint(x: 0, y: size.height))
-                    p.addLine(to: CGPoint(x: size.width, y: 0))
-                }, with: .color(.white.opacity(0.2)), style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
+                        ctx.stroke(Path { p in
+                            p.move(to: CGPoint(x: 0, y: size.height))
+                            p.addLine(to: CGPoint(x: size.width, y: 0))
+                        }, with: .color(.white.opacity(0.2)), style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
 
-                var curvePath = Path()
-                for i in 0...48 {
-                    let x = Float(i) / 48.0
-                    var y = x
-                    for j in 1..<sorted.count {
-                        let p0 = sorted[j-1], p1 = sorted[j]
-                        if x <= p1.x {
-                            let t = (x - p0.x) / max(p1.x - p0.x, 0.001)
-                            y = p0.y + t * (p1.y - p0.y)
-                            break
+                        var curvePath = Path()
+                        for i in 0...48 {
+                            let x = Float(i) / 48.0
+                            var y = x
+                            for j in 1..<sorted.count {
+                                let p0 = sorted[j-1], p1 = sorted[j]
+                                if x <= p1.x {
+                                    let t = (x - p0.x) / max(p1.x - p0.x, 0.001)
+                                    y = p0.y + t * (p1.y - p0.y)
+                                    break
+                                }
+                                if j == sorted.count - 1 { y = p1.y }
+                            }
+                            let cp = CGPoint(x: CGFloat(x) * size.width, y: (1 - CGFloat(y)) * size.height)
+                            if i == 0 { curvePath.move(to: cp) } else { curvePath.addLine(to: cp) }
                         }
-                        if j == sorted.count - 1 { y = p1.y }
-                    }
-                    let cp = CGPoint(x: CGFloat(x) * size.width, y: (1 - CGFloat(y)) * size.height)
-                    if i == 0 { curvePath.move(to: cp) } else { curvePath.addLine(to: cp) }
-                }
-                ctx.stroke(curvePath, with: .color(channelColor), lineWidth: 2)
+                        ctx.stroke(curvePath, with: .color(channelColor), lineWidth: 2)
 
-                for pt in sorted {
-                    let cx = CGFloat(pt.x) * size.width
-                    let cy = (1 - CGFloat(pt.y)) * size.height
-                    ctx.fill(Path(ellipseIn: CGRect(x: cx-5, y: cy-5, width: 10, height: 10)), with: .color(.white))
-                    ctx.fill(Path(ellipseIn: CGRect(x: cx-3, y: cy-3, width: 6, height: 6)), with: .color(channelColor))
+                        for (i, pt) in sorted.enumerated() {
+                            let cx = CGFloat(pt.x) * size.width
+                            let cy = (1 - CGFloat(pt.y)) * size.height
+                            let r: CGFloat = draggedCurveIndex == i ? 8 : 5
+                            ctx.fill(Path(ellipseIn: CGRect(x: cx-r-2, y: cy-r-2, width: (r+2)*2, height: (r+2)*2)), with: .color(.white))
+                            ctx.fill(Path(ellipseIn: CGRect(x: cx-r, y: cy-r, width: r*2, height: r*2)), with: .color(channelColor))
+                        }
+                    }
+
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .gesture(curveDragGesture(in: geo.size))
                 }
             }
             .frame(height: 90)
@@ -882,10 +896,40 @@ struct EditView: View {
         }
     }
 
+    private func curveDragGesture(in size: CGSize) -> some Gesture {
+        let kp = selectedCurveChannel.keyPath
+        return DragGesture(minimumDistance: 0)
+            .onChanged { value in
+                if draggedCurveIndex == nil {
+                    let pts = state[keyPath: kp]
+                    var nearest = 0
+                    var minDist = CGFloat.infinity
+                    for (i, pt) in pts.enumerated() {
+                        let px = CGFloat(pt.x) * size.width
+                        let py = (1 - CGFloat(pt.y)) * size.height
+                        let dist = hypot(value.startLocation.x - px, value.startLocation.y - py)
+                        if dist < minDist { minDist = dist; nearest = i }
+                    }
+                    if minDist < 36 { draggedCurveIndex = nearest }
+                }
+                if let idx = draggedCurveIndex {
+                    let newY = Float(max(0, min(1, 1 - value.location.y / size.height)))
+                    var arr = state[keyPath: kp]
+                    arr[idx].y = newY
+                    state[keyPath: kp] = arr
+                    renderPreview(debounced: false)
+                }
+            }
+            .onEnded { _ in draggedCurveIndex = nil }
+    }
+
     // MARK: - Static helpers for applyEdits
 
     nonisolated private static func evalCurve(_ pts: [SIMD2<Float>], at x: Float) -> Float {
-        let s = pts.sorted { $0.x < $1.x }
+        evalSortedCurve(pts.sorted { $0.x < $1.x }, at: x)
+    }
+
+    nonisolated private static func evalSortedCurve(_ s: [SIMD2<Float>], at x: Float) -> Float {
         guard s.count >= 2 else { return x }
         if x <= s[0].x { return s[0].y }
         if x >= s[s.count - 1].x { return s[s.count - 1].y }
@@ -934,18 +978,38 @@ struct EditView: View {
         let d = abs(a - b); return min(d, 1 - d)
     }
 
+    private final class ParsedLUTEntry: NSObject {
+        let cubeData: Data; let dimension: Int
+        init(_ d: Data, _ dim: Int) { cubeData = d; dimension = dim }
+    }
+    private static let importedLUTCache: NSCache<NSData, ParsedLUTEntry> = {
+        let c = NSCache<NSData, ParsedLUTEntry>(); c.countLimit = 4; return c
+    }()
+
     nonisolated private static func applyImportedLUT(to image: CIImage, bookmark: Data) -> CIImage? {
         var isStale = false
         guard let url = try? URL(resolvingBookmarkData: bookmark, options: .withoutUI,
                                  relativeTo: nil, bookmarkDataIsStale: &isStale),
-              !isStale, url.startAccessingSecurityScopedResource() else { return nil }
-        defer { url.stopAccessingSecurityScopedResource() }
-        guard let content = try? String(contentsOf: url, encoding: .utf8),
-              let (cubeData, dim) = parseCubeContent(content),
-              let sRGB = CGColorSpace(name: CGColorSpace.sRGB),
+              !isStale else { return nil }
+
+        let cacheKey = bookmark as NSData
+        let entry: ParsedLUTEntry
+        if let cached = importedLUTCache.object(forKey: cacheKey) {
+            entry = cached
+        } else {
+            guard url.startAccessingSecurityScopedResource() else { return nil }
+            defer { url.stopAccessingSecurityScopedResource() }
+            guard let content = try? String(contentsOf: url, encoding: .utf8),
+                  let (cubeData, dim) = parseCubeContent(content) else { return nil }
+            let newEntry = ParsedLUTEntry(cubeData, dim)
+            importedLUTCache.setObject(newEntry, forKey: cacheKey)
+            entry = newEntry
+        }
+
+        guard let sRGB = CGColorSpace(name: CGColorSpace.sRGB),
               let flt = CIFilter(name: "CIColorCubeWithColorSpace") else { return nil }
-        flt.setValue(Float(dim), forKey: "inputCubeDimension")
-        flt.setValue(cubeData, forKey: "inputCubeData")
+        flt.setValue(Float(entry.dimension), forKey: "inputCubeDimension")
+        flt.setValue(entry.cubeData, forKey: "inputCubeData")
         flt.setValue(sRGB, forKey: "inputColorSpace")
         flt.setValue(image, forKey: kCIInputImageKey)
         return flt.outputImage

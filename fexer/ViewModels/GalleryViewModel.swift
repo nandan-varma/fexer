@@ -24,16 +24,32 @@ final class GalleryViewModel: NSObject, PHPhotoLibraryChangeObserver {
         isLoading = true
         let options = PHFetchOptions()
         options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
-        options.fetchLimit = 300
+        options.predicate = NSPredicate(
+            format: "mediaType == %d || mediaType == %d",
+            PHAssetMediaType.image.rawValue,
+            PHAssetMediaType.video.rawValue
+        )
 
-        let result = PHAsset.fetchAssets(with: .image, options: options)
+        guard let library = PHAssetCollection.fetchAssetCollections(
+            with: .smartAlbum, subtype: .smartAlbumUserLibrary, options: nil
+        ).firstObject else {
+            isLoading = false
+            return
+        }
+
+        let result = PHAsset.fetchAssets(in: library, options: options)
         fetchResult = result
 
-        var assets: [PHAsset] = []
-        result.enumerateObjects { asset, _, _ in assets.append(asset) }
-
-        photos = assets
-        isLoading = false
+        Task { [weak self] in
+            let assets: [PHAsset] = await Task.detached(priority: .utility) {
+                var a: [PHAsset] = []
+                a.reserveCapacity(result.count)
+                for i in 0..<result.count { a.append(result.object(at: i)) }
+                return a
+            }.value
+            self?.photos = assets
+            self?.isLoading = false
+        }
     }
 
     func thumbnail(for asset: PHAsset, size: CGSize, completion: @escaping (UIImage?) -> Void) -> PHImageRequestID {
@@ -48,6 +64,38 @@ final class GalleryViewModel: NSObject, PHPhotoLibraryChangeObserver {
             options: options
         ) { image, _ in
             Task { @MainActor in completion(image) }
+        }
+    }
+
+    func fullImage(for asset: PHAsset, completion: @escaping (UIImage?) -> Void) -> PHImageRequestID {
+        let options = PHImageRequestOptions()
+        options.isNetworkAccessAllowed = true
+        options.deliveryMode = .highQualityFormat
+
+        return imageManager.requestImage(
+            for: asset,
+            targetSize: PHImageManagerMaximumSize,
+            contentMode: .aspectFit,
+            options: options
+        ) { image, _ in
+            Task { @MainActor in completion(image) }
+        }
+    }
+
+    func playerItem(for asset: PHAsset, completion: @escaping (AVPlayerItem?) -> Void) {
+        let options = PHVideoRequestOptions()
+        options.isNetworkAccessAllowed = true
+        options.deliveryMode = .automatic
+        imageManager.requestPlayerItem(forVideo: asset, options: options) { item, _ in
+            Task { @MainActor in completion(item) }
+        }
+    }
+
+    func delete(asset: PHAsset, completion: @escaping (Bool) -> Void) {
+        PHPhotoLibrary.shared().performChanges({
+            PHAssetChangeRequest.deleteAssets([asset] as NSArray)
+        }) { success, _ in
+            Task { @MainActor in completion(success) }
         }
     }
 

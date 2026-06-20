@@ -1,16 +1,20 @@
 import SwiftUI
+import Photos
 
 struct ReviewView: View {
     let photo: CapturedPhoto
     var onDismiss: (() -> Void)?
+    var onDelete: (() -> Void)?
 
     @State private var magnification: CGFloat = 1.0
     @State private var lastMagnification: CGFloat = 1.0
     @State private var showExif = false
     @State private var showShareSheet = false
     @State private var reviewHistogram: HistogramData?
+    @State private var cachedExif: [ExifField: String] = [:]
     @State private var showEdit = false
     @State private var editedPhoto: CapturedPhoto?
+    @State private var showDeleteConfirmation = false
 
     var body: some View {
         ZStack {
@@ -32,7 +36,13 @@ struct ReviewView: View {
                     .transition(.opacity)
             }
         }
-        .onAppear { computeReviewHistogram() }
+        .onAppear {
+            computeReviewHistogram()
+            Task.detached(priority: .utility) { [jpegData = photo.jpegData] in
+                let exif = ExifReader.read(from: jpegData ?? Data())
+                await MainActor.run { self.cachedExif = exif }
+            }
+        }
     }
 
     private var reviewContent: some View {
@@ -81,6 +91,21 @@ struct ReviewView: View {
                             .foregroundStyle(.white)
                             .frame(width: 36, height: 36)
                             .background(.black.opacity(0.5), in: Circle())
+                    }
+
+                    if photo.assetLocalIdentifier != nil {
+                        Button {
+                            showDeleteConfirmation = true
+                        } label: {
+                            Image(systemName: "trash")
+                                .font(.system(size: 18))
+                                .foregroundStyle(.white)
+                                .frame(width: 36, height: 36)
+                                .background(.black.opacity(0.5), in: Circle())
+                        }
+                        .confirmationDialog("Delete this photo?", isPresented: $showDeleteConfirmation, titleVisibility: .visible) {
+                            Button("Delete Photo", role: .destructive) { deletePhoto() }
+                        }
                     }
 
                     Button {
@@ -146,7 +171,7 @@ struct ReviewView: View {
     }
 
     private var exifOverlay: some View {
-        let exif = ExifReader.read(from: photo.jpegData ?? Data())
+        let exif = cachedExif
         let settings = photo.captureSettings
 
         return VStack(alignment: .leading, spacing: 6) {
@@ -180,14 +205,29 @@ struct ReviewView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
     }
 
+    private func deletePhoto() {
+        guard let id = photo.assetLocalIdentifier else { return }
+        let assets = PHAsset.fetchAssets(withLocalIdentifiers: [id], options: nil)
+        guard assets.count > 0 else { return }
+        PHPhotoLibrary.shared().performChanges({
+            PHAssetChangeRequest.deleteAssets(assets)
+        }) { success, _ in
+            if success {
+                Task { @MainActor in
+                    onDelete?()
+                    onDismiss?()
+                }
+            }
+        }
+    }
+
     private func computeReviewHistogram() {
         guard let data = photo.jpegData, let uiImage = UIImage(data: data),
               let cgImage = uiImage.cgImage else { return }
 
         Task.detached(priority: .utility) {
             let ciImage = CIImage(cgImage: cgImage)
-            let context = CIContext()
-            let hist = HistogramCalculator.compute(from: ciImage, context: context)
+            let hist = HistogramCalculator.compute(from: ciImage, context: CIContext.shared)
             await MainActor.run { self.reviewHistogram = hist }
         }
     }

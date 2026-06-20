@@ -97,7 +97,7 @@ final class CaptureProcessor: NSObject {
     // Capped at 60 frames (sampled every 4th at 60fps ≈ 15fps), so peak memory stays ~480 MB
     // instead of the ~1.9 GB that 240 raw frames at 8 MB each would require.
     private var longExpFrames: [CIImage] = []
-    private var longExpStart: CFTimeInterval = 0
+    private var longExpStart: CMTime = .invalid
     var longExpDuration: Double = 4.0
     var onLongExposureComplete: ((CIImage) -> Void)?
 
@@ -165,11 +165,11 @@ extension CaptureProcessor: AVCaptureVideoDataOutputSampleBufferDelegate {
         // Long exposure: subsample frames to cap memory (kLongExpMaxFrames × ~8 MB ≈ 480 MB).
         // Taking every kLongExpFrameSkip-th frame gives ~15 fps sampling from 60 fps input.
         if longExpActiveLock.withLock({ $0 }) {
-            if longExpFrames.isEmpty { longExpStart = CACurrentMediaTime() }
+            if longExpFrames.isEmpty { longExpStart = presentationTime }
             if frameCount % kLongExpFrameSkip == 0 && longExpFrames.count < kLongExpMaxFrames {
                 longExpFrames.append(rawImage)
             }
-            if CACurrentMediaTime() - longExpStart >= longExpDuration {
+            if longExpStart.isValid && CMTimeGetSeconds(CMTimeSubtract(presentationTime, longExpStart)) >= longExpDuration {
                 longExpActiveLock.withLock { $0 = false }
                 let frames = longExpFrames
                 longExpFrames = []
@@ -221,8 +221,8 @@ extension CaptureProcessor: AVCaptureVideoDataOutputSampleBufferDelegate {
         onProcessedFrame?(image, presentationTime)
         setLatestImage(image)
 
-        // Histogram every 3rd frame (~20fps at 60fps session) — computed off sessionQueue
-        if frameCount % 3 == 0 {
+        // Histogram every 2nd frame (~30fps at 60fps session) — computed off sessionQueue
+        if frameCount % 2 == 0 {
             let image = rawImage
             let context = ciContext
             histogramQueue.async { [self] in

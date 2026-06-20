@@ -59,6 +59,15 @@ final class CameraViewModel {
     // Previous crop ratio to restore when leaving anamorphic mode
     private var preModeRaw: String = CropRatio.full.rawValue
 
+    // Saved exposure to restore when leaving long exposure / night mode
+    private struct SavedExposure {
+        var iso: Float
+        var shutter: CMTime
+        var autoISO: Bool
+        var autoShutter: Bool
+    }
+    private var savedExposure: SavedExposure?
+
     private var focusTask: Task<Void, Never>?
     private var timerTask: Task<Void, Never>?
 
@@ -323,13 +332,31 @@ final class CameraViewModel {
             cropRatioRaw.wrappedValue = preModeRaw
             cameraManager.processor.isAnamorphicDesqueezeEnabled = false
         case .longExposure:
-            cameraManager.setAutoExposure()
-            cameraManager.captureSettings.isAutoISO = true
-            cameraManager.captureSettings.isAutoShutter = true
+            if let saved = savedExposure {
+                if saved.autoISO && saved.autoShutter {
+                    cameraManager.setAutoExposure()
+                    cameraManager.captureSettings.isAutoISO = true
+                    cameraManager.captureSettings.isAutoShutter = true
+                } else {
+                    cameraManager.setManualExposure(iso: saved.iso, duration: saved.shutter)
+                    cameraManager.captureSettings.isAutoISO = saved.autoISO
+                    cameraManager.captureSettings.isAutoShutter = saved.autoShutter
+                }
+                savedExposure = nil
+            }
         case .night:
-            cameraManager.setAutoExposure()
-            cameraManager.captureSettings.isAutoISO = true
-            cameraManager.captureSettings.isAutoShutter = true
+            if let saved = savedExposure {
+                if saved.autoISO && saved.autoShutter {
+                    cameraManager.setAutoExposure()
+                    cameraManager.captureSettings.isAutoISO = true
+                    cameraManager.captureSettings.isAutoShutter = true
+                } else {
+                    cameraManager.setManualExposure(iso: saved.iso, duration: saved.shutter)
+                    cameraManager.captureSettings.isAutoISO = saved.autoISO
+                    cameraManager.captureSettings.isAutoShutter = saved.autoShutter
+                }
+                savedExposure = nil
+            }
             cameraManager.setNightModeEnabled(false)
         case .portrait:
             cameraManager.setDepthDataEnabled(false)
@@ -354,25 +381,44 @@ final class CameraViewModel {
             cameraManager.setDepthDataEnabled(true)
 
         case .selfTimer:
-            // Ensure the timer is active (set to 3s if currently disabled)
-            if selfTimerDelay.wrappedValue == 0 {
-                selfTimerDelay.wrappedValue = 2
-            }
+            break // user configures delay in the advisory row; don't override their stored setting
 
         case .longExposure:
-            // ISO 50, shutter 1s — set atomically to avoid race between separate ISO/shutter calls
-            cameraManager.captureSettings.isAutoISO = false
-            cameraManager.captureSettings.isAutoShutter = false
-            cameraManager.setManualExposure(iso: 50, duration: CMTime(value: 1, timescale: 1))
-            Logger.camera.info("Long exposure mode: ISO 50, 1s")
+            // Save current exposure so it can be restored on exit
+            savedExposure = SavedExposure(
+                iso: cameraManager.captureSettings.isoValue,
+                shutter: cameraManager.captureSettings.shutterSpeed,
+                autoISO: cameraManager.captureSettings.isAutoISO,
+                autoShutter: cameraManager.captureSettings.isAutoShutter
+            )
+            // Only preset ISO/shutter as a starting point if the user was in full auto
+            if cameraManager.captureSettings.isAutoISO && cameraManager.captureSettings.isAutoShutter {
+                cameraManager.captureSettings.isAutoISO = false
+                cameraManager.captureSettings.isAutoShutter = false
+                cameraManager.setManualExposure(iso: 50, duration: CMTime(value: 1, timescale: 1))
+                Logger.camera.info("Long exposure mode: preset ISO 50, 1s (was auto)")
+            } else {
+                Logger.camera.info("Long exposure mode: keeping user manual exposure")
+            }
 
         case .night:
-            // ISO 3200, 1/15s + enable low-light boost and quality prioritization
-            cameraManager.captureSettings.isAutoISO = false
-            cameraManager.captureSettings.isAutoShutter = false
-            cameraManager.setManualExposure(iso: 3200, duration: CMTime(value: 1, timescale: 15))
+            // Save current exposure so it can be restored on exit
+            savedExposure = SavedExposure(
+                iso: cameraManager.captureSettings.isoValue,
+                shutter: cameraManager.captureSettings.shutterSpeed,
+                autoISO: cameraManager.captureSettings.isAutoISO,
+                autoShutter: cameraManager.captureSettings.isAutoShutter
+            )
+            // Only preset if user was in full auto
+            if cameraManager.captureSettings.isAutoISO && cameraManager.captureSettings.isAutoShutter {
+                cameraManager.captureSettings.isAutoISO = false
+                cameraManager.captureSettings.isAutoShutter = false
+                cameraManager.setManualExposure(iso: 3200, duration: CMTime(value: 1, timescale: 15))
+                Logger.camera.info("Night mode: preset ISO 3200, 1/15s (was auto)")
+            } else {
+                Logger.camera.info("Night mode: keeping user manual exposure")
+            }
             cameraManager.setNightModeEnabled(true)
-            Logger.camera.info("Night mode: ISO 3200, 1/15s, low-light boost enabled")
 
         case .burst:
             break // burst starts on shutter press

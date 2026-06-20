@@ -10,6 +10,7 @@ struct SettingsView: View {
             Form {
                 CameraSection(cameraManager: cameraManager)
                 CaptureSection()
+                VideoSection(cameraManager: cameraManager)
                 ViewfinderSection()
                 AnalysisSection()
                 StylesSection(stylesManager: stylesManager)
@@ -30,9 +31,10 @@ struct SettingsView: View {
 
 private struct CameraSection: View {
     @Bindable var cameraManager: CameraManager
-    @AppStorage("defaultCaptureFormat") private var defaultFormat = "HEIF"
-    @AppStorage("isProRAWEnabled")      private var isProRAW = false
-    @AppStorage("isLocationEnabled")    private var isLocationEnabled = true
+    @AppStorage("defaultCaptureFormat")  private var defaultFormat      = "HEIF"
+    @AppStorage("isProRAWEnabled")       private var isProRAW           = false
+    @AppStorage("isLocationEnabled")     private var isLocationEnabled  = true
+    @AppStorage("isOpticalZoomLocked")   private var isOpticalZoomLocked = false
 
     var body: some View {
         Section {
@@ -47,16 +49,20 @@ private struct CameraSection: View {
             }
             .disabled(!cameraManager.isProRAWSupported)
 
+            Toggle(isOn: $isOpticalZoomLocked) {
+                Label("Lock to Optical Zoom", systemImage: "lock.magnifyingglass")
+            }
+
             Toggle(isOn: $isLocationEnabled) {
                 Label("Save Location", systemImage: "location.fill")
             }
         } header: {
             Text("Camera")
         } footer: {
-            if cameraManager.isProRAWSupported {
-                Text("Location is embedded in EXIF metadata.")
+            if !cameraManager.isProRAWSupported {
+                Text("ProRAW requires iPhone 12 Pro or later. Lock to Optical Zoom snaps zoom to native focal lengths only.")
             } else {
-                Text("ProRAW is not supported on this device (requires iPhone 12 Pro or later). Location is embedded in EXIF metadata.")
+                Text("Lock to Optical Zoom snaps zoom to native focal lengths only. Location is embedded in EXIF metadata.")
             }
         }
     }
@@ -66,9 +72,14 @@ private struct CameraSection: View {
 
 private struct CaptureSection: View {
     @AppStorage("volumeButtonBehavior") private var volumeButtonBehavior = "Shutter"
-    @AppStorage("selfTimerDelay")       private var selfTimerDelay: Int = 0
-    @AppStorage("isBracketingEnabled")  private var isBracketingEnabled = false
+    @AppStorage("selfTimerDelay")       private var selfTimerDelay: Int   = 0
+    @AppStorage("selfTimerRepeat")      private var selfTimerRepeat: Int  = 1
+    @AppStorage("isBracketingEnabled")  private var isBracketingEnabled  = false
     @AppStorage("bracketEVStep")        private var bracketEVStep: Double = 1.0
+    @AppStorage("isWBBracketEnabled")   private var isWBBracketEnabled   = false
+    @AppStorage("wbBracketKStep")       private var wbBracketKStep: Double = 500.0
+    @AppStorage("burstCount")           private var burstCount: Int       = 10
+    @AppStorage("isTrapFocusEnabled")   private var isTrapFocusEnabled   = false
 
     var body: some View {
         Section("Capture") {
@@ -88,6 +99,19 @@ private struct CaptureSection: View {
             }
             .pickerStyle(.menu)
 
+            if selfTimerDelay > 0 {
+                Picker(selection: $selfTimerRepeat) {
+                    Text("1×").tag(1)
+                    Text("3×").tag(3)
+                    Text("5×").tag(5)
+                    Text("10×").tag(10)
+                    Text("∞").tag(0)
+                } label: {
+                    Label("Timer Repeats", systemImage: "repeat")
+                }
+                .pickerStyle(.menu)
+            }
+
             Toggle(isOn: $isBracketingEnabled) {
                 Label("Auto Exposure Bracketing", systemImage: "plusminus")
             }
@@ -103,6 +127,95 @@ private struct CaptureSection: View {
                 }
                 .pickerStyle(.menu)
             }
+
+            Toggle(isOn: $isWBBracketEnabled) {
+                Label("White Balance Bracketing", systemImage: "thermometer.medium")
+            }
+
+            if isWBBracketEnabled {
+                Picker(selection: $wbBracketKStep) {
+                    Text("±250 K").tag(250.0)
+                    Text("±500 K").tag(500.0)
+                    Text("±1000 K").tag(1000.0)
+                } label: {
+                    Label("WB Step", systemImage: "thermometer.variable")
+                }
+                .pickerStyle(.menu)
+            }
+
+            Stepper("Burst Frames: \(burstCount)",
+                    value: $burstCount, in: 3...30, step: 1)
+
+            Toggle(isOn: $isTrapFocusEnabled) {
+                Label("Trap Focus", systemImage: "scope")
+            }
+        }
+    }
+}
+
+// MARK: - Video
+
+private struct VideoSection: View {
+    @Bindable var cameraManager: CameraManager
+    @AppStorage("videoResolution")    private var videoResolutionRaw: String  = VideoResolution.hd1080p.rawValue
+    @AppStorage("videoFrameRate")     private var videoFrameRate: Int         = 30
+    @AppStorage("stabilizationMode")  private var stabilizationModeRaw: String = StabilizationMode.auto.rawValue
+    @AppStorage("videoColorSpace")    private var videoColorSpaceRaw: String  = VideoColorSpace.sRGB.rawValue
+    @AppStorage("isHDREnabled")       private var isHDREnabled                = false
+
+    private var stabilizationMode: StabilizationMode { StabilizationMode(rawValue: stabilizationModeRaw) ?? .auto }
+    private var videoColorSpace: VideoColorSpace { VideoColorSpace(rawValue: videoColorSpaceRaw) ?? .sRGB }
+    private var availableColorSpaces: [VideoColorSpace] {
+        cameraManager.isAppleLogSupported ? VideoColorSpace.allCases : [.sRGB, .p3, .hlg]
+    }
+
+    var body: some View {
+        Section {
+            Picker(selection: $videoResolutionRaw) {
+                ForEach(VideoResolution.allCases) { res in
+                    Text(res.rawValue).tag(res.rawValue)
+                }
+            } label: {
+                Label("Resolution", systemImage: "video.fill")
+            }
+
+            Picker(selection: $videoFrameRate) {
+                Text("24 fps").tag(24)
+                Text("25 fps").tag(25)
+                Text("30 fps").tag(30)
+                Text("60 fps").tag(60)
+            } label: {
+                Label("Frame Rate", systemImage: "film.fill")
+            }
+            .pickerStyle(.menu)
+
+            Picker(selection: $stabilizationModeRaw) {
+                ForEach(StabilizationMode.allCases) { mode in
+                    Text(mode.rawValue).tag(mode.rawValue)
+                }
+            } label: {
+                Label("Stabilization", systemImage: "hand.raised.slash")
+            }
+            .pickerStyle(.menu)
+
+            Picker(selection: $videoColorSpaceRaw) {
+                ForEach(availableColorSpaces) { cs in
+                    Text(cs.rawValue).tag(cs.rawValue)
+                }
+            } label: {
+                Label("Color Space", systemImage: "circle.hexagongrid.fill")
+            }
+            .pickerStyle(.menu)
+
+            if cameraManager.isHDRFormatSupported {
+                Toggle(isOn: $isHDREnabled) {
+                    Label("HDR", systemImage: "sun.max.fill")
+                }
+            }
+        } header: {
+            Text("Video")
+        } footer: {
+            Text("Frame rate and resolution can also be changed live in the camera view.")
         }
     }
 }
@@ -111,6 +224,8 @@ private struct CaptureSection: View {
 
 private struct ViewfinderSection: View {
     @AppStorage("showHistogram")      private var showHistogram      = true
+    @AppStorage("showWaveform")       private var showWaveform       = false
+    @AppStorage("showVectorscope")    private var showVectorscope    = false
     @AppStorage("showLevelIndicator") private var showLevelIndicator = false
     @AppStorage("showGrid")           private var showGrid           = false
     @AppStorage("gridType")           private var gridType           = "Thirds"
@@ -120,6 +235,14 @@ private struct ViewfinderSection: View {
         Section {
             Toggle(isOn: $showHistogram) {
                 Label("Histogram", systemImage: "chart.bar.fill")
+            }
+
+            Toggle(isOn: $showWaveform) {
+                Label("Waveform", systemImage: "waveform")
+            }
+
+            Toggle(isOn: $showVectorscope) {
+                Label("Vectorscope", systemImage: "circle.dotted")
             }
 
             Toggle(isOn: $showLevelIndicator) {
@@ -222,7 +345,7 @@ private struct AnalysisSection: View {
 
 private struct StylesSection: View {
     @Bindable var stylesManager: StylesManager
-    @AppStorage("showStylePicker") private var showStylePicker = false
+    @AppStorage("showStylePicker") private var showStylePicker = true
 
     var body: some View {
         Section("Styles") {
@@ -251,7 +374,7 @@ private struct StylesSection: View {
 // MARK: - Interface
 
 private struct InterfaceSection: View {
-    @AppStorage("showShootingModes") private var showShootingModes = false
+    @AppStorage("showShootingModes") private var showShootingModes = true
     @AppStorage("showGallery")       private var showGallery       = true
 
     var body: some View {

@@ -3,8 +3,9 @@ import AVFoundation
 import UniformTypeIdentifiers
 import OSLog
 
-func saveToPhotoLibrary(data: Data, photo: AVCapturePhoto, location: CLLocation?) {
+func saveToPhotoLibrary(data: Data, photo: AVCapturePhoto, location: CLLocation?, completion: ((String?) -> Void)? = nil) {
     let save = {
+        var capturedID: String?
         PHPhotoLibrary.shared().performChanges({
             let request = PHAssetCreationRequest.forAsset()
             let options = PHAssetResourceCreationOptions()
@@ -13,19 +14,26 @@ func saveToPhotoLibrary(data: Data, photo: AVCapturePhoto, location: CLLocation?
                 : UTType.jpeg.identifier
             request.addResource(with: .photo, data: data, options: options)
             request.location = location
-        }) { _, error in
+            capturedID = request.placeholderForCreatedAsset?.localIdentifier
+        }) { success, error in
             if let error { Logger.camera.error("Photo save failed: \(error.localizedDescription)") }
+            completion?(success ? capturedID : nil)
         }
     }
 
     let status = PHPhotoLibrary.authorizationStatus(for: .addOnly)
     if status == .notDetermined {
         PHPhotoLibrary.requestAuthorization(for: .addOnly) { granted in
-            if granted == .authorized || granted == .limited { save() }
+            if granted == .authorized || granted == .limited {
+                save()
+            } else {
+                completion?(nil)
+            }
         }
     } else if status == .authorized || status == .limited {
         save()
     } else {
         Logger.camera.error("Photo library access denied — cannot save")
+        completion?(nil)
     }
 }

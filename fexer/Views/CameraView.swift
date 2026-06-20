@@ -5,6 +5,21 @@ import ImageIO
 import Photos
 import OSLog
 
+/// Blocks spurious AVAudioSession.outputVolume KVO events during audio session
+/// setup and after interruptions (permission dialogs, calls, etc.).
+/// Thread-safe: KVO fires on a background thread, interruption handler may be on any thread.
+private final class VolumeGate: @unchecked Sendable {
+    private var notReadyUntil: Date
+    private let lock = NSLock()
+
+    init() { notReadyUntil = Date().addingTimeInterval(0.5) }
+
+    func extend() {
+        lock.withLock { notReadyUntil = Date().addingTimeInterval(0.5) }
+    }
+
+    var isReady: Bool { lock.withLock { Date() >= notReadyUntil } }
+}
 
 struct CameraView: View {
     @State private var cameraManager: CameraManager
@@ -28,8 +43,8 @@ struct CameraView: View {
     @AppStorage("showFocusPeaking")     private var showFocusPeaking      = false
     @AppStorage("showZebra")            private var showZebra             = false
     @AppStorage("showLevelIndicator")   private var showLevelIndicator    = false
-    @AppStorage("showStylePicker")      private var showStylePicker       = false
-    @AppStorage("showShootingModes")    private var showShootingModes     = false
+    @AppStorage("showStylePicker")      private var showStylePicker       = true
+    @AppStorage("showShootingModes")    private var showShootingModes     = true
     @AppStorage("showGallery")          private var showGallery           = true
     @AppStorage("cropRatio")            private var cropRatioRaw          = CropRatio.full.rawValue
     @AppStorage("showFalseColor")       private var showFalseColor        = false
@@ -48,6 +63,7 @@ struct CameraView: View {
     @AppStorage("isWBBracketEnabled") private var isWBBracketEnabled   = false
     @AppStorage("wbBracketKStep")   private var wbBracketKStep: Double = 500.0
     @AppStorage("selfTimerRepeat")  private var selfTimerRepeat: Int   = 1
+    @AppStorage("burstCount")       private var burstCount: Int        = 10
     @AppStorage("showWaveform")       private var showWaveform         = false
     @AppStorage("showVectorscope")    private var showVectorscope      = false
     @AppStorage("isCleanViewActive")  private var isCleanViewActive    = false
@@ -63,13 +79,16 @@ struct CameraView: View {
 
     @State private var isZoomDialActive = false
     @State private var showPresetsSheet = false
+    @State private var lastCapturedThumb: UIImage?
 
     @State private var volumeObservation: NSKeyValueObservation?
+    @State private var volumeInterruptionToken: NSObjectProtocol?
     @State private var showSwipeUpHint = false
     @State private var showBrightnessHint = false
     @State private var aelToastText: String? = nil
     @State private var aelToastTask: Task<Void, Never>?
     @State private var recordingStartDate: Date? = nil
+    @State private var nightProcessingAngle: Double = 0
 
     private var stabilizationMode: StabilizationMode {
         StabilizationMode(rawValue: stabilizationModeRaw) ?? .auto
@@ -94,10 +113,10 @@ struct CameraView: View {
 
     private var mainContent: some View {
         let core = ZStack {
-            AnyView(baseLayer)
-            AnyView(hudOverlayLayer)
-            AnyView(controlLayer)
-            AnyView(modalOverlayLayer)
+            baseLayer
+            hudOverlayLayer
+            controlLayer
+            modalOverlayLayer
         }
         let styleStack = core
             .statusBarHidden()
@@ -182,6 +201,12 @@ struct CameraView: View {
                 } else {
                     cameraManager.configureForPhotoMode()
                 }
+            }
+            .onChange(of: isOpticalZoomLocked) { _, v in
+                cameraManager.captureSettings.isOpticalZoomLocked = v
+            }
+            .onChange(of: isTrapFocusEnabled) { _, v in
+                cameraManager.captureSettings.isTrapFocusEnabled = v
             }
         return settingsSync
     }
@@ -565,14 +590,24 @@ struct CameraView: View {
                             RoundedRectangle(cornerRadius: 10, style: .continuous)
                                 .stroke(.white.opacity(0.15), lineWidth: 0.5)
                         )
-                        .overlay(
-                            Image(systemName: "photo.stack")
-                                .font(.system(size: 20, weight: .medium))
-                                .foregroundStyle(.white.opacity(0.9))
-                                .rotationEffect(.degrees(DeviceOrientationTracker.shared.rotationAngle))
-                                .animation(.spring(response: 0.35, dampingFraction: 0.75),
-                                           value: DeviceOrientationTracker.shared.rotationAngle)
-                        )
+                        .overlay {
+                            if let thumb = lastCapturedThumb {
+                                Image(uiImage: thumb)
+                                    .resizable()
+                                    .aspectRatio(contentMode: .fill)
+                                    .frame(width: 52, height: 52)
+                                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                                    .transition(.opacity)
+                            } else {
+                                Image(systemName: "photo.stack")
+                                    .font(.system(size: 20, weight: .medium))
+                                    .foregroundStyle(.white.opacity(0.9))
+                                    .rotationEffect(.degrees(DeviceOrientationTracker.shared.rotationAngle))
+                                    .animation(.spring(response: 0.35, dampingFraction: 0.75),
+                                               value: DeviceOrientationTracker.shared.rotationAngle)
+                            }
+                        }
+                        .animation(.easeInOut(duration: 0.3), value: lastCapturedThumb != nil)
                 }
             } else {
                 Spacer().frame(width: 52, height: 52)
@@ -627,7 +662,7 @@ struct CameraView: View {
                                 if !cameraViewModel.isBurstActive {
                                     let delegate = makeCaptureDelegate()
                                     activeDelegates[delegate.id] = delegate
-                                    cameraViewModel.startBurst(delegate: delegate)
+                                    cameraViewModel.startBurst(delegate: delegate, maxShots: burstCount)
                                 }
                             }
                             .onEnded { _ in cameraViewModel.stopBurst() }
@@ -680,6 +715,23 @@ struct CameraView: View {
                 )
             }
 
+            // Night mode multi-frame processing indicator
+            if activeMode == .night && cameraManager.isCapturing {
+                Circle()
+                    .trim(from: 0, to: 0.6)
+                    .stroke(.yellow, style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                    .frame(width: 82, height: 82)
+                    .rotationEffect(.degrees(nightProcessingAngle))
+                    .transition(.opacity)
+                    .onAppear {
+                        nightProcessingAngle = 0
+                        withAnimation(.linear(duration: 1.2).repeatForever(autoreverses: false)) {
+                            nightProcessingAngle = 360
+                        }
+                    }
+                    .onDisappear { nightProcessingAngle = 0 }
+            }
+
             // AEL badge
             if aelLocked {
                 Text("AEL")
@@ -693,7 +745,7 @@ struct CameraView: View {
 
             // Burst count badge
             if activeMode == .burst && isBurstActive {
-                Text("\(cameraViewModel.burstCount)/10")
+                Text("\(cameraViewModel.burstCount)/\(burstCount)")
                     .font(.system(size: 9, weight: .bold, design: .monospaced))
                     .foregroundStyle(.white)
                     .padding(.horizontal, 5).padding(.vertical, 2)
@@ -781,7 +833,7 @@ struct CameraView: View {
 
         cameraManager.processor.beginLongExposureCapture(duration: longExposureDuration) { ciImage in
             Task { @MainActor in
-                self.saveLongExposureImage(
+                await self.saveLongExposureImage(
                     ciImage, filter: captureFilter,
                     cropRatio: capturedCropRatio, watermark: capturedWatermark,
                     location: location
@@ -792,7 +844,7 @@ struct CameraView: View {
 
     private func saveLongExposureImage(_ ciImage: CIImage, filter: LUTFilter?,
                                         cropRatio: CropRatio, watermark: String,
-                                        location: CLLocation?) {
+                                        location: CLLocation?) async {
         var out = ciImage
         if let f = filter {
             f.inputImage = out
@@ -840,12 +892,29 @@ struct CameraView: View {
 
         guard let jpeg = UIImage(cgImage: cg).jpegData(compressionQuality: 0.95) else { return }
 
-        PHPhotoLibrary.shared().performChanges {
-            PHAssetCreationRequest.forAsset().addResource(with: .photo, data: jpeg, options: nil)
-        } completionHandler: { _, error in
-            if let error { Logger.camera.error("Long exposure save: \(error.localizedDescription)") }
+        let assetID: String? = await withCheckedContinuation { cont in
+            var capturedID: String?
+            PHPhotoLibrary.shared().performChanges({
+                let req = PHAssetCreationRequest.forAsset()
+                req.addResource(with: .photo, data: jpeg, options: nil)
+                req.location = location
+                capturedID = req.placeholderForCreatedAsset?.localIdentifier
+            }) { success, error in
+                if let error { Logger.camera.error("Long exposure save: \(error.localizedDescription)") }
+                cont.resume(returning: success ? capturedID : nil)
+            }
         }
+
         HapticManager.light()
+        lastCapturedThumb = UIImage(data: jpeg)?.preparingThumbnail(of: CGSize(width: 200, height: 200))
+        let photo = CapturedPhoto(
+            jpegData: jpeg,
+            captureSettings: cameraManager.captureSettings,
+            location: location,
+            assetLocalIdentifier: assetID
+        )
+        capturedPhoto = photo
+        withAnimation(.easeInOut(duration: 0.3)) { showReview = true }
     }
 
     // MARK: - Zoom strip
@@ -1070,6 +1139,67 @@ struct CameraView: View {
                     .foregroundStyle(.red.opacity(0.85))
                     .tracking(1.5)
             }
+        case .burst:
+            if cameraViewModel.isBurstActive {
+                Text("\(cameraViewModel.burstCount) / \(burstCount) FRAMES")
+                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                    .foregroundStyle(.orange.opacity(0.9))
+                    .tracking(1.5)
+            } else {
+                HStack {
+                    Text("BURST")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(.orange.opacity(0.7))
+                        .tracking(1.5)
+                    Spacer()
+                    Text("\(burstCount) FRAMES")
+                        .font(.system(size: 9, weight: .medium, design: .monospaced))
+                        .foregroundStyle(.orange.opacity(0.85))
+                }
+                .padding(.horizontal, 16)
+                Slider(value: Binding(
+                    get: { Double(burstCount) },
+                    set: { burstCount = Int($0) }
+                ), in: 2...40, step: 1)
+                .tint(.orange)
+                .padding(.horizontal, 16)
+            }
+        case .selfTimer:
+            VStack(spacing: 6) {
+                HStack {
+                    Text("DELAY")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.7))
+                        .tracking(1.5)
+                    Spacer()
+                    let delayLabel = selfTimerDelay == 0 ? "OFF" : "\(selfTimerDelay)S"
+                    Text(delayLabel)
+                        .font(.system(size: 9, weight: .medium, design: .monospaced))
+                        .foregroundStyle(.white.opacity(0.85))
+                }
+                Slider(value: Binding(
+                    get: { Double(selfTimerDelay) },
+                    set: { selfTimerDelay = Int($0) }
+                ), in: 0...30, step: 1)
+                .tint(.white.opacity(0.7))
+                HStack {
+                    Text("REPEAT")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.7))
+                        .tracking(1.5)
+                    Spacer()
+                    let repeatLabel = selfTimerRepeat == 0 ? "∞" : "\(selfTimerRepeat)×"
+                    Text(repeatLabel)
+                        .font(.system(size: 9, weight: .medium, design: .monospaced))
+                        .foregroundStyle(.white.opacity(0.85))
+                }
+                Slider(value: Binding(
+                    get: { Double(selfTimerRepeat) },
+                    set: { selfTimerRepeat = Int($0) }
+                ), in: 0...10, step: 1)
+                .tint(.white.opacity(0.7))
+            }
+            .padding(.horizontal, 16)
         case .video:
             videoControlsRow
         default:
@@ -1148,7 +1278,7 @@ struct CameraView: View {
                 .buttonStyle(.plain)
 
                 // Codec badge (ProRes-capable devices only)
-                if cameraManager.isProResSupported {
+                if cameraManager.isProResRecordingSupported {
                     let activeCodec = cameraManager.captureSettings.videoSettings.codec
                     Button {
                         let codecs = VideoCodec.allCases
@@ -1284,6 +1414,10 @@ struct CameraView: View {
     private func onCameraViewDisappear() {
         volumeObservation?.invalidate()
         volumeObservation = nil
+        if let token = volumeInterruptionToken {
+            NotificationCenter.default.removeObserver(token)
+            volumeInterruptionToken = nil
+        }
         cameraManager.stopSession()
         UIApplication.shared.isIdleTimerDisabled = false
         DeviceOrientationTracker.shared.stop()
@@ -1307,6 +1441,8 @@ struct CameraView: View {
         cameraViewModel.timelapseInterval = timelapseInterval
         cameraManager.captureSettings.captureFormat = CaptureFormat(rawValue: defaultCaptureFormat) ?? .heif
         cameraManager.setProRAWEnabled(isProRAWEnabled)
+        cameraManager.captureSettings.isOpticalZoomLocked = isOpticalZoomLocked
+        cameraManager.captureSettings.isTrapFocusEnabled = isTrapFocusEnabled
         setupVolumeButtonObserver()
         if !hintSwipeUpSeen { scheduleSwipeUpHint() }
         applyPendingShootingMode()
@@ -1363,6 +1499,9 @@ struct CameraView: View {
             capturedPhoto = photo
             withAnimation(.easeInOut(duration: 0.3)) { showReview = true }
         }
+        let onThumbGenerated: (UIImage?) -> Void = { [self] thumb in
+            if let thumb { lastCapturedThumb = thumb }
+        }
 
         return CapturePhotoDelegate(
             onProcessed: { photo, shouldShowReview in
@@ -1382,15 +1521,32 @@ struct CameraView: View {
                         watermark: capturedWatermark,
                         activeStyle: activeStyle
                     )
-                    saveToPhotoLibrary(data: processedData, photo: photo, location: captureLocation)
-                    guard shouldShowReview else { return }
+
+                    // Generate gallery-button thumbnail for all (non-RAW) captures
+                    if !photo.isRawPhoto {
+                        let thumb = UIImage(data: processedData)?.preparingThumbnail(of: CGSize(width: 200, height: 200))
+                        await MainActor.run { onThumbGenerated(thumb) }
+                    }
+
+                    guard shouldShowReview else {
+                        saveToPhotoLibrary(data: processedData, photo: photo, location: captureLocation)
+                        return
+                    }
+
+                    // For review captures: save first to get the asset identifier for delete support
+                    let assetID: String? = await withCheckedContinuation { cont in
+                        saveToPhotoLibrary(data: processedData, photo: photo, location: captureLocation) { id in
+                            cont.resume(returning: id)
+                        }
+                    }
                     let captured = CapturedPhoto(
                         jpegData: processedData,
                         captureSettings: captureSettings,
                         appliedStyle: activeStyle,
                         styleIntensity: styleIntensity,
                         location: captureLocation,
-                        exifMetadata: photo.metadata
+                        exifMetadata: photo.metadata,
+                        assetLocalIdentifier: assetID
                     )
                     await MainActor.run { onShowReview(captured) }
                 }
@@ -1413,7 +1569,22 @@ struct CameraView: View {
         // the system volume HUD (combined with VolumeHUDSuppressor in the hierarchy).
         try? session.setCategory(.playback, mode: .default, options: [])
         try? session.setActive(true)
+        // On first launch, mic/photo-library permission dialogs interrupt the audio session.
+        // When each dialog ends, AVAudioSession fires a spurious outputVolume KVO with old != new,
+        // which would trigger the shutter. VolumeGate blocks events for 500 ms after setup AND
+        // re-arms for 500 ms each time an interruption ends, covering the whole permission flow.
+        let gate = VolumeGate()
+        volumeInterruptionToken = NotificationCenter.default.addObserver(
+            forName: AVAudioSession.interruptionNotification,
+            object: nil,
+            queue: nil
+        ) { notification in
+            guard let type = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
+                  AVAudioSession.InterruptionType(rawValue: type) == .ended else { return }
+            gate.extend()
+        }
         volumeObservation = session.observe(\.outputVolume, options: [.old, .new]) { _, change in
+            guard gate.isReady else { return }
             guard let old = change.oldValue, let new = change.newValue, old != new else { return }
             Task { @MainActor in self.handleVolumeButton(didIncrease: new > old) }
         }

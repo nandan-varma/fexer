@@ -160,8 +160,16 @@ struct CameraPreview: UIViewRepresentable {
             let barH = previewBarHeight(viewSize: size)
             guard point.y >= barH && point.y <= size.height - barH else { return }
 
-            // Convert to AVFoundation normalized coordinates (origin bottom-left, axes swapped for portrait)
-            let normalized = CGPoint(x: point.y / size.height, y: 1 - point.x / size.width)
+            // Convert to AVFoundation normalized coordinates (origin bottom-left, axes swapped for portrait).
+            // In .full mode the image is letterboxed — map only the active (non-bar) area to [0, 1].
+            let normalizedX: CGFloat
+            if cropRatio == .full && barH > 0 {
+                let activeHeight = size.height - 2 * barH
+                normalizedX = (point.y - barH) / max(activeHeight, 1)
+            } else {
+                normalizedX = point.y / size.height
+            }
+            let normalized = CGPoint(x: normalizedX, y: 1 - point.x / size.width)
             onTapToFocus?(normalized, size)
         }
 
