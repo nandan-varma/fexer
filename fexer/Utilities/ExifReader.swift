@@ -59,7 +59,8 @@ final class ExifReader {
         return result
     }
 
-    static func embedStyleTag(in data: Data, styleName: String) -> Data? {
+    // nonisolated: pure ImageIO work, called from detached post-capture tasks off MainActor.
+    nonisolated static func embedStyleTag(in data: Data, styleName: String) -> Data? {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil),
               let uti = CGImageSourceGetType(source)
         else { return nil }

@@ -8,16 +8,22 @@ import os
 /// Runs inference at ~2fps; debounces suggestions to avoid flickering.
 @Observable
 final class SceneClassifier {
-    private static let log = Logger(subsystem: "com.nandanvarma.fexer", category: "camera")
+    nonisolated private static let log = Logger(subsystem: "com.nandanvarma.fexer", category: "camera")
     var suggestedStyle: PhotoStyle?
 
     var isEnabled = true {
-        didSet { enabledLock.withLock { $0 = isEnabled } }
+        didSet {
+            // Snapshot before entering the Sendable withLock closure — reading the
+            // MainActor property inside it is an isolation violation.
+            let enabled = isEnabled
+            enabledLock.withLock { $0 = enabled }
+        }
     }
 
     private let enabledLock = OSAllocatedUnfairLock(initialState: true)
     private let stateQueue = DispatchQueue(label: "com.fexer.sceneClassifier", qos: .utility)
-    private var frameCounter = 0
+    // Read and written only inside processFrame, which is always called from sessionQueue.
+    @ObservationIgnored nonisolated(unsafe) private var frameCounter = 0
     private var pendingMatch: PhotoStyle?
     private var consecutiveCount = 0
     private let debounceThreshold = 3

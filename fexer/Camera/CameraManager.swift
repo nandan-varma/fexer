@@ -154,6 +154,7 @@ import Photos
             sessionErrorObserver = nil
             sessionInterruptionObserver = nil
             sessionInterruptionEndedObserver = nil
+            cleanupObservers()
             processor.isRotationReady = false
             self.session.stopRunning()
             Task { @MainActor in self.isSessionRunning = false }
@@ -960,7 +961,7 @@ import Photos
         items.append(item(identifier: .quickTimeMetadataCreationDate,
                           value: iso8601Formatter.string(from: Date()) as NSString))
         items.append(item(identifier: .quickTimeMetadataMake,  value: "Apple" as NSString))
-        items.append(item(identifier: .quickTimeMetadataModel, value: UIDevice.current.model as NSString))
+        items.append(item(identifier: .quickTimeMetadataModel, value: deviceModel as NSString))
         items.append(item(identifier: .quickTimeMetadataSoftware, value: "fexer" as NSString))
 
         if let location {
@@ -1358,8 +1359,8 @@ import Photos
         device.withLock { device.isSubjectAreaChangeMonitoringEnabled = true }
     }
     
-    // Clean up all observers
-    func cleanupObservers() {
+    // Clean up all observers. sessionQueue only — KVO tokens are created and invalidated there.
+    private func cleanupObservers() {
         deviceObservations.forEach { $0.invalidate() }
         deviceObservations.removeAll()
         subjectAreaObserver.map { NotificationCenter.default.removeObserver($0) }
@@ -1391,10 +1392,13 @@ extension CameraManager: AVCaptureAudioDataOutputSampleBufferDelegate {
 
         // Compute RMS audio level for the VU meter (~10fps update cadence)
         guard let channelData = CMSampleBufferGetDataBuffer(sampleBuffer) else { return }
+        // Use the contiguous segment length, not totalLength — the returned pointer only
+        // covers the first segment of a non-contiguous block buffer. Metering over one
+        // segment is accurate enough for a VU meter.
         var length = 0
         var dataPointer: UnsafeMutablePointer<Int8>?
         CMBlockBufferGetDataPointer(channelData, atOffset: 0,
-                                    lengthAtOffsetOut: nil, totalLengthOut: &length,
+                                    lengthAtOffsetOut: &length, totalLengthOut: nil,
                                     dataPointerOut: &dataPointer)
         guard let ptr = dataPointer, length > 0 else { return }
         let sampleCount = length / MemoryLayout<Int16>.size

@@ -279,9 +279,9 @@ extension CaptureProcessor: AVCaptureVideoDataOutputSampleBufferDelegate {
         guard !frames.isEmpty else { return nil }
         guard frames.count > 1 else { return frames[0] }
 
+        guard let maxFilter = CIFilter(name: "CIMaximumCompositing") else { return frames[0] }
         var result = frames[0]
         for frame in frames.dropFirst() {
-            guard let maxFilter = CIFilter(name: "CIMaximumCompositing") else { return result }
             maxFilter.setValue(result, forKey: kCIInputBackgroundImageKey)
             maxFilter.setValue(frame,  forKey: kCIInputImageKey)
             if let out = maxFilter.outputImage { result = out }

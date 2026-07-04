@@ -1,7 +1,10 @@
 import CoreImage
 import OSLog
 
-final class LUTFilter: CIFilter {
+// nonisolated: instances are used per-frame on sessionQueue and in detached capture tasks.
+// Thread safety comes from ownership discipline — every consumer gets a fresh instance
+// (StylesManager.activeLUTFilter / makeCaptureFilter), never a shared one.
+nonisolated final class LUTFilter: CIFilter {
     var inputImage: CIImage?
     var inputIntensity: Float = 1.0
 

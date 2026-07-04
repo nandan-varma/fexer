@@ -25,7 +25,9 @@ final class CapturePhotoDelegate: NSObject, AVCapturePhotoCaptureDelegate {
             return
         }
         var shouldShowReview = true
-        if photo.isRawPhoto && photo.resolvedSettings.expectedPhotoCount > 1 {
+        // RAW bytes (DNG) are not displayable as CapturedPhoto.jpegData — never review them.
+        // In RAW+JPEG the JPEG callback follows and shows review; in pure RAW there is no review.
+        if photo.isRawPhoto {
             shouldShowReview = false
         }
         if let auto = photo.bracketSettings

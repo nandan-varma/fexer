@@ -612,9 +612,11 @@ struct CameraView: View {
                         DragGesture(minimumDistance: 0)
                             .onChanged { _ in
                                 if !cameraViewModel.isBurstActive {
-                                    let delegate = makeCaptureDelegate()
-                                    activeDelegates[delegate.id] = delegate
-                                    cameraViewModel.startBurst(delegate: delegate, maxShots: burstCount)
+                                    cameraViewModel.startBurst(maxShots: burstCount) {
+                                        let delegate = makeCaptureDelegate()
+                                        activeDelegates[delegate.id] = delegate
+                                        return delegate
+                                    }
                                 }
                             }
                             .onEnded { _ in cameraViewModel.stopBurst() }
@@ -625,9 +627,11 @@ struct CameraView: View {
                     if isTimelapseActive {
                         cameraViewModel.stopTimelapse()
                     } else {
-                        let delegate = makeCaptureDelegate()
-                        activeDelegates[delegate.id] = delegate
-                        cameraViewModel.startTimelapse(delegate: delegate)
+                        cameraViewModel.startTimelapse {
+                            let delegate = makeCaptureDelegate()
+                            activeDelegates[delegate.id] = delegate
+                            return delegate
+                        }
                     }
                 } label: {
                     Circle()
@@ -811,19 +815,7 @@ struct CameraView: View {
         }
         // Crop in CI space — free transform on the lazy CIImage graph, no extra decode/encode
         if cropRatio != .full, let aspect = cropRatio.portraitAspect {
-            let ext = out.extent
-            let currentAspect = ext.width / ext.height
-            let cropRect: CGRect
-            if aspect <= currentAspect {
-                let newW = ext.height * aspect
-                cropRect = CGRect(x: ext.origin.x + (ext.width - newW) / 2, y: ext.origin.y,
-                                  width: newW, height: ext.height)
-            } else {
-                let newH = ext.width / aspect
-                cropRect = CGRect(x: ext.origin.x, y: ext.origin.y + (ext.height - newH) / 2,
-                                  width: ext.width, height: newH)
-            }
-            out = out.cropped(to: cropRect)
+            out = CaptureImagePipeline.centerCropped(out, toAspect: aspect)
         }
         guard let sRGB = CGColorSpace(name: CGColorSpace.sRGB),
               var cg = CIContext.shared.createCGImage(out, from: out.extent, format: .RGBA8, colorSpace: sRGB)
@@ -831,22 +823,7 @@ struct CameraView: View {
 
         // Apply watermark onto the rendered CGImage — no second JPEG decode needed
         if !watermark.isEmpty {
-            let size = CGSize(width: cg.width, height: cg.height)
-            let fmt = UIGraphicsImageRendererFormat(); fmt.scale = 1
-            let rendered = UIGraphicsImageRenderer(size: size, format: fmt).image { _ in
-                UIImage(cgImage: cg).draw(in: CGRect(origin: .zero, size: size))
-                let fontSize = max(24, size.width * 0.022)
-                let attrs: [NSAttributedString.Key: Any] = [
-                    .font: UIFont.systemFont(ofSize: fontSize, weight: .semibold),
-                    .foregroundColor: UIColor.white.withAlphaComponent(0.65)
-                ]
-                let str = NSAttributedString(string: watermark, attributes: attrs)
-                let strSize = str.size()
-                let padding = fontSize * 1.4
-                str.draw(at: CGPoint(x: size.width - strSize.width - padding,
-                                     y: size.height - strSize.height - padding))
-            }
-            if let wCG = rendered.cgImage { cg = wCG }
+            cg = CaptureImagePipeline.watermarked(cg, text: watermark)
         }
 
         guard let jpeg = UIImage(cgImage: cg).jpegData(compressionQuality: 0.95) else { return }
@@ -880,15 +857,14 @@ struct CameraView: View {
 
     // MARK: - Zoom strip
 
+    @ViewBuilder
     private var lensSwitcherRow: some View {
         let factors = cameraManager.availableZoomFactors
-        guard factors.count > 1 else { return AnyView(EmptyView()) }
+        if factors.count > 1 {
+            let live = cameraManager.currentZoomFactor
+            let activeFactor = factors.min(by: { abs($0 - live) < abs($1 - live) }) ?? factors[0]
+            let isAtStop = abs(live - activeFactor) < 0.05
 
-        let live = cameraManager.currentZoomFactor
-        let activeFactor = factors.min(by: { abs($0 - live) < abs($1 - live) }) ?? factors[0]
-        let isAtStop = abs(live - activeFactor) < 0.05
-
-        return AnyView(
             VStack(spacing: 10) {
                 if isZoomDialActive {
                     ZoomDial(
@@ -913,7 +889,7 @@ struct CameraView: View {
                 }
             }
             .animation(.spring(response: 0.25, dampingFraction: 0.75), value: isZoomDialActive)
-        )
+        }
     }
 
     @ViewBuilder
@@ -1406,6 +1382,7 @@ struct CameraView: View {
         cameraManager.stopSession()
         cameraManager.cancelLongExposureCapture()
         cameraManager.processor.onPixelBuffer = nil
+        cameraViewModel.detachMonitoringCallbacks()
         cameraViewModel.stopBurst()
         cameraViewModel.stopTimelapse()
         cameraViewModel.cancelTimer()
@@ -1419,6 +1396,7 @@ struct CameraView: View {
         DeviceOrientationTracker.shared.start()
         cameraManager.startSession()
         syncProcessor()
+        cameraViewModel.attachMonitoringCallbacks()
         cameraManager.processor.onPixelBuffer = stylesViewModel.onFrameAvailable
         // Wire trap focus — when camera locks, fire shutter
         cameraManager.setTrapFocusCallback { [self] in
@@ -1500,7 +1478,7 @@ struct CameraView: View {
                 // isCapturing) as soon as the sensor is done — not after post-processing.
                 Task.detached(priority: .userInitiated) {
                     let depthData: AVDepthData? = isPortraitMode ? photo.depthData : nil
-                    let processedData = CameraView.processCapture(
+                    let processedData = CaptureImagePipeline.process(
                         rawData: rawData,
                         isRaw: photo.isRawPhoto,
                         captureFilter: captureFilter,
@@ -1616,151 +1594,6 @@ struct CameraView: View {
         }
     }
 
-    // MARK: - Image post-processing helpers
-
-    /// Fused post-capture pipeline: LUT bake + desqueeze + crop + watermark + XMP tag in one pass.
-    /// Runs off the AVFoundation callback thread so isCapturing clears immediately after sensor readout.
-    private static func processCapture(
-        rawData: Data,
-        isRaw: Bool,
-        captureFilter: LUTFilter?,
-        isAnamorphic: Bool,
-        cropRatio: CropRatio,
-        watermark: String,
-        activeStyle: PhotoStyle?,
-        depthData: AVDepthData? = nil
-    ) -> Data {
-        let needsLUT          = captureFilter != nil && !isRaw
-        let needsDesqueeze    = isAnamorphic && !isRaw
-        let needsCrop         = !isRaw && cropRatio != .full
-        let needsWatermark    = !isRaw && !watermark.isEmpty
-        let needsStyleTag     = activeStyle != nil && !isRaw
-        let needsPortraitBlur = depthData != nil && !isRaw
-
-        if !needsLUT && !needsDesqueeze && !needsCrop && !needsWatermark && !needsPortraitBlur {
-            // Fast path: no pixel work — add XMP tag via source-copy if needed (no full re-encode)
-            if let style = activeStyle { return ExifReader.embedStyleTag(in: rawData, styleName: style.name) ?? rawData }
-            return rawData
-        }
-
-        guard let source = CGImageSourceCreateWithData(rawData as CFData, nil),
-              let uti = CGImageSourceGetType(source),
-              let ciImage = CIImage(data: rawData, options: [.applyOrientationProperty: true])
-        else {
-            if needsStyleTag, let style = activeStyle { return ExifReader.embedStyleTag(in: rawData, styleName: style.name) ?? rawData }
-            return rawData
-        }
-
-        var out = ciImage
-
-        // Portrait depth blur — applied before LUT so the grade sits on top of the blurred image
-        if needsPortraitBlur,
-           let depth = depthData,
-           let blurFilter = CIFilter(name: "CIDepthBlurEffect") {
-            let converted = depth.converting(toDepthDataType: kCVPixelFormatType_DisparityFloat32)
-            let orientationValue = (CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [String: Any])?[kCGImagePropertyOrientation as String] as? UInt32 ?? 1
-            let photoOrientation = CGImagePropertyOrientation(rawValue: orientationValue) ?? .up
-            let disparityCI = CIImage(cvPixelBuffer: converted.depthDataMap).oriented(photoOrientation)
-            blurFilter.setValue(out, forKey: kCIInputImageKey)
-            blurFilter.setValue(disparityCI, forKey: "inputDisparityImage")
-            blurFilter.setValue(Float(2.8), forKey: "inputAperture")
-            if let blurOutput = blurFilter.outputImage {
-                out = blurOutput.cropped(to: out.extent)
-            }
-        }
-
-        if needsLUT, let filter = captureFilter {
-            filter.inputImage = out
-            out = filter.outputImage ?? out
-        }
-
-        // Apply 2× horizontal desqueeze to match what the preview showed
-        if needsDesqueeze {
-            out = out.transformed(by: CGAffineTransform(scaleX: 2.0, y: 1.0))
-        }
-
-        // Crop in CI space — a free transform on the lazy graph, avoids a second decode/encode cycle
-        if needsCrop, let aspect = cropRatio.portraitAspect {
-            let ext = out.extent
-            let currentAspect = ext.width / ext.height
-            let cropRect: CGRect
-            if aspect <= currentAspect {
-                let newW = ext.height * aspect
-                cropRect = CGRect(x: ext.origin.x + (ext.width - newW) / 2, y: ext.origin.y,
-                                  width: newW, height: ext.height)
-            } else {
-                let newH = ext.width / aspect
-                cropRect = CGRect(x: ext.origin.x, y: ext.origin.y + (ext.height - newH) / 2,
-                                  width: ext.width, height: newH)
-            }
-            out = out.cropped(to: cropRect)
-        }
-
-        guard let sRGB = CGColorSpace(name: CGColorSpace.sRGB) else { return rawData }
-
-        // Build metadata props once (shared between both paths)
-        var props = (CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [String: Any]) ?? [:]
-        props[kCGImagePropertyOrientation as String] = 1
-        if var tiff = props[kCGImagePropertyTIFFDictionary as String] as? [String: Any] {
-            tiff[kCGImagePropertyTIFFOrientation as String] = 1
-            props[kCGImagePropertyTIFFDictionary as String] = tiff
-        }
-        if let style = activeStyle {
-            var xmp = props["{XMP}"] as? [String: Any] ?? [:]
-            xmp["fexer:AppliedStyle"] = style.name
-            props["{XMP}"] = xmp
-        }
-
-        if !needsWatermark {
-            // Fast path: encode directly from CIImage (GPU→hardware encoder, no 48MB CGImage buffer).
-            // CGImageDestinationAddImageFromSource WITHOUT kCGImageDestinationLossyCompressionQuality
-            // performs a lossless metadata-only write — compressed pixels are copied unchanged.
-            let qualityKey = CIImageRepresentationOption(rawValue: kCGImageDestinationLossyCompressionQuality as String)
-            let ciOpts: [CIImageRepresentationOption: Any] = [qualityKey: 0.92]
-            let utiStr = uti as String
-            let encodedData: Data?
-            if utiStr == "public.heic" || utiStr == "public.heif" {
-                encodedData = CIContext.shared.heifRepresentation(of: out, format: .RGBA8, colorSpace: sRGB, options: ciOpts)
-            } else {
-                encodedData = CIContext.shared.jpegRepresentation(of: out, colorSpace: sRGB, options: ciOpts)
-            }
-            guard let ciEncoded = encodedData,
-                  let ciSrc = CGImageSourceCreateWithData(ciEncoded as CFData, nil)
-            else { return rawData }
-            let mutableData = NSMutableData()
-            guard let dest = CGImageDestinationCreateWithData(mutableData, uti, 1, nil) else { return rawData }
-            CGImageDestinationAddImageFromSource(dest, ciSrc, 0, props as CFDictionary)
-            guard CGImageDestinationFinalize(dest) else { return rawData }
-            return mutableData as Data
-        }
-
-        // Watermark path: needs a CGImage to draw text onto
-        guard var cgImage = CIContext.shared.createCGImage(out, from: out.extent, format: .RGBA8, colorSpace: sRGB)
-        else { return rawData }
-
-        let size = CGSize(width: cgImage.width, height: cgImage.height)
-        let fmt = UIGraphicsImageRendererFormat(); fmt.scale = 1
-        let rendered = UIGraphicsImageRenderer(size: size, format: fmt).image { _ in
-            UIImage(cgImage: cgImage).draw(in: CGRect(origin: .zero, size: size))
-            let fontSize = max(24, size.width * 0.022)
-            let attrs: [NSAttributedString.Key: Any] = [
-                .font: UIFont.systemFont(ofSize: fontSize, weight: .semibold),
-                .foregroundColor: UIColor.white.withAlphaComponent(0.65)
-            ]
-            let str = NSAttributedString(string: watermark, attributes: attrs)
-            let strSize = str.size()
-            let padding = fontSize * 1.4
-            str.draw(at: CGPoint(x: size.width - strSize.width - padding,
-                                 y: size.height - strSize.height - padding))
-        }
-        if let wCG = rendered.cgImage { cgImage = wCG }
-
-        let mutableData = NSMutableData()
-        guard let dest = CGImageDestinationCreateWithData(mutableData, uti, 1, nil) else { return rawData }
-        CGImageDestinationAddImage(dest, cgImage, props as CFDictionary)
-        guard CGImageDestinationFinalize(dest) else { return rawData }
-        return mutableData as Data
-    }
 
 }
 
@@ -1830,17 +1663,15 @@ private struct ZoomDial: View {
             let frac = zoomFraction(currentZoom)
             let fillEndDeg = arcStartDeg + frac * (arcEndDeg - arcStartDeg)
             let fillSteps = max(1, Int(frac * Double(steps)))
-            if fillSteps > 0 {
-                var fill = Path()
-                for i in 0...fillSteps {
-                    let t = Double(i) / Double(fillSteps)
-                    let pt = arcPoint(deg: arcStartDeg + t * (fillEndDeg - arcStartDeg),
-                                      center: center, radius: arcRadius)
-                    if i == 0 { fill.move(to: pt) } else { fill.addLine(to: pt) }
-                }
-                context.stroke(fill, with: .color(.yellow.opacity(0.9)),
-                               style: StrokeStyle(lineWidth: 3, lineCap: .round))
+            var fill = Path()
+            for i in 0...fillSteps {
+                let t = Double(i) / Double(fillSteps)
+                let pt = arcPoint(deg: arcStartDeg + t * (fillEndDeg - arcStartDeg),
+                                  center: center, radius: arcRadius)
+                if i == 0 { fill.move(to: pt) } else { fill.addLine(to: pt) }
             }
+            context.stroke(fill, with: .color(.yellow.opacity(0.9)),
+                           style: StrokeStyle(lineWidth: 3, lineCap: .round))
 
             // Tick marks at each optical stop
             for factor in factors {

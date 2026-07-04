@@ -38,7 +38,7 @@ enum GridType: String, CaseIterable {
 
 /// Portrait-oriented crop ratios for the viewfinder. "Full" shows the entire
 /// sensor frame letterboxed; the others apply crop guides with black bars.
-enum CropRatio: String, CaseIterable, Identifiable {
+nonisolated enum CropRatio: String, CaseIterable, Identifiable {
     case full      = "Full"
     case r16_9     = "16:9"
     case r4_3      = "4:3"

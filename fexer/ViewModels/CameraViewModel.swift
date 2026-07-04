@@ -79,7 +79,13 @@ final class CameraViewModel {
     init(cameraManager: CameraManager, stylesManager: StylesManager) {
         self.cameraManager = cameraManager
         self.stylesManager = stylesManager
+        attachMonitoringCallbacks()
+    }
 
+    // MARK: - Processor monitoring callbacks
+
+    /// Wires histogram/waveform/vectorscope callbacks. Called from init and on view appear.
+    func attachMonitoringCallbacks() {
         cameraManager.processor.onHistogramUpdate = { [weak self] r, g, b, l in
             Task { @MainActor in
                 self?.histogram = HistogramData(red: r, green: g, blue: b, luma: l)
@@ -91,6 +97,12 @@ final class CameraViewModel {
         cameraManager.processor.onVectorscopeUpdate = { [weak self] data in
             Task { @MainActor in self?.vectorscope = data }
         }
+    }
+
+    func detachMonitoringCallbacks() {
+        cameraManager.processor.onHistogramUpdate = nil
+        cameraManager.processor.onWaveformUpdate = nil
+        cameraManager.processor.onVectorscopeUpdate = nil
     }
 
     // MARK: - Gesture Handlers
@@ -149,15 +161,17 @@ final class CameraViewModel {
         focusTask = nil
         showFocusIndicator = false
         isFocusLocked = false
-        cameraManager.setAutoExposure()
-        cameraManager.setAutoFocus()
-        cameraManager.setAutoWhiteBalance()
-        cameraManager.setExposureCompensation(0)
+        // Set auto flags before dispatching to sessionQueue so KVO callbacks that fire
+        // as the hardware switches modes already see auto mode and update the sliders.
         cameraManager.captureSettings.isAutoISO = true
         cameraManager.captureSettings.isAutoShutter = true
         cameraManager.captureSettings.isAutoFocus = true
         cameraManager.captureSettings.isAutoWhiteBalance = true
         cameraManager.captureSettings.whiteBalanceTint = 0
+        cameraManager.setAutoExposure()
+        cameraManager.setAutoFocus()
+        cameraManager.setAutoWhiteBalance()
+        cameraManager.setExposureCompensation(0)
         accumulatedExposureBias = 0
         HapticManager.medium()
     }
@@ -184,8 +198,9 @@ final class CameraViewModel {
         timerCountdown = Int(delay)
 
         timerTask = Task {
-            var shotsLeft = repeatCount == 0 ? Int.max : repeatCount
-            while shotsLeft > 0 {
+            // repeatCount == 0 means repeat until cancelled
+            var shotsTaken = 0
+            while !Task.isCancelled && (repeatCount == 0 || shotsTaken < repeatCount) {
                 var remaining = Int(delay)
                 while remaining > 0 {
                     try? await Task.sleep(nanoseconds: 1_000_000_000)
@@ -199,7 +214,7 @@ final class CameraViewModel {
                     self.timerCountdown = Int(delay)
                     action()
                 }
-                shotsLeft -= 1
+                shotsTaken += 1
             }
             await MainActor.run {
                 self.isTimerActive = false
@@ -270,7 +285,9 @@ final class CameraViewModel {
     // MARK: - Burst
 
     /// Fires up to `maxShots` photos 100 ms apart. Call `stopBurst()` to cancel early.
-    func startBurst(delegate: AVCapturePhotoCaptureDelegate, maxShots: Int = 10) {
+    /// `makeDelegate` is invoked once per shot — AVFoundation delegates must never be reused
+    /// across captures (each fires its own didFinishCaptureFor lifecycle).
+    func startBurst(maxShots: Int = 10, makeDelegate: @escaping @MainActor () -> AVCapturePhotoCaptureDelegate) {
         guard !isBurstActive else { return }
         isBurstActive = true
         burstCount = 0
@@ -283,7 +300,7 @@ final class CameraViewModel {
                     self.burstCount = i
                     HapticManager.shutter()
                 }
-                cameraManager.capturePhoto(delegate: delegate, bypassBusyGuard: true)
+                cameraManager.capturePhoto(delegate: makeDelegate(), bypassBusyGuard: true)
                 try? await Task.sleep(nanoseconds: 100_000_000) // 100 ms
             }
             await MainActor.run {
@@ -303,7 +320,8 @@ final class CameraViewModel {
     // MARK: - Timelapse
 
     /// Fires `capturePhoto` every `timelapseInterval` seconds until `stopTimelapse()` is called.
-    func startTimelapse(delegate: AVCapturePhotoCaptureDelegate) {
+    /// `makeDelegate` is invoked once per shot — AVFoundation delegates must never be reused.
+    func startTimelapse(makeDelegate: @escaping @MainActor () -> AVCapturePhotoCaptureDelegate) {
         guard !isTimelapseActive else { return }
         isTimelapseActive = true
         timelapseCount = 0
@@ -315,7 +333,7 @@ final class CameraViewModel {
                     self.timelapseCount += 1
                     HapticManager.shutter()
                 }
-                cameraManager.capturePhoto(delegate: delegate, bypassBusyGuard: true)
+                cameraManager.capturePhoto(delegate: makeDelegate(), bypassBusyGuard: true)
                 let ns = UInt64(timelapseInterval * 1_000_000_000)
                 try? await Task.sleep(nanoseconds: ns)
             }

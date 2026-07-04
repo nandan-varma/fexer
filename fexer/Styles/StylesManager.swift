@@ -17,7 +17,6 @@ final class StylesManager {
     var suggestedStyle: PhotoStyle?
 
     private let lutLoader = LUTLoader.shared
-    private let lutFilter = LUTFilter()
     private let sceneClassifier = SceneClassifier()
 
     let allStyles: [StyleCategory: [PhotoStyle]] = Dictionary(grouping: PhotoStyle.catalog, by: \.category)
@@ -40,16 +39,15 @@ final class StylesManager {
         filter.adjWarmth     = adjustments.warmth
     }
 
-    // Called from CaptureProcessor on sessionQueue — returns filter configured for this frame
+    /// Returns a fresh LUTFilter for the live preview pipeline.
+    /// A new instance per call (style changes only, not per frame) — a shared instance would
+    /// race: MainActor reconfigures its properties while sessionQueue reads them per frame.
     func activeLUTFilter() -> LUTFilter? {
-        guard let style = activeStyle else { return nil }
-        guard lutLoader.effectiveLUT(for: style) != nil else { return nil }
-        configureFilter(lutFilter, for: style)
-        return lutFilter
+        makeCaptureFilter()
     }
 
     /// Returns a fresh LUTFilter configured for the current style, for baking into a still capture.
-    /// Creates a new instance each call to avoid racing with the shared preview-pipeline filter.
+    /// Creates a new instance each call so capture and preview never share mutable filter state.
     func makeCaptureFilter() -> LUTFilter? {
         guard let style = activeStyle else { return nil }
         guard lutLoader.effectiveLUT(for: style) != nil else { return nil }
