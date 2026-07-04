@@ -518,7 +518,12 @@ import Photos
                     device.focusMode = mode
                 }
             }
-            Task { @MainActor in self.captureSettings.focusMode = mode }
+            // .locked is a transient hardware state for manual focus, not a persisted AF preference.
+            // captureSettings.focusMode holds the user's AFC/AFS choice used by setAutoFocus()
+            // and setFocusPoint() — corrupting it with .locked breaks both after manual → auto.
+            if mode != .locked {
+                Task { @MainActor in self.captureSettings.focusMode = mode }
+            }
         }
     }
 

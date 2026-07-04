@@ -12,6 +12,9 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
 
 # Check only for errors (pipe-friendly)
 ... build 2>&1 | grep -E "error:|BUILD SUCCEEDED|BUILD FAILED"
+
+# Lint (enforced in CI as --strict, so warnings are errors)
+swiftlint lint --strict
 ```
 
 **Camera does not work in Simulator.** All meaningful testing requires a physical iOS device. Unit tests for models/utilities (no camera dependency) are in `Tests/fexerTests/`. Add the test target in Xcode: File → New → Target → iOS Unit Testing Bundle, select fexer as the target to test, and point the source files to `Tests/fexerTests/`.
@@ -67,6 +70,8 @@ com.fexer.session  (sessionQueue, .userInteractive)
 ```
 
 **Rule:** AVFoundation calls (`lockForConfiguration`, `setExposureModeCustom`, etc.) must stay on `sessionQueue`. Any mutation of `@Observable` properties that SwiftUI reads must cross back with `Task { @MainActor in ... }`. Never call `UIView.setNeedsDisplay` from `sessionQueue` — use the MTKView's continuous render mode instead (`isPaused = false`, `enableSetNeedsDisplay = false`).
+
+**`nonisolated(unsafe)` pattern:** `CameraManager` is `@MainActor` by default (via `SWIFT_DEFAULT_ACTOR_ISOLATION`), but its recording-pipeline vars (`assetWriter`, `videoWriterInput`, `audioWriterInput`, `pixelBufferAdaptor`, `isWaitingToRecord`, `pendingRecordingLocation`, `pendingRecordingStyleName`, `_captureBusy`) are read and written exclusively on `sessionQueue`. Mark these `nonisolated(unsafe)` and serialize all access through `sessionQueue` — do not let Swift's actor checker treat them as MainActor state.
 
 Classes with explicit `nonisolated` methods that may be called from non-MainActor contexts: `StylePreviewRenderer` (all public methods), `StylesViewModel.onFrameAvailable`. These use `OSAllocatedUnfairLock` for internal thread safety rather than actor isolation.
 
@@ -229,6 +234,10 @@ Shutter tap → CameraView.handleShutter()
 ```
 
 `CapturePhotoDelegate` is created fresh per capture (`activeDelegates[id] = delegate` keeps it alive until `didFinishCaptureFor` fires the `onCaptureDone` callback that removes it). Never reuse a delegate instance.
+
+**Capture re-entry guard:** `_captureBusy` (a `nonisolated(unsafe)` Bool on `CameraManager`, checked and set atomically on `sessionQueue`) is the true re-entry gate. `isCapturing` is the UI binding only — do not use it as a guard. Call `cameraManager.clearCaptureGuard()` from `onCaptureDone` to reset both atomically; do not write `isCapturing = false` directly.
+
+**Live Photo pairing:** `CapturePhotoDelegate.onLivePhotoMovie` receives the `.mov` URL from `didFinishProcessingLivePhotoToMovieFileAt`. In `CameraView.makeCaptureDelegate`, a `MovieURLBox` (reference-typed wrapper) captures this URL and passes it to `saveToPhotoLibrary(livePhotoMovieURL:)`. The HEIC `.photo` and `.pairedVideo` resources **must be added to the same `PHAssetCreationRequest`** — separate requests produce two unlinked assets that Photos.app never presents as a Live Photo.
 
 ### Capture variants
 
