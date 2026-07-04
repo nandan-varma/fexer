@@ -1,6 +1,5 @@
 import UIKit
 import CoreImage
-import Metal
 
 /// Generates style preview thumbnails from a bundled sample image.
 final class StylePreviewRenderer {
@@ -8,12 +7,7 @@ final class StylePreviewRenderer {
 
     nonisolated(unsafe) private let cache = NSCache<NSString, UIImage>()
     private let renderQueue = DispatchQueue(label: "com.fexer.stylePreview", qos: .userInitiated, attributes: .concurrent)
-    private let ciContext: CIContext = {
-        guard let device = MTLCreateSystemDefaultDevice() else {
-            fatalError("Metal is not available for StylePreviewRenderer")
-        }
-        return CIContext(mtlDevice: device, options: [.useSoftwareRenderer: false])
-    }()
+    private let ciContext: CIContext = .shared
     private let sampleImage: CIImage
 
     private init() {
@@ -24,9 +18,6 @@ final class StylePreviewRenderer {
             sampleImage = CIImage.empty()
         }
     }
-
-    /// No-op — previews now use a bundled sample image, not live frames.
-    nonisolated func updateFrame(_ pixelBuffer: CVPixelBuffer) {}
 
     nonisolated func originalImage(size: CGSize, completion: @escaping (UIImage?) -> Void) {
         let keyStr = "__original__-\(Int(size.width))x\(Int(size.height))"

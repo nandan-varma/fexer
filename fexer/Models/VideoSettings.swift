@@ -26,34 +26,23 @@ enum VideoCodec: String, CaseIterable, Identifiable {
     case proRes = "ProRes"
 
     var id: String { rawValue }
-
-    var avCodecType: AVVideoCodecType {
-        switch self {
-        case .h264:   return .h264
-        case .hevc:   return .hevc
-        case .proRes: return .proRes4444
-        }
-    }
-
-    /// ProRes requires .mov container; others default to .mp4.
-    var fileExtension: String { self == .proRes ? "mov" : "mp4" }
-    var fileType: AVFileType  { self == .proRes ? .mov  : .mp4  }
 }
 
 struct VideoSettings {
     var resolution: VideoResolution = .hd1080p
     var frameRate: Int = 30
     var codec: VideoCodec = .hevc
-    /// Playback frame rate for slow-motion (e.g. capture at 240fps, play at 30fps).
-    var slowMotionPlaybackFPS: Int = 30
 
-    var audioSampleRate: Double { resolution == .uhd4K ? 48_000 : 44_100 }
-    var audioBitRate: Int { resolution == .uhd4K ? 256_000 : 128_000 }
+    var audioSampleRate: Double { 48_000 }
+    var audioBitRate: Int { 256_000 }  // 256 kbps stereo AAC — broadcast standard at 48 kHz
 
     var videoBitRate: Int {
-        switch resolution {
-        case .uhd4K:              return 40_000_000
-        case .hd1080p, .slowMo:  return 16_000_000
+        switch (resolution, frameRate) {
+        case (.uhd4K, let fps) where fps > 30: return 100_000_000  // 4K 60fps HEVC
+        case (.uhd4K, _):                      return  60_000_000  // 4K 30fps HEVC
+        case (.slowMo, _):                     return  40_000_000  // 1080p high-fps
+        case (.hd1080p, let fps) where fps > 30: return 30_000_000 // 1080p 60fps
+        default:                               return  25_000_000  // 1080p 30fps HEVC
         }
     }
 }

@@ -64,7 +64,6 @@ import Photos
     private var deviceObservations: [NSKeyValueObservation] = []
     private var subjectAreaObserver: NSObjectProtocol?
     private var trapFocusCaptureCallback: (() -> Void)?
-    private var pendingCompassHeading: CLHeading?
 
     // AVAssetWriter recording pipeline — accessed from sessionQueue AND nonisolated audio delegate.
     // All mutations are serialised through sessionQueue; nonisolated(unsafe) opts out of actor checks.
@@ -97,11 +96,6 @@ import Photos
 
     // MARK: - Setup
 
-    /// Starts the camera session and begins capturing video frames.
-    ///
-    /// This method initializes the AVCaptureSession, configures the camera device,
-    /// and starts the video capture pipeline. It can be called multiple times safely
-    /// - if the session is already running, it will be a no-op.
     func startSession() {
         sessionQueue.async { [self] in
             guard !session.isRunning else { return }
@@ -143,10 +137,6 @@ import Photos
         }
     }
 
-    /// Stops the camera session and releases all resources.
-    ///
-    /// This method stops the video capture pipeline, removes all observers,
-    /// and cleans up the session. It can be called multiple times safely.
     func stopSession() {
         sessionQueue.async { [self] in
             [sessionErrorObserver, sessionInterruptionObserver, sessionInterruptionEndedObserver]
@@ -268,13 +258,6 @@ import Photos
 
     // MARK: - Manual Controls (call on any thread; executes on sessionQueue)
 
-    /// Sets the camera ISO value.
-    ///
-    /// - Parameter iso: The desired ISO value. Will be clamped to the device's
-    ///   supported range (minISO to maxISO for the current active format).
-    ///
-    /// This method is thread-safe and can be called from any context. The actual
-    /// device configuration occurs on the sessionQueue.
     func setISO(_ iso: Float) {
         sessionQueue.async { [self] in
             guard let device = currentDevice else {
@@ -323,15 +306,6 @@ import Photos
         }
     }
 
-    /// Sets the camera white balance to the specified temperature and tint.
-    ///
-    /// - Parameters:
-    ///   - kelvin: The white balance temperature in Kelvin (typically 5500 for daylight)
-    ///   - tint: The white balance tint (-150 green to +150 magenta)
-    ///
-    /// The method automatically clamps the resulting color gains to ensure they stay
-    /// within the device's supported range (1.0 to maxWhiteBalanceGain) to prevent
-    /// crashes from invalid values.
     func setWhiteBalance(kelvin: Float, tint: Float = 0) {
         sessionQueue.async { [self] in
             guard let device = currentDevice else {
@@ -367,12 +341,6 @@ import Photos
         device.withLock { device.setWhiteBalanceModeLocked(with: gains) }
     }
 
-    /// Sets the camera focus distance using lens position.
-    ///
-    /// - Parameter lensPosition: The focus distance as a normalized value (0.0 to 1.0),
-    ///   where 0.0 is infinity and 1.0 is the closest focusing distance.
-    ///
-    /// This method is thread-safe and executes on the sessionQueue.
     func setFocus(lensPosition: Float) {
         sessionQueue.async { [self] in
             guard let device = currentDevice else {
@@ -386,16 +354,6 @@ import Photos
         }
     }
 
-    /// Sets the camera focus and exposure point of interest.
-    ///
-    /// - Parameter point: Normalized CGPoint (0.0 to 1.0) indicating the point of interest
-    ///   within the camera frame. (0,0) is top-left, (1,1) is bottom-right.
-    ///
-    /// This method is thread-safe and executes on the sessionQueue. The focus and exposure
-    /// will be locked to the specified point until changed or reset.
-    /// - Parameters:
-    ///   - point: Normalized CGPoint in AVFoundation space (0,0 = top-left, 1,1 = bottom-right).
-    ///   - adjustExposure: When false (AEL active), only repoints focus — leaves exposure locked.
     func setFocusPoint(_ point: CGPoint, adjustExposure: Bool = true) {
         sessionQueue.async { [self] in
             guard let device = currentDevice else {
@@ -420,12 +378,6 @@ import Photos
         }
     }
 
-    /// Sets the exposure compensation (EV) value.
-    ///
-    /// - Parameter bias: The exposure compensation value in EV stops (-3 to +3 typical).
-    ///
-    /// This method is thread-safe and executes on the sessionQueue. The exposure compensation
-    /// is stored in both the device and the captureSettings for UI consistency.
     func setExposureCompensation(_ bias: Float) {
         sessionQueue.async { [self] in
             guard let device = currentDevice else {
@@ -440,13 +392,6 @@ import Photos
         }
     }
 
-    /// Sets the camera zoom factor.
-    ///
-    /// - Parameter factor: The zoom factor (1.0 = no zoom, 2.0 = 2x zoom, etc.).
-    ///
-    /// This method is thread-safe and executes on the sessionQueue. The zoom factor
-    /// is clamped to the device's supported range and updated in the currentZoomFactor
-    /// property for UI binding.
     func setZoom(_ factor: CGFloat) {
         sessionQueue.async { [self] in
             guard let device = currentDevice else {
@@ -474,10 +419,6 @@ import Photos
         }
     }
 
-    /// Resets the camera to automatic exposure control.
-    ///
-    /// This method releases any manual exposure settings and returns the camera to
-    /// automatic exposure mode. It is thread-safe and executes on the sessionQueue.
     func setAutoExposure() {
         sessionQueue.async { [self] in
             guard let device = currentDevice else {
@@ -491,10 +432,6 @@ import Photos
         }
     }
 
-    /// Resets the camera to automatic focus control.
-    ///
-    /// This method releases any manual focus settings and returns the camera to
-    /// automatic focus mode. It is thread-safe and executes on the sessionQueue.
     func setAutoFocus() {
         sessionQueue.async { [self] in
             guard let device = currentDevice else {
@@ -543,11 +480,6 @@ import Photos
         }
     }
 
-    /// Locks the current auto exposure settings (AE Lock).
-    ///
-    /// This method freezes the current exposure settings (ISO and shutter speed) so
-    /// they remain constant regardless of lighting changes. It is thread-safe and
-    /// executes on the sessionQueue.
     func lockAutoExposure() {
         sessionQueue.async { [self] in
             guard let device = currentDevice else {
@@ -562,10 +494,6 @@ import Photos
         }
     }
 
-    /// Unlocks auto exposure settings (release AE Lock).
-    ///
-    /// This method releases the frozen exposure settings and returns the camera to
-    /// automatic exposure control. It is thread-safe and executes on the sessionQueue.
     func unlockAutoExposure() {
         sessionQueue.async { [self] in
             guard let device = currentDevice else {
@@ -668,11 +596,6 @@ import Photos
         }
     }
 
-    /// Flips the camera between front and back positions.
-    ///
-    /// This method switches the active camera device and reconfigures the session.
-    /// It is thread-safe and executes on the sessionQueue. After flipping, the camera
-    /// will need a moment to stabilize before video frames are delivered.
     func flipCamera() {
         sessionQueue.async { [self] in
             let currentPosition = currentDevice?.position ?? .back
@@ -927,13 +850,13 @@ import Photos
 
         // Video codec — ProRes skips compression properties (uses its own quality tiers)
         let codecType: AVVideoCodecType = codec == .h264 ? .h264 :
-                                          useProRes ? .proRes4444 : .hevc
+                                          useProRes ? .proRes422HQ : .hevc
         var videoOutputSettings: [String: Any] = [
             AVVideoCodecKey: codecType,
             AVVideoWidthKey: width,
             AVVideoHeightKey: height
         ]
-        if codecType != .proRes4444 {
+        if codecType != .proRes422HQ {
             videoOutputSettings[AVVideoCompressionPropertiesKey] = [
                 AVVideoAverageBitRateKey: settings.videoBitRate,
                 AVVideoMaxKeyFrameIntervalKey: fps,
@@ -1045,11 +968,6 @@ import Photos
                             value: String(format: "f/%.1f", settings.lensAperture) as NSString))
         if let name = styleName {
             items.append(custom(key: "com.fexer.style", value: name as NSString))
-        }
-        // Compass bearing
-        if let heading = pendingCompassHeading {
-            items.append(custom(key: "com.fexer.camera.compassBearing",
-                                value: String(format: "%.1f°", heading.trueHeading) as NSString))
         }
         return items
     }
@@ -1243,37 +1161,6 @@ import Photos
         }
     }
 
-    // MARK: - Smooth Zoom Ramp (video only)
-
-    /// Animates zoom to `factor` at `rate` (0.5 = slow, 10 = fast). Use during recording
-    /// to avoid the jarring jump of a direct videoZoomFactor assignment.
-    func rampZoom(to factor: CGFloat, rate: Float = 3.0) {
-        sessionQueue.async { [self] in
-            guard let device = currentDevice else { return }
-            let clamped = factor.fxClamped(
-                to: device.minAvailableVideoZoomFactor...device.maxAvailableVideoZoomFactor
-            )
-            device.withLock { device.ramp(toVideoZoomFactor: clamped, withRate: rate) }
-            Task { @MainActor in self.currentZoomFactor = clamped }
-        }
-    }
-
-    /// Cancels an in-progress smooth zoom ramp.
-    func cancelZoomRamp() {
-        sessionQueue.async { [self] in
-            guard let device = currentDevice else { return }
-            device.withLock { device.cancelVideoZoomRamp() }
-        }
-    }
-
-    // MARK: - Optical Zoom Lock
-
-    /// Returns the nearest optical zoom switchover factor to `factor`, or `factor` itself.
-    func nearestOpticalFactor(_ factor: CGFloat) -> CGFloat {
-        let stops = availableZoomFactors
-        return stops.min(by: { abs($0 - factor) < abs($1 - factor) }) ?? factor
-    }
-
     // MARK: - Slow Motion
 
     /// Activates a high-frame-rate format for slow-motion capture.
@@ -1314,36 +1201,6 @@ import Photos
 
     func clearTrapFocusCallback() {
         Task { @MainActor in trapFocusCaptureCallback = nil }
-    }
-
-    // MARK: - Focus Distance (approximate physical distance)
-
-    /// Returns approximate focus distance in cm from normalised lens position.
-    /// Uses device.minimumFocusDistance (in mm) as the closest-focus anchor.
-    /// Formula: at lensPosition=1, dist ≈ minFocusDist; at lensPosition=0, dist ≈ ∞.
-    func approximateFocusDistance(lensPosition: Float) -> String {
-        guard let device = currentDevice, lensPosition > 0.01 else { return "∞" }
-        let minCm = Float(device.minimumFocusDistance) / 10.0
-        // Hyperbolic mapping: distance ≈ minCm / position (crude but consistent)
-        let distCm = minCm / lensPosition
-        if distCm >= 1000 { return "∞" }
-        if distCm >= 100  { return String(format: "%.1fm", distCm / 100.0) }
-        return String(format: "%.0fcm", distCm)
-    }
-
-    // MARK: - Record + Photo simultaneously
-
-    /// Captures a still photo while video recording is active.
-    /// Uses bypassBusyGuard so the capture doesn't block on isCapturing.
-    func capturePhotoWhileRecording(delegate: AVCapturePhotoCaptureDelegate) {
-        guard isRecording else { return }
-        capturePhoto(delegate: delegate, bypassBusyGuard: true)
-    }
-
-    // MARK: - Compass heading for metadata
-
-    func setCompassHeading(_ heading: CLHeading) {
-        pendingCompassHeading = heading
     }
 
     // MARK: - Frame Rate

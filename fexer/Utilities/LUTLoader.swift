@@ -35,7 +35,7 @@ final class LUTLoader {
             return nil
         }
 
-        guard let (data, dim) = parseCube(content: content) else {
+        guard let (data, dim) = LUTLoader.parseCube(content: content) else {
             Logger.camera.error("Failed to parse LUT file: \(filename)")
             return nil
         }
@@ -94,7 +94,7 @@ final class LUTLoader {
         }
     }
 
-    private func parseCube(content: String) -> (Data, Int)? {
+    static func parseCube(content: String) -> (Data, Int)? {
         var dimension = 33
         var floats: [Float32] = []
         floats.reserveCapacity(33 * 33 * 33 * 4)

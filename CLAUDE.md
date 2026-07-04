@@ -25,12 +25,13 @@ SourceKit shows many false-positive errors (UIKit types "unavailable in macOS", 
 
 ```
 fexer/
-├── App/                          # AppState.swift, FeatureFlags.swift
+├── App/                          # AppState.swift
 ├── Camera/                       # CameraManager, CaptureProcessor, filters, CameraPreview
 ├── Models/                       # ShootingMode, CaptureSettings, CapturedPhoto, EditState, VideoSettings
 ├── ViewModels/                   # CameraViewModel, StylesViewModel, GalleryViewModel
 ├── Utilities/                    # PermissionsManager, CaptureService, HapticManager,
-│                                 # ExifReader, HistogramCalculator, LUTLoader, CIContext+Shared
+│                                 # ExifReader, HistogramCalculator, LUTLoader, CIContext+Shared,
+│                                 # CapturePresetsManager, DeviceOrientationTracker
 ├── Styles/                       # StylesManager, LUTFilter, StyleTransforms, SceneClassifier,
 │                                 # StylePreviewRenderer
 ├── Views/
@@ -52,7 +53,8 @@ fexer/
 │   │                             # AutoToggleButton
 │   ├── StylePicker/              # StylePickerView, StyleCategoryView, StyleThumbnailView,
 │   │                             # StyleBeforeAfterView, StyleAdjustmentsRow
-│   └── SupportingTypes/          # CapturePhotoDelegate, ShutterButtonStyle, VolumeHUDSuppressor
+│   └── SupportingTypes/          # CapturePhotoDelegate, ShutterButtonStyle, VolumeHUDSuppressor,
+│                                 # LUTImporterView
 ├── Resources/LUTs/               # 21× .cube LUT files
 └── Tests/fexerTests/             # CameraManagerTests, ViewModelTests, UtilitiesTests
 ```
@@ -230,7 +232,7 @@ Shutter tap → CameraView.handleShutter()
                               ↓ AVFoundation callback
                          CapturePhotoDelegate.photoOutput(_:didFinishProcessingPhoto:)
                               ↓ onProcessed closure (defined in CameraView.makeCaptureDelegate)
-                         bake LUT/desqueeze/watermark → saveToPhotoLibrary(data:photo:location:)
+                         portrait blur / LUT bake / desqueeze / watermark → saveToPhotoLibrary(data:photo:location:)
 ```
 
 `CapturePhotoDelegate` is created fresh per capture (`activeDelegates[id] = delegate` keeps it alive until `didFinishCaptureFor` fires the `onCaptureDone` callback that removes it). Never reuse a delegate instance.
@@ -256,12 +258,12 @@ Shutter tap → CameraView.handleShutter()
 | Self-timer | ✅ Complete | Repeat count + countdown in `CameraViewModel` |
 | Timelapse | ✅ Complete | Configurable interval; each frame saved as individual JPEG |
 | Anamorphic | ✅ Complete | 2× horizontal desqueeze in `CaptureProcessor`; 2.39:1 crop guide |
-| Night | ⚠️ Partial | Hardware low-light boost + `.quality` QoS enabled; capture UX for long shutter (user feedback during multi-frame system capture) not yet implemented |
-| Portrait | ⚠️ Partial | `isDepthDataDeliveryEnabled` + portrait matte enabled; depth data captured but **never processed** — no blur applied to output JPEG |
+| Night | ✅ Complete | Hardware low-light boost + `.quality` QoS; advisory bar shows "HOLD STILL — PROCESSING" during multi-frame capture; yellow spinner overlays shutter button |
+| Portrait | ✅ Complete | `isDepthDataDeliveryEnabled` + portrait matte; `CIDepthBlurEffect` (f/2.8) applied in `processCapture` before LUT bake using disparity from `photo.depthData` |
 
 ### Feature flags and `@AppStorage` persistence
 
-`App/FeatureFlags.swift` — currently only `FeatureFlags.levelIndicator = true`. Runtime visibility for all other features is controlled via `@AppStorage` keys shared between `CameraView` and `SettingsView` (e.g. `"showGrid"`, `"showHistogram"`, `"showStylePicker"`). After changing a flag that controls a processor-side filter (focus peaking, zebra, false color, LUT), call `cameraViewModel.syncOverlaysToProcessor()`.
+Runtime visibility for features is controlled via `@AppStorage` keys shared between `CameraView` and `SettingsView` (e.g. `"showGrid"`, `"showHistogram"`, `"showStylePicker"`). After changing a flag that controls a processor-side filter (focus peaking, zebra, false color, LUT), call `cameraViewModel.syncOverlaysToProcessor()`.
 
 `@AppStorage` keys are the persistence layer — there is no separate UserDefaults wrapper. `CameraView` holds the keys and syncs them to `CameraManager`/`CameraViewModel` via `.onChange` modifiers at the bottom of `mainContent`. When adding a new persisted setting, declare it in `CameraView`, mirror it to `SettingsView` by using the same key string, and add an `.onChange` handler to apply it.
 
@@ -278,6 +280,8 @@ Key `@AppStorage` keys:
 - **`ExifReader`** — ImageIO-based extraction of ISO, shutter, aperture, WB temperature, GPS coordinates, and capture timestamp from JPEG data.
 - **`VolumeHUDSuppressor`** — mutes the system volume pop-up that would otherwise appear during photo capture triggered by the volume button.
 - **`HistogramCalculator`** — uses `CIAreaHistogram` to produce a normalized 256-bin RGBL histogram; called every 3rd frame from `CaptureProcessor`.
+- **`CapturePresetsManager`** — `@Observable` singleton; saves/loads named `CapturePreset` structs (ISO, shutter, WB, style) to UserDefaults as JSON.
+- **`DeviceOrientationTracker`** — `@Observable` singleton; listens to `UIDevice.orientationDidChangeNotification` and exposes `rotationAngle` (in degrees) so UI elements can counter-rotate to stay upright.
 
 ### `CIContext.shared`
 

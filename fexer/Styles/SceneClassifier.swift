@@ -13,7 +13,6 @@ final class SceneClassifier {
 
     private let stateQueue = DispatchQueue(label: "com.fexer.sceneClassifier", qos: .utility)
     private var frameCounter = 0
-    private var pendingLabel: String?
     private var pendingMatch: PhotoStyle?
     private var consecutiveCount = 0
     private let debounceThreshold = 3
@@ -76,7 +75,6 @@ final class SceneClassifier {
             if matchedID == self.pendingMatch?.id {
                 self.consecutiveCount += 1
             } else {
-                self.pendingLabel = label
                 self.pendingMatch = matched
                 self.consecutiveCount = 1
             }

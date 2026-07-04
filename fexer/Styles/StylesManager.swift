@@ -20,9 +20,7 @@ final class StylesManager {
     private let lutFilter = LUTFilter()
     private let sceneClassifier = SceneClassifier()
 
-    var allStyles: [StyleCategory: [PhotoStyle]] {
-        Dictionary(grouping: PhotoStyle.catalog, by: \.category)
-    }
+    let allStyles: [StyleCategory: [PhotoStyle]] = Dictionary(grouping: PhotoStyle.catalog, by: \.category)
 
     var isSmartStylesEnabled: Bool = false {
         didSet { sceneClassifier.isEnabled = isSmartStylesEnabled }

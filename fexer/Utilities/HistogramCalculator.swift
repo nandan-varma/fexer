@@ -66,7 +66,7 @@ struct HistogramCalculator {
             red[i]   = r
             green[i] = g
             blue[i]  = b
-            luma[i]  = 0.299 * r + 0.587 * g + 0.114 * b
+            luma[i]  = 0.2126 * r + 0.7152 * g + 0.0722 * b
         }
 
         var maxVal: Float = 0.001
@@ -132,7 +132,7 @@ struct HistogramCalculator {
         return WaveformData(density: density)
     }
 
-    // Renders the image to a 64×64 sample, computes Rec.601 Cb/Cr per pixel,
+    // Renders the image to a 64×64 sample, computes Rec.709 Cb/Cr per pixel,
     // and accumulates a 2D density map. Log-normalized to reveal faint chroma detail.
     nonisolated static func computeVectorscope(from image: CIImage, context: CIContext) -> VectorscopeData {
         let S = VectorscopeData.size
@@ -161,10 +161,10 @@ struct HistogramCalculator {
                 let g = Float(bytes[off + 1]) / 255.0
                 let b = Float(bytes[off + 2]) / 255.0
 
-                // Rec. 601 Cb/Cr: range -0.5 … +0.5
-                let luma = 0.299 * r + 0.587 * g + 0.114 * b
-                let cb = (b - luma) / 1.772
-                let cr = (r - luma) / 1.402
+                // Rec. 709 Cb/Cr: range -0.5 … +0.5
+                let luma = 0.2126 * r + 0.7152 * g + 0.0722 * b
+                let cb = (b - luma) / 1.8556
+                let cr = (r - luma) / 1.5748
 
                 // Map to grid: col 0 = Cb -0.5 (left), row 0 = Cr +0.5 (top)
                 let col = max(0, min(S - 1, Int((cb + 0.5) * Float(S - 1))))

@@ -569,7 +569,7 @@ struct EditView: View {
         if state.warmth != 0 {
             let filter = CIFilter.temperatureAndTint()
             filter.inputImage = image
-            filter.neutral = CIVector(x: CGFloat(6500 + state.warmth * 2000), y: 0)
+            filter.neutral = CIVector(x: CGFloat(6500 - state.warmth * 2000), y: 0)
             filter.targetNeutral = CIVector(x: 6500, y: 0)
             image = filter.outputImage ?? image
         }
@@ -925,10 +925,6 @@ struct EditView: View {
 
     // MARK: - Static helpers for applyEdits
 
-    nonisolated private static func evalCurve(_ pts: [SIMD2<Float>], at x: Float) -> Float {
-        evalSortedCurve(pts.sorted { $0.x < $1.x }, at: x)
-    }
-
     nonisolated private static func evalSortedCurve(_ s: [SIMD2<Float>], at x: Float) -> Float {
         guard s.count >= 2 else { return x }
         if x <= s[0].x { return s[0].y }
@@ -1000,7 +996,7 @@ struct EditView: View {
             guard url.startAccessingSecurityScopedResource() else { return nil }
             defer { url.stopAccessingSecurityScopedResource() }
             guard let content = try? String(contentsOf: url, encoding: .utf8),
-                  let (cubeData, dim) = parseCubeContent(content) else { return nil }
+                  let (cubeData, dim) = LUTLoader.parseCube(content: content) else { return nil }
             let newEntry = ParsedLUTEntry(cubeData, dim)
             importedLUTCache.setObject(newEntry, forKey: cacheKey)
             entry = newEntry
@@ -1013,28 +1009,6 @@ struct EditView: View {
         flt.setValue(sRGB, forKey: "inputColorSpace")
         flt.setValue(image, forKey: kCIInputImageKey)
         return flt.outputImage
-    }
-
-    nonisolated private static func parseCubeContent(_ content: String) -> (Data, Int)? {
-        var size = 0
-        var entries: [Float] = []
-        for line in content.components(separatedBy: .newlines) {
-            let t = line.trimmingCharacters(in: .whitespaces)
-            guard !t.isEmpty, !t.hasPrefix("#") else { continue }
-            let upper = t.uppercased()
-            if upper.hasPrefix("LUT_3D_SIZE") {
-                size = Int(t.components(separatedBy: .whitespaces).last ?? "") ?? 0
-            } else if upper.hasPrefix("TITLE") || upper.hasPrefix("DOMAIN") {
-                continue
-            } else {
-                let c = t.components(separatedBy: .whitespaces)
-                if c.count >= 3, let rv = Float(c[0]), let gv = Float(c[1]), let bv = Float(c[2]) {
-                    entries.append(contentsOf: [rv, gv, bv, 1.0])
-                }
-            }
-        }
-        guard size > 1, entries.count == size * size * size * 4 else { return nil }
-        return (Data(bytes: entries, count: entries.count * MemoryLayout<Float>.size), size)
     }
 
     private func saveEdits() {

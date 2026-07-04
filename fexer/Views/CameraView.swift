@@ -1170,6 +1170,12 @@ struct CameraView: View {
                 .tint(.white.opacity(0.7))
             }
             .padding(.horizontal, 16)
+        case .night:
+            Text(cameraManager.isCapturing ? "HOLD STILL — PROCESSING" : "NIGHT — KEEP CAMERA STEADY")
+                .font(.system(size: 9, weight: .medium, design: .monospaced))
+                .foregroundStyle(.yellow.opacity(cameraManager.isCapturing ? 0.9 : 0.55))
+                .tracking(1.5)
+                .animation(.easeInOut(duration: 0.2), value: cameraManager.isCapturing)
         case .video:
             videoControlsRow
         default:
@@ -1455,6 +1461,7 @@ struct CameraView: View {
         let capturedCropRatio = cropRatio
         let capturedWatermark = watermarkText
         let isAnamorphic = cameraManager.processor.isAnamorphicDesqueezeEnabled
+        let isPortraitMode = cameraViewModel.activeMode == .portrait
         let movieBox = MovieURLBox()
         let onShowReview: (CapturedPhoto) -> Void = { [self] photo in
             capturedPhoto = photo
@@ -1475,6 +1482,7 @@ struct CameraView: View {
                 // Return immediately so AVFoundation fires didFinishCaptureFor (and clears
                 // isCapturing) as soon as the sensor is done — not after post-processing.
                 Task.detached(priority: .userInitiated) {
+                    let depthData: AVDepthData? = isPortraitMode ? photo.depthData : nil
                     let processedData = CameraView.processCapture(
                         rawData: rawData,
                         isRaw: photo.isRawPhoto,
@@ -1482,7 +1490,8 @@ struct CameraView: View {
                         isAnamorphic: isAnamorphic,
                         cropRatio: capturedCropRatio,
                         watermark: capturedWatermark,
-                        activeStyle: activeStyle
+                        activeStyle: activeStyle,
+                        depthData: depthData
                     )
 
                     // Generate gallery-button thumbnail for all (non-RAW) captures
@@ -1583,15 +1592,17 @@ struct CameraView: View {
         isAnamorphic: Bool,
         cropRatio: CropRatio,
         watermark: String,
-        activeStyle: PhotoStyle?
+        activeStyle: PhotoStyle?,
+        depthData: AVDepthData? = nil
     ) -> Data {
-        let needsLUT        = captureFilter != nil && !isRaw
-        let needsDesqueeze  = isAnamorphic && !isRaw
-        let needsCrop       = !isRaw && cropRatio != .full
-        let needsWatermark  = !isRaw && !watermark.isEmpty
-        let needsStyleTag   = activeStyle != nil && !isRaw
+        let needsLUT          = captureFilter != nil && !isRaw
+        let needsDesqueeze    = isAnamorphic && !isRaw
+        let needsCrop         = !isRaw && cropRatio != .full
+        let needsWatermark    = !isRaw && !watermark.isEmpty
+        let needsStyleTag     = activeStyle != nil && !isRaw
+        let needsPortraitBlur = depthData != nil && !isRaw
 
-        if !needsLUT && !needsDesqueeze && !needsCrop && !needsWatermark {
+        if !needsLUT && !needsDesqueeze && !needsCrop && !needsWatermark && !needsPortraitBlur {
             // Fast path: no pixel work — add XMP tag via source-copy if needed (no full re-encode)
             if let style = activeStyle { return ExifReader.embedStyleTag(in: rawData, styleName: style.name) ?? rawData }
             return rawData
@@ -1606,6 +1617,22 @@ struct CameraView: View {
         }
 
         var out = ciImage
+
+        // Portrait depth blur — applied before LUT so the grade sits on top of the blurred image
+        if needsPortraitBlur,
+           let depth = depthData,
+           let converted = try? depth.converting(toDepthDataType: kCVPixelFormatType_DisparityFloat32),
+           let blurFilter = CIFilter(name: "CIDepthBlurEffect") {
+            let orientationValue = (CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [String: Any])?[kCGImagePropertyOrientation as String] as? UInt32 ?? 1
+            let photoOrientation = CGImagePropertyOrientation(rawValue: orientationValue) ?? .up
+            let disparityCI = CIImage(cvPixelBuffer: converted.depthDataMap).oriented(photoOrientation)
+            blurFilter.setValue(out, forKey: kCIInputImageKey)
+            blurFilter.setValue(disparityCI, forKey: "inputDisparityImage")
+            blurFilter.setValue(Float(2.8), forKey: "inputAperture")
+            if let blurOutput = blurFilter.outputImage {
+                out = blurOutput.cropped(to: out.extent)
+            }
+        }
 
         if needsLUT, let filter = captureFilter {
             filter.inputImage = out
