@@ -771,7 +771,7 @@ struct CameraView: View {
         let delegate = makeCaptureDelegate()
         activeDelegates[delegate.id] = delegate
         if isWBBracketEnabled {
-            cameraManager.capturePhotoBracketedWB(kStep: Float(wbBracketKStep), delegate: delegate)
+            cameraManager.capturePhotoBracketedWB(kStep: Float(wbBracketKStep), captureFormat: cameraManager.captureSettings.captureFormat, flash: cameraManager.flashMode, delegate: delegate)
             return
         }
         if isBracketingEnabled {

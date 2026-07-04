@@ -21,6 +21,7 @@ final class CapturePhotoDelegate: NSObject, AVCapturePhotoCaptureDelegate {
                      error: Error?) {
         if let error {
             Logger.camera.error("Capture error: \(error.localizedDescription)")
+            onCaptureDone(id)
             return
         }
         var shouldShowReview = true

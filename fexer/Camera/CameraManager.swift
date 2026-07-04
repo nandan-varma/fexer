@@ -25,7 +25,6 @@ import Photos
     var currentLensPosition: Float = 0.5
     var currentWhiteBalanceTint: Float = 0
     var currentZoomFactor: CGFloat = 1.0
-    var availableLenses: [LensOption] = []
     var flashMode: AVCaptureDevice.FlashMode = .off
     var isCapturing = false
     var lastCapturedPhoto: CapturedPhoto?
@@ -61,8 +60,6 @@ import Photos
     private let photoOutput = AVCapturePhotoOutput()
     private let videoOutput = AVCaptureVideoDataOutput()
     private(set) var currentDevice: AVCaptureDevice?
-    private var deviceObservations: [NSKeyValueObservation] = []
-    private var subjectAreaObserver: NSObjectProtocol?
     private var trapFocusCaptureCallback: (() -> Void)?
 
     // AVAssetWriter recording pipeline — accessed from sessionQueue AND nonisolated audio delegate.
@@ -80,9 +77,19 @@ import Photos
     // Busy guard for still capture — checked and set atomically on sessionQueue to prevent TOCTOU.
     // isCapturing mirrors this on MainActor for UI binding.
     nonisolated(unsafe) private var _captureBusy = false
+    // WB bracket fires N separate capturePhoto calls sharing one delegate.
+    // clearCaptureGuard only truly clears when all expected completions arrive.
+    nonisolated(unsafe) private var pendingBracketCompletions = 0
+
+    // KVO observation tokens are created and invalidated exclusively on sessionQueue.
+    nonisolated(unsafe) private var deviceObservations: [NSKeyValueObservation] = []
+    nonisolated(unsafe) private var subjectAreaObserver: NSObjectProtocol?
 
     // Timer runs on MainActor; kept here so we can invalidate from MainActor context
     private var recordingTimer: Timer?
+
+    // Device model string read once on init (MainActor) so it's safe to access from sessionQueue.
+    private let deviceModel: String = UIDevice.current.model
 
     var captureSettings = CaptureSettings()
 
@@ -178,19 +185,6 @@ import Photos
     private func configureSession() {
         session.beginConfiguration()
         session.sessionPreset = .photo
-
-        let discovery = AVCaptureDevice.DiscoverySession(
-            deviceTypes: [.builtInWideAngleCamera, .builtInUltraWideCamera,
-                          .builtInTelephotoCamera, .builtInDualCamera,
-                          .builtInTripleCamera, .builtInDualWideCamera],
-            mediaType: .video,
-            position: .back
-        )
-
-        let lenses: [LensOption] = discovery.devices.map { device in
-            LensOption(device: device, label: labelForDevice(device))
-        }
-        Task { @MainActor in self.availableLenses = lenses }
 
         guard let device = Self.bestCamera(for: .back),
               let input = try? AVCaptureDeviceInput(device: device)
@@ -355,22 +349,22 @@ import Photos
     }
 
     func setFocusPoint(_ point: CGPoint, adjustExposure: Bool = true) {
+        // Snapshot @MainActor properties before crossing to sessionQueue.
+        let afMode = captureSettings.focusMode
+        let meteringMode = captureSettings.meteringMode
         sessionQueue.async { [self] in
             guard let device = currentDevice else {
                 Logger.camera.error("Cannot set focus point: no camera device available")
                 return
             }
-            let afMode = captureSettings.focusMode
             device.withLock {
                 if device.isFocusPointOfInterestSupported {
                     device.focusPointOfInterest = point
                     device.focusMode = device.isFocusModeSupported(afMode) ? afMode : .autoFocus
                 }
                 if adjustExposure && device.isExposurePointOfInterestSupported {
-                    // Spot metering tracks the tap point; matrix/center stay at center
-                    let expPoint: CGPoint = captureSettings.meteringMode == .spot
-                        ? point
-                        : CGPoint(x: 0.5, y: 0.5)
+                    // Spot metering tracks the tap point; all others stay at center
+                    let expPoint: CGPoint = meteringMode == .spot ? point : CGPoint(x: 0.5, y: 0.5)
                     device.exposurePointOfInterest = expPoint
                     device.exposureMode = .autoExpose
                 }
@@ -433,12 +427,12 @@ import Photos
     }
 
     func setAutoFocus() {
+        let mode = captureSettings.focusMode
         sessionQueue.async { [self] in
             guard let device = currentDevice else {
                 Logger.camera.error("Cannot set auto focus: no camera device available")
                 return
             }
-            let mode = captureSettings.focusMode
             device.withLock {
                 let target = device.isFocusModeSupported(mode) ? mode : .continuousAutoFocus
                 device.focusMode = target
@@ -612,6 +606,12 @@ import Photos
                 session.removeInput(input)
             }
             if session.canAddInput(newInput) { session.addInput(newInput) }
+            // Re-add microphone — removing all inputs above strips it too.
+            if let audioDevice = AVCaptureDevice.default(for: .audio),
+               let audioIn = try? AVCaptureDeviceInput(device: audioDevice),
+               session.canAddInput(audioIn) {
+                session.addInput(audioIn)
+            }
             currentDevice = device
             processor.isRotationReady = false
             session.commitConfiguration()
@@ -633,6 +633,9 @@ import Photos
 
     /// - Parameter bypassBusyGuard: Set `true` for burst mode, which needs overlapping captures.
     func capturePhoto(delegate: AVCapturePhotoCaptureDelegate, bypassBusyGuard: Bool = false) {
+        // Snapshot @MainActor properties before crossing to sessionQueue.
+        let captureFormat = captureSettings.captureFormat
+        let flash = flashMode
         sessionQueue.async { [self] in
             // _captureBusy is checked and set on sessionQueue atomically — no TOCTOU.
             guard bypassBusyGuard || !_captureBusy else { return }
@@ -640,8 +643,8 @@ import Photos
                 _captureBusy = true
                 Task { @MainActor in self.isCapturing = true }
             }
-            let settings = makePhotoSettings(format: captureSettings.captureFormat)
-            settings.flashMode = flashMode
+            let settings = makePhotoSettings(format: captureFormat)
+            settings.flashMode = flash
             settings.photoQualityPrioritization = photoOutput.maxPhotoQualityPrioritization.rawValue >= AVCapturePhotoOutput.QualityPrioritization.quality.rawValue
                 ? .quality
                 : photoOutput.maxPhotoQualityPrioritization
@@ -650,6 +653,7 @@ import Photos
     }
 
     func capturePhotoBracketed(evStep: Float, delegate: AVCapturePhotoCaptureDelegate) {
+        let flash = flashMode
         sessionQueue.async { [self] in
             guard !_captureBusy else { return }
             _captureBusy = true
@@ -666,36 +670,45 @@ import Photos
                 processedFormat: [AVVideoCodecKey: AVVideoCodecType.jpeg],
                 bracketedSettings: bracketedSettings
             )
-            settings.flashMode = flashMode
+            settings.flashMode = flash
             photoOutput.capturePhoto(with: settings, delegate: delegate)
         }
     }
 
     /// Captures 3 shots sequentially at current K ± kStep, then current K.
-    func capturePhotoBracketedWB(kStep: Float, delegate: AVCapturePhotoCaptureDelegate) {
+    func capturePhotoBracketedWB(kStep: Float, captureFormat: CaptureFormat, flash: AVCaptureDevice.FlashMode, delegate: AVCapturePhotoCaptureDelegate) {
         sessionQueue.async { [self] in
             guard !_captureBusy else { return }
             _captureBusy = true
+            let steps: [Float] = [-kStep, 0, kStep]
+            pendingBracketCompletions = steps.count
             Task { @MainActor in self.isCapturing = true }
             let baseK = captureSettings.whiteBalance
             let tint  = captureSettings.whiteBalanceTint
-            let steps: [Float] = [-kStep, 0, kStep]
-            let captureSettings = self.captureSettings
             for (i, step) in steps.enumerated() {
                 sessionQueue.asyncAfter(deadline: .now() + Double(i) * 0.35) { [self] in
                     guard let device = currentDevice else { return }
                     let k = (baseK + step).fxClamped(to: 2000...10000)
                     applyWhiteBalance(kelvin: k, tint: tint, to: device)
-                    let settings = self.makePhotoSettings(format: captureSettings.captureFormat)
-                    settings.flashMode = self.flashMode
+                    let settings = self.makePhotoSettings(format: captureFormat)
+                    settings.flashMode = flash
                     self.photoOutput.capturePhoto(with: settings, delegate: delegate)
                 }
+            }
+            // Restore original WB after all shots complete.
+            sessionQueue.asyncAfter(deadline: .now() + Double(steps.count) * 0.35 + 0.15) { [self] in
+                guard let device = currentDevice else { return }
+                applyWhiteBalance(kelvin: baseK, tint: tint, to: device)
             }
         }
     }
 
     func clearCaptureGuard() {
         sessionQueue.async { [self] in
+            if pendingBracketCompletions > 0 {
+                pendingBracketCompletions -= 1
+                if pendingBracketCompletions > 0 { return }
+            }
             _captureBusy = false
             Task { @MainActor in self.isCapturing = false }
         }
@@ -750,19 +763,20 @@ import Photos
     // MARK: - Video Recording
 
     func startRecording(location: CLLocation? = nil, styleName: String? = nil) {
+        // Snapshot @MainActor settings before crossing to sessionQueue.
+        let captureSnap = captureSettings
+        let proResOK = isProResRecordingSupported
         sessionQueue.async { [self] in
-            // Assign on sessionQueue so all reads/writes to these vars are serialised.
             pendingRecordingLocation = location
             pendingRecordingStyleName = styleName
             guard !isWaitingToRecord && assetWriter == nil else { return }
             isWaitingToRecord = true
-            // AVAssetWriter is set up lazily on the first processed frame so we
-            // know the actual CIImage dimensions after the full filter chain.
-            processor.onProcessedFrame = { [weak self] ciImage, time in
+            processor.onProcessedFrame = { [weak self, captureSnap, proResOK] ciImage, time in
                 guard let self else { return }
                 if self.isWaitingToRecord {
                     self.isWaitingToRecord = false
-                    self.setupAssetWriter(firstImage: ciImage, startTime: time)
+                    self.setupAssetWriter(firstImage: ciImage, startTime: time,
+                                         captureSettings: captureSnap, proResOK: proResOK)
                 } else {
                     self.appendVideoFrame(ciImage, time: time)
                 }
@@ -827,7 +841,8 @@ import Photos
         recordingTimer = nil
     }
 
-    private func setupAssetWriter(firstImage: CIImage, startTime: CMTime) {
+    private func setupAssetWriter(firstImage: CIImage, startTime: CMTime,
+                                   captureSettings: CaptureSettings, proResOK: Bool) {
         let extent = firstImage.extent
         let width = Int(extent.width)
         let height = Int(extent.height)
@@ -835,7 +850,7 @@ import Photos
         let fps = settings.frameRate
 
         let codec = settings.codec
-        let useProRes = codec == .proRes && isProResRecordingSupported
+        let useProRes = codec == .proRes && proResOK
         let fileExt  = useProRes ? "mov" : "mp4"
         let fileType = useProRes ? AVFileType.mov : AVFileType.mp4
 
