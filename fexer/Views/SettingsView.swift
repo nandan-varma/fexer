@@ -35,6 +35,7 @@ private struct CameraSection: View {
     @Bindable var cameraManager: CameraManager
     @AppStorage("defaultCaptureFormat")  private var defaultFormat      = "HEIF"
     @AppStorage("isProRAWEnabled")       private var isProRAW           = false
+    @AppStorage("isHDREnabled")          private var isHDREnabled       = false
     @AppStorage("isLocationEnabled")     private var isLocationEnabled  = true
     @AppStorage("isOpticalZoomLocked")   private var isOpticalZoomLocked = false
 
@@ -50,6 +51,13 @@ private struct CameraSection: View {
                 Label("ProRAW", systemImage: "sparkles")
             }
             .disabled(!cameraManager.isProRAWSupported)
+
+            if cameraManager.isHDRFormatSupported {
+                Toggle(isOn: $isHDREnabled) {
+                    Label("HDR", systemImage: "sun.max.fill")
+                }
+                .onChange(of: isHDREnabled) { _, v in cameraManager.setHDREnabled(v) }
+            }
 
             Toggle(isOn: $isOpticalZoomLocked) {
                 Label("Lock to Optical Zoom", systemImage: "lock.circle")

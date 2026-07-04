@@ -67,9 +67,12 @@ extension CameraManager {
             }
             let settings = makePhotoSettings(format: captureFormat)
             settings.flashMode = flash
-            settings.photoQualityPrioritization = photoOutput.maxPhotoQualityPrioritization.rawValue >= AVCapturePhotoOutput.QualityPrioritization.quality.rawValue
-                ? .quality
-                : photoOutput.maxPhotoQualityPrioritization
+            // photoQualityPrioritization is unsupported for RAW captures
+            if settings.rawPhotoPixelFormatType == 0 {
+                settings.photoQualityPrioritization = photoOutput.maxPhotoQualityPrioritization.rawValue >= AVCapturePhotoOutput.QualityPrioritization.quality.rawValue
+                    ? .quality
+                    : photoOutput.maxPhotoQualityPrioritization
+            }
             photoOutput.capturePhoto(with: settings, delegate: delegate)
         }
     }

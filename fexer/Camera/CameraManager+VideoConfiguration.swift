@@ -130,26 +130,29 @@ extension CameraManager {
     func setHDREnabled(_ enabled: Bool) {
         sessionQueue.async { [self] in
             guard videoOutput.connection(with: .video) != nil else { return }
-            if #available(iOS 16, *) {
-                if enabled, let device = currentDevice {
-                    let hdrFormat = device.formats.first {
-                        $0.isVideoHDRSupported &&
-                        CMVideoFormatDescriptionGetDimensions($0.formatDescription).width >= 1920
+            if enabled, let device = currentDevice {
+                let hdrFormat = device.formats.first {
+                    let w = CMVideoFormatDescriptionGetDimensions($0.formatDescription).width
+                    return w >= 1920 &&
+                        ($0.isVideoHDRSupported || $0.supportedColorSpaces.contains(.HLG_BT2020))
+                }
+                if let fmt = hdrFormat {
+                    session.beginConfiguration()
+                    device.withLock {
+                        device.activeFormat = fmt
+                        // Modern HDR path: activate the HLG color space when available
+                        if fmt.supportedColorSpaces.contains(.HLG_BT2020) {
+                            device.activeColorSpace = .HLG_BT2020
+                        }
                     }
-                    if let fmt = hdrFormat {
-                        session.beginConfiguration()
-                        device.withLock { device.activeFormat = fmt }
-                        session.commitConfiguration()
-                        Task { @MainActor in self.captureSettings.isHDREnabled = true }
-                    } else {
-                        Logger.camera.warning("No HDR-capable format found; HDR not available on this device")
-                        Task { @MainActor in self.captureSettings.isHDREnabled = false }
-                    }
-                } else if !enabled {
+                    session.commitConfiguration()
+                    Task { @MainActor in self.captureSettings.isHDREnabled = true }
+                } else {
+                    Logger.camera.warning("No HDR-capable format found; HDR not available on this device")
                     Task { @MainActor in self.captureSettings.isHDREnabled = false }
                 }
-            } else {
-                Task { @MainActor in self.captureSettings.isHDREnabled = enabled }
+            } else if !enabled {
+                Task { @MainActor in self.captureSettings.isHDREnabled = false }
             }
         }
     }

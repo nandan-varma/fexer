@@ -255,7 +255,7 @@ import Photos
             $0.supportedColorSpaces.contains(.appleLog)
         }
         let hdrOK = device.formats.contains {
-            $0.isVideoHDRSupported
+            $0.isVideoHDRSupported || $0.supportedColorSpaces.contains(.HLG_BT2020)
         }
         let slowMoFPS = device.formats
             .flatMap { $0.videoSupportedFrameRateRanges }
