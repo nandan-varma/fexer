@@ -45,6 +45,8 @@ import Photos
     var isHDRFormatSupported: Bool = false
     var isSlowMotionSupported: Bool = false
     var maxSlowMotionFPS: Int = 60
+    var supportsManualFocus: Bool = false
+    var supportsCustomExposure: Bool = false
 
     // Live audio level (updated ~10fps while recording, 0.0=silence 1.0=peak)
     var audioLevel: Float = 0.0
@@ -64,17 +66,21 @@ import Photos
     private var trapFocusCaptureCallback: (() -> Void)?
     private var pendingCompassHeading: CLHeading?
 
-    // AVAssetWriter recording pipeline — accessed from sessionQueue AND nonisolated audio delegate,
-    // so nonisolated(unsafe). All mutations are serialised through sessionQueue.
-    private var assetWriter: AVAssetWriter?
-    private var videoWriterInput: AVAssetWriterInput?
-    private var audioWriterInput: AVAssetWriterInput?
-    private var pixelBufferAdaptor: AVAssetWriterInputPixelBufferAdaptor?
-    private var isWaitingToRecord = false
+    // AVAssetWriter recording pipeline — accessed from sessionQueue AND nonisolated audio delegate.
+    // All mutations are serialised through sessionQueue; nonisolated(unsafe) opts out of actor checks.
+    nonisolated(unsafe) private var assetWriter: AVAssetWriter?
+    nonisolated(unsafe) private var videoWriterInput: AVAssetWriterInput?
+    nonisolated(unsafe) private var audioWriterInput: AVAssetWriterInput?
+    nonisolated(unsafe) private var pixelBufferAdaptor: AVAssetWriterInputPixelBufferAdaptor?
+    nonisolated(unsafe) private var isWaitingToRecord = false
     private let audioOutput = AVCaptureAudioDataOutput()
-    // Captured at startRecording() call site (MainActor) and consumed on sessionQueue.
-    private var pendingRecordingLocation: CLLocation?
-    private var pendingRecordingStyleName: String?
+    // Set and consumed entirely on sessionQueue to avoid cross-thread access.
+    nonisolated(unsafe) private var pendingRecordingLocation: CLLocation?
+    nonisolated(unsafe) private var pendingRecordingStyleName: String?
+
+    // Busy guard for still capture — checked and set atomically on sessionQueue to prevent TOCTOU.
+    // isCapturing mirrors this on MainActor for UI binding.
+    nonisolated(unsafe) private var _captureBusy = false
 
     // Timer runs on MainActor; kept here so we can invalidate from MainActor context
     private var recordingTimer: Timer?
@@ -249,6 +255,8 @@ import Photos
             self.isHDRFormatSupported = hdrOK
             self.isSlowMotionSupported = slowMoFPS > 60
             self.maxSlowMotionFPS = max(60, slowMoFPS)
+            self.supportsManualFocus = device.isLockingFocusWithCustomLensPositionSupported
+            self.supportsCustomExposure = device.isExposureModeSupported(.custom)
         }
 
         setupObservations(for: device)
@@ -273,6 +281,7 @@ import Photos
                 Logger.camera.error("Cannot set ISO: no camera device available")
                 return
             }
+            guard device.isExposureModeSupported(.custom) else { return }
             let clamped = iso.fxClamped(to: device.activeFormat.minISO...device.activeFormat.maxISO)
             device.withLock {
                 device.setExposureModeCustom(duration: device.exposureDuration, iso: clamped)
@@ -283,6 +292,7 @@ import Photos
     func setShutterSpeed(_ duration: CMTime) {
         sessionQueue.async { [self] in
             guard let device = currentDevice else { return }
+            guard device.isExposureModeSupported(.custom) else { return }
             let min = device.activeFormat.minExposureDuration
             let max = device.activeFormat.maxExposureDuration
             let clamped = CMTimeClampToRange(duration, range: CMTimeRange(start: min, end: max))
@@ -298,6 +308,7 @@ import Photos
     func setManualExposure(iso: Float, duration: CMTime) {
         sessionQueue.async { [self] in
             guard let device = currentDevice else { return }
+            guard device.isExposureModeSupported(.custom) else { return }
             let clampedISO = iso.fxClamped(to: device.activeFormat.minISO...device.activeFormat.maxISO)
             let minDur = device.activeFormat.minExposureDuration
             let maxDur = device.activeFormat.maxExposureDuration
@@ -327,30 +338,33 @@ import Photos
                 Logger.camera.error("Cannot set white balance: no camera device available")
                 return
             }
-            let tnt = AVCaptureDevice.WhiteBalanceTemperatureAndTintValues(temperature: kelvin, tint: tint)
-            var gains = device.deviceWhiteBalanceGains(for: tnt)
-            let maxGain = device.maxWhiteBalanceGain
-            let minGain = min(gains.redGain, gains.greenGain, gains.blueGain)
-            if minGain < 1.0 {
-                let scale = 1.0 / minGain
-                gains.redGain   *= scale
-                gains.greenGain *= scale
-                gains.blueGain  *= scale
-            }
-            let peakGain = max(gains.redGain, gains.greenGain, gains.blueGain)
-            if peakGain > maxGain {
-                let scale = maxGain / peakGain
-                gains.redGain   *= scale
-                gains.greenGain *= scale
-                gains.blueGain  *= scale
-            }
-            gains.redGain   = gains.redGain.fxClamped(to: 1.0...maxGain)
-            gains.greenGain = gains.greenGain.fxClamped(to: 1.0...maxGain)
-            gains.blueGain  = gains.blueGain.fxClamped(to: 1.0...maxGain)
-            device.withLock {
-                device.setWhiteBalanceModeLocked(with: gains)
-            }
+            applyWhiteBalance(kelvin: kelvin, tint: tint, to: device)
         }
+    }
+
+    /// Clamps and applies WB gains directly on the current device. Must be called on sessionQueue.
+    private func applyWhiteBalance(kelvin: Float, tint: Float, to device: AVCaptureDevice) {
+        let tnt = AVCaptureDevice.WhiteBalanceTemperatureAndTintValues(temperature: kelvin, tint: tint)
+        var gains = device.deviceWhiteBalanceGains(for: tnt)
+        let maxGain = device.maxWhiteBalanceGain
+        let minGain = min(gains.redGain, gains.greenGain, gains.blueGain)
+        if minGain < 1.0 {
+            let scale = 1.0 / minGain
+            gains.redGain   *= scale
+            gains.greenGain *= scale
+            gains.blueGain  *= scale
+        }
+        let peakGain = max(gains.redGain, gains.greenGain, gains.blueGain)
+        if peakGain > maxGain {
+            let scale = maxGain / peakGain
+            gains.redGain   *= scale
+            gains.greenGain *= scale
+            gains.blueGain  *= scale
+        }
+        gains.redGain   = gains.redGain.fxClamped(to: 1.0...maxGain)
+        gains.greenGain = gains.greenGain.fxClamped(to: 1.0...maxGain)
+        gains.blueGain  = gains.blueGain.fxClamped(to: 1.0...maxGain)
+        device.withLock { device.setWhiteBalanceModeLocked(with: gains) }
     }
 
     /// Sets the camera focus distance using lens position.
@@ -365,6 +379,7 @@ import Photos
                 Logger.camera.error("Cannot set focus: no camera device available")
                 return
             }
+            guard device.isLockingFocusWithCustomLensPositionSupported else { return }
             device.withLock {
                 device.setFocusModeLocked(lensPosition: lensPosition.fxClamped(to: 0...1))
             }
@@ -534,6 +549,7 @@ import Photos
                 Logger.camera.error("Cannot lock auto exposure: no camera device available")
                 return
             }
+            guard device.isExposureModeSupported(.custom) else { return }
             device.withLock {
                 device.setExposureModeCustom(duration: device.exposureDuration, iso: device.iso)
             }
@@ -671,7 +687,11 @@ import Photos
             currentDevice = device
             processor.isRotationReady = false
             session.commitConfiguration()
-            Task { @MainActor in self.isDepthDataSupported = photoOutput.isDepthDataDeliverySupported }
+            Task { @MainActor in
+                self.isDepthDataSupported = photoOutput.isDepthDataDeliverySupported
+                self.supportsManualFocus = device.isLockingFocusWithCustomLensPositionSupported
+                self.supportsCustomExposure = device.isExposureModeSupported(.custom)
+            }
             cleanupObservers()
             setupObservations(for: device)
             sessionQueue.asyncAfter(deadline: .now() + 0.15) { [self] in
@@ -686,8 +706,10 @@ import Photos
     /// - Parameter bypassBusyGuard: Set `true` for burst mode, which needs overlapping captures.
     func capturePhoto(delegate: AVCapturePhotoCaptureDelegate, bypassBusyGuard: Bool = false) {
         sessionQueue.async { [self] in
-            guard bypassBusyGuard || !isCapturing else { return }
+            // _captureBusy is checked and set on sessionQueue atomically — no TOCTOU.
+            guard bypassBusyGuard || !_captureBusy else { return }
             if !bypassBusyGuard {
+                _captureBusy = true
                 Task { @MainActor in self.isCapturing = true }
             }
             let settings = makePhotoSettings(format: captureSettings.captureFormat)
@@ -701,7 +723,8 @@ import Photos
 
     func capturePhotoBracketed(evStep: Float, delegate: AVCapturePhotoCaptureDelegate) {
         sessionQueue.async { [self] in
-            guard !isCapturing else { return }
+            guard !_captureBusy else { return }
+            _captureBusy = true
             Task { @MainActor in self.isCapturing = true }
 
             let offsets: [Float] = [-evStep, 0, evStep]
@@ -723,7 +746,8 @@ import Photos
     /// Captures 3 shots sequentially at current K ± kStep, then current K.
     func capturePhotoBracketedWB(kStep: Float, delegate: AVCapturePhotoCaptureDelegate) {
         sessionQueue.async { [self] in
-            guard !isCapturing else { return }
+            guard !_captureBusy else { return }
+            _captureBusy = true
             Task { @MainActor in self.isCapturing = true }
             let baseK = captureSettings.whiteBalance
             let tint  = captureSettings.whiteBalanceTint
@@ -731,13 +755,21 @@ import Photos
             let captureSettings = self.captureSettings
             for (i, step) in steps.enumerated() {
                 sessionQueue.asyncAfter(deadline: .now() + Double(i) * 0.35) { [self] in
+                    guard let device = currentDevice else { return }
                     let k = (baseK + step).fxClamped(to: 2000...10000)
-                    self.setWhiteBalance(kelvin: k, tint: tint)
+                    applyWhiteBalance(kelvin: k, tint: tint, to: device)
                     let settings = self.makePhotoSettings(format: captureSettings.captureFormat)
                     settings.flashMode = self.flashMode
                     self.photoOutput.capturePhoto(with: settings, delegate: delegate)
                 }
             }
+        }
+    }
+
+    func clearCaptureGuard() {
+        sessionQueue.async { [self] in
+            _captureBusy = false
+            Task { @MainActor in self.isCapturing = false }
         }
     }
 
@@ -790,9 +822,10 @@ import Photos
     // MARK: - Video Recording
 
     func startRecording(location: CLLocation? = nil, styleName: String? = nil) {
-        pendingRecordingLocation = location
-        pendingRecordingStyleName = styleName
         sessionQueue.async { [self] in
+            // Assign on sessionQueue so all reads/writes to these vars are serialised.
+            pendingRecordingLocation = location
+            pendingRecordingStyleName = styleName
             guard !isWaitingToRecord && assetWriter == nil else { return }
             isWaitingToRecord = true
             // AVAssetWriter is set up lazily on the first processed frame so we
@@ -1110,7 +1143,6 @@ import Photos
     var isMacroSupported: Bool {
         guard let device = currentDevice else { return false }
         return device.constituentDevices.contains { $0.deviceType == .builtInUltraWideCamera }
-            && device.isCenterStageActive == false  // proxy for macro-capable device
     }
 
     func setMacroModeEnabled(_ enabled: Bool) {
@@ -1195,10 +1227,14 @@ import Photos
                     }
                     if let fmt = hdrFormat {
                         device.withLock { device.activeFormat = fmt }
+                        Task { @MainActor in self.captureSettings.isHDREnabled = true }
                     }
+                } else if !enabled {
+                    Task { @MainActor in self.captureSettings.isHDREnabled = false }
                 }
+            } else {
+                Task { @MainActor in self.captureSettings.isHDREnabled = enabled }
             }
-            Task { @MainActor in self.captureSettings.isHDREnabled = enabled }
         }
     }
 
@@ -1429,6 +1465,8 @@ import Photos
     func cleanupObservers() {
         deviceObservations.forEach { $0.invalidate() }
         deviceObservations.removeAll()
+        subjectAreaObserver.map { NotificationCenter.default.removeObserver($0) }
+        subjectAreaObserver = nil
     }
 
     private func labelForDevice(_ device: AVCaptureDevice) -> String {
@@ -1484,23 +1522,30 @@ extension CameraManager {
     /// hardcoding any device-type priority order.
     /// `DiscoverySession` acts as the search space; the hardware reports what actually exists.
     static func bestCamera(for position: AVCaptureDevice.Position) -> AVCaptureDevice? {
-        // List covers all color-video device types available as of iOS 18.
-        // The selection below is dynamic — this is only the discovery search space.
-        let colorCameraTypes: [AVCaptureDevice.DeviceType] = [
+        // Physical cameras support the full manual control API (setExposureModeCustom,
+        // setFocusModeLockedWithLensPosition). Virtual multi-lens devices (.builtInTripleCamera,
+        // .builtInDualCamera etc.) do NOT — calling those APIs on a virtual device throws
+        // NSInvalidArgumentException. Prefer the physical wide-angle camera; the lens switcher
+        // in availableLenses lets users jump to tele/ultra-wide when needed.
+        let physicalTypes: [AVCaptureDevice.DeviceType] = [
             .builtInWideAngleCamera,
             .builtInUltraWideCamera,
             .builtInTelephotoCamera,
-            .builtInDualCamera,
-            .builtInDualWideCamera,
-            .builtInTripleCamera,
         ]
+        let virtualTypes: [AVCaptureDevice.DeviceType] = [
+            .builtInTripleCamera,
+            .builtInDualWideCamera,
+            .builtInDualCamera,
+        ]
+        let allTypes = physicalTypes + virtualTypes
         let devices = AVCaptureDevice.DiscoverySession(
-            deviceTypes: colorCameraTypes, mediaType: .video, position: position
+            deviceTypes: allTypes, mediaType: .video, position: position
         ).devices
-        // Virtual multi-lens devices expose constituent lenses via constituentDevices.
-        // Single physical devices have an empty constituentDevices array.
-        // Picking the device with the most constituents selects the widest multi-lens system.
-        return devices.max { $0.constituentDevices.count < $1.constituentDevices.count }
+        // Prefer wide-angle physical camera; fall back to other physicals, then virtual.
+        for type in physicalTypes {
+            if let d = devices.first(where: { $0.deviceType == type }) { return d }
+        }
+        return devices.first
     }
 }
 

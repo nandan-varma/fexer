@@ -727,7 +727,7 @@ struct CameraView: View {
         }
         if cameraViewModel.activeMode == .selfTimer && selfTimerDelay > 0 {
             HapticManager.light()
-            cameraViewModel.startTimerCapture(delay: Double(selfTimerDelay)) { performCapture() }
+            cameraViewModel.startTimerCapture(delay: Double(selfTimerDelay), repeatCount: selfTimerRepeat) { performCapture() }
         } else {
             performCapture()
         }
@@ -758,7 +758,14 @@ struct CameraView: View {
         // Screen flash for front-facing camera (no hardware flash on front)
         let isFront = cameraManager.currentDevice?.position == .front
         if isFront && cameraManager.flashMode != .off {
-            UIScreen.main.brightness = 1.0
+            let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene
+            let screen = scene?.screen ?? UIScreen.main
+            let originalBrightness = screen.brightness
+            screen.brightness = 1.0
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                screen.brightness = originalBrightness
+            }
         }
         HapticManager.shutter()
         let delegate = makeCaptureDelegate()
@@ -1431,15 +1438,13 @@ struct CameraView: View {
     }
 
     private func formatTimecode(_ seconds: TimeInterval) -> String {
-        let fps = videoFrameRate
-        let totalFrames = Int(seconds * Double(fps))
-        let fr = totalFrames % fps
-        let s  = (totalFrames / fps) % 60
-        let m  = (totalFrames / fps / 60) % 60
-        let h  = totalFrames / fps / 3600
-        return String(format: "%02d:%02d:%02d:%02d", h, m, s, fr)
+        let total = Int(seconds)
+        return String(format: "%02d:%02d:%02d", total / 3600, (total % 3600) / 60, total % 60)
     }
 
+
+    // ponytail: class box so onLivePhotoMovie and the save Task share the URL without Sendable friction
+    private final class MovieURLBox { var url: URL? }
 
     private func makeCaptureDelegate() -> CapturePhotoDelegate {
         let captureLocation = appState.permissionsManager.currentLocation
@@ -1450,6 +1455,7 @@ struct CameraView: View {
         let capturedCropRatio = cropRatio
         let capturedWatermark = watermarkText
         let isAnamorphic = cameraManager.processor.isAnamorphicDesqueezeEnabled
+        let movieBox = MovieURLBox()
         let onShowReview: (CapturedPhoto) -> Void = { [self] photo in
             capturedPhoto = photo
             if showReviewAfterShot {
@@ -1460,7 +1466,7 @@ struct CameraView: View {
             if let thumb { lastCapturedThumb = thumb }
         }
 
-        return CapturePhotoDelegate(
+        let delegate = CapturePhotoDelegate(
             onProcessed: { photo, shouldShowReview in
                 guard let rawData = photo.fileDataRepresentation() else {
                     Logger.camera.error("fileDataRepresentation returned nil")
@@ -1485,14 +1491,18 @@ struct CameraView: View {
                         await MainActor.run { onThumbGenerated(thumb) }
                     }
 
+                    // ponytail: movie URL set by onLivePhotoMovie before save; processing delay makes
+                    // this safe in practice — mark with a log if it ever fires nil unexpectedly
                     guard shouldShowReview else {
-                        saveToPhotoLibrary(data: processedData, photo: photo, location: captureLocation)
+                        saveToPhotoLibrary(data: processedData, photo: photo,
+                                           location: captureLocation, livePhotoMovieURL: movieBox.url)
                         return
                     }
 
                     // For review captures: save first to get the asset identifier for delete support
                     let assetID: String? = await withCheckedContinuation { cont in
-                        saveToPhotoLibrary(data: processedData, photo: photo, location: captureLocation) { id in
+                        saveToPhotoLibrary(data: processedData, photo: photo,
+                                           location: captureLocation, livePhotoMovieURL: movieBox.url) { id in
                             cont.resume(returning: id)
                         }
                     }
@@ -1509,12 +1519,14 @@ struct CameraView: View {
                 }
             },
             onCaptureDone: { [cameraManager] delegateID in
+                cameraManager.clearCaptureGuard()
                 Task { @MainActor [self] in
-                    cameraManager.isCapturing = false
                     activeDelegates.removeValue(forKey: delegateID)
                 }
             }
         )
+        delegate.onLivePhotoMovie = { movieBox.url = $0 }
+        return delegate
     }
 
     // MARK: - Volume button observer
@@ -1688,70 +1700,6 @@ struct CameraView: View {
         return mutableData as Data
     }
 
-    /// Center-crops JPEG data to match the given crop ratio. Metadata is preserved.
-    private static func cropImageData(_ data: Data, to ratio: CropRatio) -> Data? {
-        guard let aspect = ratio.portraitAspect,
-              let source = CGImageSourceCreateWithData(data as CFData, nil),
-              let uti = CGImageSourceGetType(source),
-              let cgImage = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return nil }
-
-        let imgW = CGFloat(cgImage.width)
-        let imgH = CGFloat(cgImage.height)
-        let currentAspect = imgW / imgH
-
-        let cropRect: CGRect
-        if aspect <= currentAspect {
-            // Target is narrower — crop width, keep full height
-            let newW = imgH * aspect
-            cropRect = CGRect(x: (imgW - newW) / 2, y: 0, width: newW, height: imgH)
-        } else {
-            // Target is wider — crop height, keep full width
-            let newH = imgW / aspect
-            cropRect = CGRect(x: 0, y: (imgH - newH) / 2, width: imgW, height: newH)
-        }
-
-        guard let cropped = cgImage.cropping(to: cropRect) else { return nil }
-        let out = NSMutableData()
-        guard let dest = CGImageDestinationCreateWithData(out, uti, 1, nil) else { return nil }
-        var props = (CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [String: Any]) ?? [:]
-        props[kCGImagePropertyOrientation as String] = 1
-        CGImageDestinationAddImage(dest, cropped, props as CFDictionary)
-        guard CGImageDestinationFinalize(dest) else { return nil }
-        return out as Data
-    }
-
-    /// Renders text as a watermark in the bottom-right corner of a JPEG image.
-    private static func burnWatermark(in data: Data, text: String) -> Data? {
-        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
-              let uti = CGImageSourceGetType(source),
-              let cgImage = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return nil }
-
-        let size = CGSize(width: cgImage.width, height: cgImage.height)
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = 1
-        let rendered = UIGraphicsImageRenderer(size: size, format: format).image { _ in
-            UIImage(cgImage: cgImage).draw(in: CGRect(origin: .zero, size: size))
-            let fontSize = max(24, size.width * 0.022)
-            let attrs: [NSAttributedString.Key: Any] = [
-                .font: UIFont.systemFont(ofSize: fontSize, weight: .semibold),
-                .foregroundColor: UIColor.white.withAlphaComponent(0.65)
-            ]
-            let str = NSAttributedString(string: text, attributes: attrs)
-            let strSize = str.size()
-            let padding = fontSize * 1.4
-            str.draw(at: CGPoint(x: size.width - strSize.width - padding,
-                                 y: size.height - strSize.height - padding))
-        }
-
-        guard let watermarkedCG = rendered.cgImage else { return nil }
-        let out = NSMutableData()
-        guard let dest = CGImageDestinationCreateWithData(out, uti, 1, nil) else { return nil }
-        var props = (CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [String: Any]) ?? [:]
-        props[kCGImagePropertyOrientation as String] = 1
-        CGImageDestinationAddImage(dest, watermarkedCG, props as CFDictionary)
-        guard CGImageDestinationFinalize(dest) else { return nil }
-        return out as Data
-    }
 }
 
 // MARK: - Logger

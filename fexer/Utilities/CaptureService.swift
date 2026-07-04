@@ -3,7 +3,9 @@ import AVFoundation
 import UniformTypeIdentifiers
 import OSLog
 
-func saveToPhotoLibrary(data: Data, photo: AVCapturePhoto, location: CLLocation?, completion: ((String?) -> Void)? = nil) {
+func saveToPhotoLibrary(data: Data, photo: AVCapturePhoto, location: CLLocation?,
+                        livePhotoMovieURL: URL? = nil,
+                        completion: ((String?) -> Void)? = nil) {
     let save = {
         var capturedID: String?
         PHPhotoLibrary.shared().performChanges({
@@ -13,6 +15,11 @@ func saveToPhotoLibrary(data: Data, photo: AVCapturePhoto, location: CLLocation?
                 ? AVFileType.dng.rawValue
                 : UTType.jpeg.identifier
             request.addResource(with: .photo, data: data, options: options)
+            if let movieURL = livePhotoMovieURL {
+                let movOpts = PHAssetResourceCreationOptions()
+                movOpts.shouldMoveFile = true
+                request.addResource(with: .pairedVideo, fileURL: movieURL, options: movOpts)
+            }
             request.location = location
             capturedID = request.placeholderForCreatedAsset?.localIdentifier
         }) { success, error in

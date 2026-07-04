@@ -22,7 +22,6 @@ final class CaptureProcessor: NSObject {
     var onHistogramUpdate: (([Float], [Float], [Float], [Float]) -> Void)?
     var onWaveformUpdate: ((WaveformData) -> Void)?
     var onVectorscopeUpdate: ((VectorscopeData) -> Void)?
-    var onFrameAvailable: (() -> Void)?
     var onPreviewSizeKnown: ((CGSize) -> Void)?
     /// Called with the raw pixel buffer ~once per second (for thumbnail generation).
     var onPixelBuffer: ((CVPixelBuffer) -> Void)?
@@ -36,11 +35,6 @@ final class CaptureProcessor: NSObject {
     var lutFilter: LUTFilter? {
         get { lutFilterLock.withLock { $0 } }
         set { lutFilterLock.withLock { $0 = newValue } }
-    }
-
-    // Thread-safe method to get current LUT filter with validation
-    func getCurrentLUTFilter() -> LUTFilter? {
-        lutFilterLock.withLock { $0 }
     }
 
     // Thread-safe zebra time access
@@ -145,7 +139,6 @@ final class CaptureProcessor: NSObject {
 
     func setLatestImage(_ image: CIImage) {
         imageLock.withLock { $0 = image }
-        onFrameAvailable?()
     }
 
     func getLatestImage() -> CIImage? {

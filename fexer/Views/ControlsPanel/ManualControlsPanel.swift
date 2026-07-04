@@ -1,3 +1,4 @@
+import AVFoundation
 import SwiftUI
 
 struct ManualControlsPanel: View {
@@ -68,15 +69,21 @@ struct ManualControlsPanel: View {
                 }
                 .frame(maxWidth: .infinity)
 
-                divider
-                FocusSlider(
-                    lensPosition: $cameraManager.captureSettings.focusDistance,
-                    isAuto: $cameraManager.captureSettings.isAutoFocus
-                ) { cameraManager.setFocus(lensPosition: cameraManager.captureSettings.focusDistance) }
-                .onChange(of: cameraManager.captureSettings.isAutoFocus) { _, isAuto in
-                    if isAuto { cameraManager.setAutoFocus() }
+                if cameraManager.supportsManualFocus {
+                    divider
+                    FocusSlider(
+                        lensPosition: $cameraManager.captureSettings.focusDistance,
+                        isAuto: $cameraManager.captureSettings.isAutoFocus
+                    ) { cameraManager.setFocus(lensPosition: cameraManager.captureSettings.focusDistance) }
+                    .onChange(of: cameraManager.captureSettings.isAutoFocus) { _, isAuto in
+                        if isAuto {
+                            cameraManager.setAutoFocus()
+                        } else {
+                            cameraManager.setFocusMode(.locked)
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
                 }
-                .frame(maxWidth: .infinity)
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 20)
