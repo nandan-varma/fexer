@@ -189,6 +189,8 @@ private struct VideoSection: View {
                 Text("25 fps").tag(25)
                 Text("30 fps").tag(30)
                 Text("60 fps").tag(60)
+                Text("120 fps").tag(120)
+                Text("240 fps").tag(240)
             } label: {
                 Label("Frame Rate", systemImage: "film.fill")
             }
