@@ -1,7 +1,7 @@
 import Foundation
 import ImageIO
 
-struct ExifField: RawRepresentable, Hashable {
+nonisolated struct ExifField: RawRepresentable, Hashable {
     let rawValue: String
     static let make = ExifField(rawValue: "Make")
     static let model = ExifField(rawValue: "Model")
@@ -20,7 +20,7 @@ struct ExifField: RawRepresentable, Hashable {
 }
 
 final class ExifReader {
-    static func read(from data: Data) -> [ExifField: String] {
+    nonisolated static func read(from data: Data) -> [ExifField: String] {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil),
               let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [String: Any]
         else { return [:] }

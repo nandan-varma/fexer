@@ -2,7 +2,7 @@ import CoreImage
 
 // Waveform: 64 display columns × 128 luma bins
 // density[col * rows + bin] — bin 0 = 0% IRE (bottom of display), rows-1 = 100% IRE (top)
-struct WaveformData {
+nonisolated struct WaveformData {
     static let cols = 64
     static let rows = 128
     var density: [Float]
@@ -19,7 +19,7 @@ struct WaveformData {
 // Cb (B-Y) = horizontal axis — col 0 = left (Cb = -0.5), col S-1 = right (Cb = +0.5)
 // Cr (R-Y) = vertical axis  — row 0 = top  (Cr = +0.5), row S-1 = bottom (Cr = -0.5)
 // density[row * size + col]
-struct VectorscopeData {
+nonisolated struct VectorscopeData {
     static let size = 64
     var density: [Float]
 

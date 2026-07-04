@@ -12,7 +12,7 @@ private final class VolumeGate: @unchecked Sendable {
     private var notReadyUntil: Date
     private let lock = NSLock()
 
-    init() { notReadyUntil = Date().addingTimeInterval(0.5) }
+    init() { notReadyUntil = Date().addingTimeInterval(2.0) }
 
     func extend() {
         lock.withLock { notReadyUntil = Date().addingTimeInterval(0.5) }
@@ -85,6 +85,7 @@ struct CameraView: View {
 
     @State private var volumeObservation: NSKeyValueObservation?
     @State private var volumeInterruptionToken: NSObjectProtocol?
+    @State private var volumeRouteChangeToken: NSObjectProtocol?
     @State private var showSwipeUpHint = false
     @State private var aelToastText: String? = nil
     @State private var aelToastTask: Task<Void, Never>?
@@ -757,9 +758,9 @@ struct CameraView: View {
         }
         // Screen flash for front-facing camera (no hardware flash on front)
         let isFront = cameraManager.currentDevice?.position == .front
-        if isFront && cameraManager.flashMode != .off {
-            let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene
-            let screen = scene?.screen ?? UIScreen.main
+        if isFront && cameraManager.flashMode != .off,
+           let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
+            let screen = scene.screen
             let originalBrightness = screen.brightness
             screen.brightness = 1.0
             Task { @MainActor in
@@ -1398,6 +1399,10 @@ struct CameraView: View {
             NotificationCenter.default.removeObserver(token)
             volumeInterruptionToken = nil
         }
+        if let token = volumeRouteChangeToken {
+            NotificationCenter.default.removeObserver(token)
+            volumeRouteChangeToken = nil
+        }
         cameraManager.stopSession()
         UIApplication.shared.isIdleTimerDisabled = false
         DeviceOrientationTracker.shared.stop()
@@ -1450,7 +1455,7 @@ struct CameraView: View {
 
 
     // ponytail: class box so onLivePhotoMovie and the save Task share the URL without Sendable friction
-    private final class MovieURLBox { var url: URL? }
+    private nonisolated final class MovieURLBox: @unchecked Sendable { var url: URL? }
 
     private func makeCaptureDelegate() -> CapturePhotoDelegate {
         let captureLocation = appState.permissionsManager.currentLocation
@@ -1483,16 +1488,18 @@ struct CameraView: View {
                 // isCapturing) as soon as the sensor is done — not after post-processing.
                 Task.detached(priority: .userInitiated) {
                     let depthData: AVDepthData? = isPortraitMode ? photo.depthData : nil
-                    let processedData = CameraView.processCapture(
-                        rawData: rawData,
-                        isRaw: photo.isRawPhoto,
-                        captureFilter: captureFilter,
-                        isAnamorphic: isAnamorphic,
-                        cropRatio: capturedCropRatio,
-                        watermark: capturedWatermark,
-                        activeStyle: activeStyle,
-                        depthData: depthData
-                    )
+                    let processedData = await MainActor.run {
+                        CameraView.processCapture(
+                            rawData: rawData,
+                            isRaw: photo.isRawPhoto,
+                            captureFilter: captureFilter,
+                            isAnamorphic: isAnamorphic,
+                            cropRatio: capturedCropRatio,
+                            watermark: capturedWatermark,
+                            activeStyle: activeStyle,
+                            depthData: depthData
+                        )
+                    }
 
                     // Generate gallery-button thumbnail for all (non-RAW) captures
                     if !photo.isRawPhoto {
@@ -1515,16 +1522,18 @@ struct CameraView: View {
                             cont.resume(returning: id)
                         }
                     }
-                    let captured = CapturedPhoto(
-                        jpegData: processedData,
-                        captureSettings: captureSettings,
-                        appliedStyle: activeStyle,
-                        styleIntensity: styleIntensity,
-                        location: captureLocation,
-                        exifMetadata: photo.metadata,
-                        assetLocalIdentifier: assetID
-                    )
-                    await MainActor.run { onShowReview(captured) }
+                    await MainActor.run {
+                        let captured = CapturedPhoto(
+                            jpegData: processedData,
+                            captureSettings: captureSettings,
+                            appliedStyle: activeStyle,
+                            styleIntensity: styleIntensity,
+                            location: captureLocation,
+                            exifMetadata: photo.metadata,
+                            assetLocalIdentifier: assetID
+                        )
+                        onShowReview(captured)
+                    }
                 }
             },
             onCaptureDone: { [cameraManager] delegateID in
@@ -1545,8 +1554,16 @@ struct CameraView: View {
         let session = AVAudioSession.sharedInstance()
         // .playback without .mixWithOthers gives the best chance of suppressing
         // the system volume HUD (combined with VolumeHUDSuppressor in the hierarchy).
-        try? session.setCategory(.playback, mode: .default, options: [])
-        try? session.setActive(true)
+        do {
+            try session.setCategory(.playback, mode: .default, options: [])
+        } catch {
+            Logger.camera.error("Audio session setCategory failed: \(error.localizedDescription)")
+        }
+        do {
+            try session.setActive(true)
+        } catch {
+            Logger.camera.error("Audio session setActive failed: \(error.localizedDescription)")
+        }
         // On first launch, mic/photo-library permission dialogs interrupt the audio session.
         // When each dialog ends, AVAudioSession fires a spurious outputVolume KVO with old != new,
         // which would trigger the shutter. VolumeGate blocks events for 500 ms after setup AND
@@ -1560,7 +1577,15 @@ struct CameraView: View {
             guard let type = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
                   AVAudioSession.InterruptionType(rawValue: type) == .ended else { return }
             gate.extend()
+            // Retry activation after interruption — the initial attempt may have failed
+            // if permission dialogs were competing for the audio hardware (err=-19224).
+            try? session.setActive(true)
         }
+        volumeRouteChangeToken = NotificationCenter.default.addObserver(
+            forName: AVAudioSession.routeChangeNotification,
+            object: nil,
+            queue: nil
+        ) { _ in gate.extend() }
         volumeObservation = session.observe(\.outputVolume, options: [.old, .new]) { _, change in
             guard gate.isReady else { return }
             guard let old = change.oldValue, let new = change.newValue, old != new else { return }
@@ -1621,8 +1646,8 @@ struct CameraView: View {
         // Portrait depth blur — applied before LUT so the grade sits on top of the blurred image
         if needsPortraitBlur,
            let depth = depthData,
-           let converted = try? depth.converting(toDepthDataType: kCVPixelFormatType_DisparityFloat32),
            let blurFilter = CIFilter(name: "CIDepthBlurEffect") {
+            let converted = depth.converting(toDepthDataType: kCVPixelFormatType_DisparityFloat32)
             let orientationValue = (CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [String: Any])?[kCGImagePropertyOrientation as String] as? UInt32 ?? 1
             let photoOrientation = CGImagePropertyOrientation(rawValue: orientationValue) ?? .up
             let disparityCI = CIImage(cvPixelBuffer: converted.depthDataMap).oriented(photoOrientation)

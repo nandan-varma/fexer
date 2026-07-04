@@ -50,7 +50,7 @@ private struct CameraSection: View {
             .disabled(!cameraManager.isProRAWSupported)
 
             Toggle(isOn: $isOpticalZoomLocked) {
-                Label("Lock to Optical Zoom", systemImage: "lock.magnifyingglass")
+                Label("Lock to Optical Zoom", systemImage: "lock.circle")
             }
 
             Toggle(isOn: $isLocationEnabled) {

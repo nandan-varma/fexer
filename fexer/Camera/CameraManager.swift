@@ -63,27 +63,28 @@ import Photos
     private var trapFocusCaptureCallback: (() -> Void)?
 
     // AVAssetWriter recording pipeline — accessed from sessionQueue AND nonisolated audio delegate.
-    // All mutations are serialised through sessionQueue; nonisolated(unsafe) opts out of actor checks.
-    nonisolated(unsafe) private var assetWriter: AVAssetWriter?
-    nonisolated(unsafe) private var videoWriterInput: AVAssetWriterInput?
-    nonisolated(unsafe) private var audioWriterInput: AVAssetWriterInput?
-    nonisolated(unsafe) private var pixelBufferAdaptor: AVAssetWriterInputPixelBufferAdaptor?
-    nonisolated(unsafe) private var isWaitingToRecord = false
+    // All mutations are serialised through sessionQueue; @ObservationIgnored + nonisolated(unsafe)
+    // lets the nonisolated AVCaptureAudioDataOutputSampleBufferDelegate read them without warnings.
+    @ObservationIgnored nonisolated(unsafe) private var assetWriter: AVAssetWriter?
+    private var videoWriterInput: AVAssetWriterInput?
+    @ObservationIgnored nonisolated(unsafe) private var audioWriterInput: AVAssetWriterInput?
+    private var pixelBufferAdaptor: AVAssetWriterInputPixelBufferAdaptor?
+    private var isWaitingToRecord = false
     private let audioOutput = AVCaptureAudioDataOutput()
     // Set and consumed entirely on sessionQueue to avoid cross-thread access.
-    nonisolated(unsafe) private var pendingRecordingLocation: CLLocation?
-    nonisolated(unsafe) private var pendingRecordingStyleName: String?
+    private var pendingRecordingLocation: CLLocation?
+    private var pendingRecordingStyleName: String?
 
     // Busy guard for still capture — checked and set atomically on sessionQueue to prevent TOCTOU.
     // isCapturing mirrors this on MainActor for UI binding.
-    nonisolated(unsafe) private var _captureBusy = false
+    private var _captureBusy = false
     // WB bracket fires N separate capturePhoto calls sharing one delegate.
     // clearCaptureGuard only truly clears when all expected completions arrive.
-    nonisolated(unsafe) private var pendingBracketCompletions = 0
+    private var pendingBracketCompletions = 0
 
     // KVO observation tokens are created and invalidated exclusively on sessionQueue.
-    nonisolated(unsafe) private var deviceObservations: [NSKeyValueObservation] = []
-    nonisolated(unsafe) private var subjectAreaObserver: NSObjectProtocol?
+    private var deviceObservations: [NSKeyValueObservation] = []
+    private var subjectAreaObserver: NSObjectProtocol?
 
     // Timer runs on MainActor; kept here so we can invalidate from MainActor context
     private var recordingTimer: Timer?
@@ -137,7 +138,7 @@ import Photos
             // Defer video rotation so the connection stabilises after startRunning.
             // Setting videoRotationAngle immediately can trigger Fig err=-12710.
             // Frames are dropped until this fires (isRotationReady gate in CaptureProcessor).
-            self.sessionQueue.asyncAfter(deadline: .now() + 0.15) { [self] in
+            self.sessionQueue.asyncAfter(deadline: .now() + 0.30) { [self] in
                 self.configureVideoRotation()
                 self.processor.isRotationReady = true
             }
@@ -1154,7 +1155,7 @@ import Photos
 
     func setHDREnabled(_ enabled: Bool) {
         sessionQueue.async { [self] in
-            guard let conn = videoOutput.connection(with: .video) else { return }
+            guard videoOutput.connection(with: .video) != nil else { return }
             // isVideoHDREnabled is a connection-level property
             if #available(iOS 16, *) {
                 // HDR is format-driven; select an HDR-capable format when enabling

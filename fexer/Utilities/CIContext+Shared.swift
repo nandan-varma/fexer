@@ -3,7 +3,7 @@ import Metal
 import OSLog
 
 extension CIContext {
-    private static let sharedInstance: CIContext = {
+    nonisolated private static let sharedInstance: CIContext = {
         let log = Logger(subsystem: "com.nandanvarma.fexer", category: "camera")
         guard let device = MTLCreateSystemDefaultDevice() else {
             log.error("Metal unavailable — falling back to software CIContext")
@@ -21,7 +21,7 @@ extension CIContext {
 
     /// Shared Metal-backed CIContext to avoid redundant GPU context creation.
     /// Thread-safe — CIContext is thread-safe for rendering operations.
-    static var shared: CIContext { sharedInstance }
+    nonisolated static var shared: CIContext { sharedInstance }
 
     /// Pre-compiles the Metal `plane_color` pipeline that CI uses when rendering to a
     /// texture. Without this, the first `draw(in:)` call blocks the MTKView render loop

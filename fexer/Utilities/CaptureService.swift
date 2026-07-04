@@ -3,7 +3,7 @@ import AVFoundation
 import UniformTypeIdentifiers
 import OSLog
 
-func saveToPhotoLibrary(data: Data, photo: AVCapturePhoto, location: CLLocation?,
+nonisolated func saveToPhotoLibrary(data: Data, photo: AVCapturePhoto, location: CLLocation?,
                         livePhotoMovieURL: URL? = nil,
                         completion: ((String?) -> Void)? = nil) {
     let save = {

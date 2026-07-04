@@ -94,7 +94,7 @@ final class LUTLoader {
         }
     }
 
-    static func parseCube(content: String) -> (Data, Int)? {
+    nonisolated static func parseCube(content: String) -> (Data, Int)? {
         var dimension = 33
         var floats: [Float32] = []
         floats.reserveCapacity(33 * 33 * 33 * 4)

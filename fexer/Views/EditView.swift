@@ -974,11 +974,11 @@ struct EditView: View {
         let d = abs(a - b); return min(d, 1 - d)
     }
 
-    private final class ParsedLUTEntry: NSObject {
+    nonisolated private final class ParsedLUTEntry: NSObject {
         let cubeData: Data; let dimension: Int
         init(_ d: Data, _ dim: Int) { cubeData = d; dimension = dim }
     }
-    private static let importedLUTCache: NSCache<NSData, ParsedLUTEntry> = {
+    nonisolated(unsafe) private static let importedLUTCache: NSCache<NSData, ParsedLUTEntry> = {
         let c = NSCache<NSData, ParsedLUTEntry>(); c.countLimit = 4; return c
     }()
 
