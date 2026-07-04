@@ -558,6 +558,14 @@ import Photos
         }
     }
 
+    // MARK: - Long Exposure
+
+    func cancelLongExposureCapture() {
+        sessionQueue.async { [self] in
+            processor.cancelLongExposureCapture()
+        }
+    }
+
     // MARK: - Night Mode
 
     func setNightModeEnabled(_ enabled: Bool) {
@@ -1035,7 +1043,7 @@ import Photos
     /// Restores the capture session preset to `.photo` (for still capture modes).
     func configureForPhotoMode() {
         sessionQueue.async { [self] in
-            guard !isRecording else { return }
+            guard !isRecording, !isWaitingToRecord else { return }
             session.beginConfiguration()
             session.sessionPreset = .photo
             session.commitConfiguration()

@@ -349,6 +349,7 @@ final class CameraViewModel {
             cropRatioRaw.wrappedValue = preModeRaw
             cameraManager.processor.isAnamorphicDesqueezeEnabled = false
         case .longExposure:
+            cameraManager.cancelLongExposureCapture()
             if let saved = savedExposure {
                 if saved.autoISO && saved.autoShutter {
                     cameraManager.setAutoExposure()
@@ -375,10 +376,12 @@ final class CameraViewModel {
                 savedExposure = nil
             }
             cameraManager.setNightModeEnabled(false)
+        case .selfTimer:
+            cancelTimer()
         case .portrait:
             cameraManager.setDepthDataEnabled(false)
         case .video:
-            if cameraManager.isRecording { cameraManager.stopRecording() }
+            cameraManager.stopRecording()
         default:
             break
         }

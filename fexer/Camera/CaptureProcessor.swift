@@ -129,6 +129,14 @@ final class CaptureProcessor: NSObject {
         longExpActiveLock.withLock { $0 = true }
     }
 
+    /// Cancels an in-progress long exposure. Must be called from sessionQueue.
+    func cancelLongExposureCapture() {
+        longExpActiveLock.withLock { $0 = false }
+        longExpFrames = []
+        longExpStart = .invalid
+        onLongExposureComplete = nil
+    }
+
     private let focusPeakingFilter = FocusPeakingFilter()
     private let zebraFilter = ZebraFilter()
     private let falseColorFilter = FalseColorFilter()
