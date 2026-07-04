@@ -13,11 +13,22 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
 # Check only for errors (pipe-friendly)
 ... build 2>&1 | grep -E "error:|BUILD SUCCEEDED|BUILD FAILED"
 
+# Run all unit tests (Simulator — no camera required)
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
+  xcodebuild -project fexer.xcodeproj -scheme fexer \
+  -destination "platform=iOS Simulator,name=iPhone 17" test \
+  2>&1 | grep -E "error:|Executed|passed|failed"
+
+# Run a single test class
+... test -only-testing:fexerTests/EditStateTests 2>&1 | grep -E "error:|passed|failed"
+
 # Lint (enforced in CI as --strict, so warnings are errors)
 swiftlint lint --strict
 ```
 
-**Camera does not work in Simulator.** All meaningful testing requires a physical iOS device. Unit tests for models/utilities (no camera dependency) are in `Tests/fexerTests/`. Add the test target in Xcode: File → New → Target → iOS Unit Testing Bundle, select fexer as the target to test, and point the source files to `Tests/fexerTests/`.
+**Deployment target is iOS 26.5.** No `#available` guards are needed for any AVFoundation, SwiftUI, or Swift concurrency API introduced before that. Use the latest symbol names directly (e.g. `AVCaptureDevice.wasConnectedNotification`, not the deprecated `.AVCaptureDeviceWasConnected`).
+
+**Camera does not work in Simulator.** All meaningful testing requires a physical iOS device. Unit tests for models/utilities (no camera dependency) are in `Tests/fexerTests/` — the test target is already configured in the scheme. The root-level `fexerTests/fexerTests.swift` is an Xcode stub and is not part of the test suite; ignore it.
 
 SourceKit shows many false-positive errors (UIKit types "unavailable in macOS", cross-file references "not found") because it indexes against the macOS SDK. Ignore them; `xcodebuild` against the iOS SDK is the truth.
 
@@ -112,11 +123,23 @@ screenPoint = CGPoint(x: (1 - normalized.y) * geo.size.width,
 
 Swapping x/y when recovering screen position is intentional — do not "simplify" it.
 
+### Lens switching
+
+**Session always uses a physical camera** — never a virtual multi-lens device (`builtInTripleCamera`, `builtInDualCamera`, etc.). Virtual devices return `false` for `isLockingFocusWithCustomLensPositionSupported` and `isExposureModeSupported(.custom)`, which silently blocks all manual controls.
+
+`buildBackLensMap()` queries the virtual device **for discovery only** (never adding it to the session), extracts the constituent physical cameras and their optical factors relative to wide-angle = 1×, and stores the result in `backLenses: [LensOption]`. This is called once in `configureSession()`.
+
+`configureSession()` starts on `AVCaptureDevice.default(.builtInWideAngleCamera, …, position: .back)`. `switchToCamera(_ lens: LensOption)` swaps the video device input to a different physical camera, updates `activeLensOpticalFactor`, and resets digital zoom to 1×.
+
+`CameraView+LensSwitcher.swift` drives the lens-switcher row from `backLenses`. The active button is identified by `lens.device == cameraManager.currentDevice`. The live optical zoom label = `currentZoomFactor × activeLensOpticalFactor`. The ZoomDial (long-press) controls digital zoom within the current physical lens; optical label range = `[opticalFactor × minDigitalZoom … opticalFactor × maxDigitalZoom]`.
+
+`flipCamera()` restores the back camera to the wide-angle (`backLenses.first { $0.opticalFactor == 1.0 }?.device`) and the front camera uses `bestCamera(for: .front)` (TrueDepth → wide-angle, both physical).
+
 ### Key classes
 
 | Class | Thread | Owns |
 |---|---|---|
-| `CameraManager` | `@Observable`, properties read on MainActor, mutations dispatched to `sessionQueue` | `AVCaptureSession`, `AVCapturePhotoOutput`, `AVCaptureVideoDataOutput`, KVO observations, `previewImageSize` |
+| `CameraManager` | `@Observable`, properties read on MainActor, mutations dispatched to `sessionQueue` | `AVCaptureSession`, `AVCapturePhotoOutput`, `AVCaptureVideoDataOutput`, KVO observations, `previewImageSize`, `backLenses`, `activeLensOpticalFactor`, `discoveredCameras` |
 | `CaptureProcessor` | `sessionQueue` | Per-frame CI filter chain, histogram computation (every 3rd frame), `OSAllocatedUnfairLock`-protected `latestImage`, `onPixelBuffer` callback (fires on first frame, then every 60th) |
 | `CameraViewModel` | `@MainActor` | UI gesture state, overlay toggles, histogram data, self-timer, AE lock toggle, burst/timelapse state |
 | `StylesManager` | `@Observable` | LUT catalog, active style, `SceneClassifier`; `activeLUTFilter()` falls back to procedural generation |

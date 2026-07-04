@@ -45,6 +45,16 @@ import Photos
     // Live audio level (updated ~10fps while recording, 0.0=silence 1.0=peak)
     var audioLevel: Float = 0.0
 
+    // Physical cameras discovered on device (populated at session start, updated on plug/unplug).
+    var discoveredCameras: [AVCaptureDevice] = []
+
+    // Back-camera lens options derived from the virtual device's constituent map.
+    // Populated once at session start; empty on front camera.
+    var backLenses: [LensOption] = []
+    // Optical magnification of the currently active physical lens relative to wide-angle (1×).
+    // e.g. 0.5 for ultra-wide, 1.0 for wide, 3.0 for telephoto.
+    var activeLensOpticalFactor: CGFloat = 1.0
+
     // MARK: - Internal (sessionQueue only)
     let processor = CaptureProcessor()
     let session = AVCaptureSession()
@@ -93,6 +103,8 @@ import Photos
     private var sessionErrorObserver: NSObjectProtocol?
     private var sessionInterruptionObserver: NSObjectProtocol?
     private var sessionInterruptionEndedObserver: NSObjectProtocol?
+    private var cameraConnectObserver: NSObjectProtocol?
+    private var cameraDisconnectObserver: NSObjectProtocol?
 
     // MARK: - Setup
 
@@ -127,6 +139,14 @@ import Photos
                     Task { @MainActor in self.isSessionRunning = self.session.isRunning }
                 }
             }
+            // Observe physical camera availability changes (external/Continuity Camera plug/unplug).
+            self.cameraConnectObserver = NotificationCenter.default.addObserver(
+                forName: AVCaptureDevice.wasConnectedNotification, object: nil, queue: .main
+            ) { [weak self] _ in self?.refreshDiscoveredCameras() }
+            self.cameraDisconnectObserver = NotificationCenter.default.addObserver(
+                forName: AVCaptureDevice.wasDisconnectedNotification, object: nil, queue: .main
+            ) { [weak self] _ in self?.refreshDiscoveredCameras() }
+
             // Defer video rotation so the connection stabilises after startRunning.
             // Setting videoRotationAngle immediately can trigger Fig err=-12710.
             // Frames are dropped until this fires (isRotationReady gate in CaptureProcessor).
@@ -142,12 +162,15 @@ import Photos
     func stopSession() {
         sessionQueue.async { [self] in
             sessionGeneration &+= 1
-            [sessionErrorObserver, sessionInterruptionObserver, sessionInterruptionEndedObserver]
+            [sessionErrorObserver, sessionInterruptionObserver, sessionInterruptionEndedObserver,
+             cameraConnectObserver, cameraDisconnectObserver]
                 .compactMap { $0 }
                 .forEach { NotificationCenter.default.removeObserver($0) }
             sessionErrorObserver = nil
             sessionInterruptionObserver = nil
             sessionInterruptionEndedObserver = nil
+            cameraConnectObserver = nil
+            cameraDisconnectObserver = nil
             cleanupObservers()
             processor.isRotationReady = false
             self.session.stopRunning()
@@ -156,7 +179,8 @@ import Photos
     }
 
     deinit {
-        [sessionErrorObserver, sessionInterruptionObserver, sessionInterruptionEndedObserver]
+        [sessionErrorObserver, sessionInterruptionObserver, sessionInterruptionEndedObserver,
+         cameraConnectObserver, cameraDisconnectObserver]
             .compactMap { $0 }
             .forEach { NotificationCenter.default.removeObserver($0) }
         subjectAreaObserver.map { NotificationCenter.default.removeObserver($0) }
@@ -186,7 +210,13 @@ import Photos
         session.beginConfiguration()
         session.sessionPreset = .photo
 
-        guard let device = Self.bestCamera(for: .back),
+        // Build back-lens map from virtual device (discovery only — never added to session).
+        buildBackLensMap()
+
+        // Always start on the physical wide-angle camera so every manual control works.
+        // Virtual multi-lens devices (triple/dual) block manual focus and exposure.
+        let startDevice = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back)
+        guard let device = startDevice ?? Self.physicalCamera(for: .back),
               let input = try? AVCaptureDeviceInput(device: device)
         else {
             Logger.camera.error("configureSession: failed to access back camera or create device input")
@@ -248,6 +278,8 @@ import Photos
         processor.onPreviewSizeKnown = { [weak self] size in
             Task { @MainActor in self?.previewImageSize = size }
         }
+
+        refreshDiscoveredCameras()
     }
 
     // MARK: - Video Rotation
@@ -268,7 +300,19 @@ import Photos
         sessionQueue.async { [self] in
             let currentPosition = currentDevice?.position ?? .back
             let newPosition: AVCaptureDevice.Position = currentPosition == .back ? .front : .back
-            guard let device = Self.bestCamera(for: newPosition),
+
+            // Back: restore physical wide-angle (manual controls work; lens switcher handles discrete switching).
+            // Front: use the physical front camera (TrueDepth or wide-angle, both physical).
+            let targetDevice: AVCaptureDevice?
+            if newPosition == .back {
+                targetDevice = backLenses.first(where: { $0.opticalFactor == 1.0 })?.device
+                    ?? AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back)
+                    ?? Self.physicalCamera(for: .back)
+            } else {
+                targetDevice = Self.bestCamera(for: .front)
+            }
+
+            guard let device = targetDevice,
                   let newInput = try? AVCaptureDeviceInput(device: device)
             else {
                 Logger.camera.error("Failed to flip camera: cannot access device at position \(newPosition.rawValue)")
@@ -293,6 +337,8 @@ import Photos
                 self.isDepthDataSupported = photoOutput.isDepthDataDeliverySupported
                 self.supportsManualFocus = device.isLockingFocusWithCustomLensPositionSupported
                 self.supportsCustomExposure = device.isExposureModeSupported(.custom)
+                self.activeLensOpticalFactor = newPosition == .back ? 1.0 : 1.0
+                self.currentZoomFactor = 1.0
             }
             cleanupObservers()
             setupObservations(for: device)
@@ -307,26 +353,127 @@ import Photos
 // MARK: - Device selection
 
 extension CameraManager {
-    /// Returns the best color camera for the given position by querying the hardware.
+
+    // MARK: - Device selection
+
+    /// Best camera for front position: TrueDepth → wide-angle.
+    /// For back position when specifically needed as a fallback.
     static func bestCamera(for position: AVCaptureDevice.Position) -> AVCaptureDevice? {
-        let physicalTypes: [AVCaptureDevice.DeviceType] = [
+        let types: [AVCaptureDevice.DeviceType] = [
+            .builtInTrueDepthCamera,
             .builtInWideAngleCamera,
             .builtInUltraWideCamera,
             .builtInTelephotoCamera,
         ]
-        let virtualTypes: [AVCaptureDevice.DeviceType] = [
-            .builtInTripleCamera,
-            .builtInDualWideCamera,
-            .builtInDualCamera,
+        return AVCaptureDevice.DiscoverySession(deviceTypes: types, mediaType: .video, position: position).devices.first
+    }
+
+    /// Returns the physical wide-angle camera for a position (never a virtual device).
+    static func physicalCamera(for position: AVCaptureDevice.Position) -> AVCaptureDevice? {
+        let types: [AVCaptureDevice.DeviceType] = [
+            .builtInWideAngleCamera,
+            .builtInUltraWideCamera,
+            .builtInTelephotoCamera,
         ]
-        let allTypes = physicalTypes + virtualTypes
-        let devices = AVCaptureDevice.DiscoverySession(
-            deviceTypes: allTypes, mediaType: .video, position: position
-        ).devices
-        for type in physicalTypes {
-            if let d = devices.first(where: { $0.deviceType == type }) { return d }
+        return AVCaptureDevice.DiscoverySession(deviceTypes: types, mediaType: .video, position: position).devices.first
+    }
+
+    // MARK: - Back lens map (built once from virtual device, discovery only)
+
+    /// Queries whichever virtual multi-lens device is present, extracts its constituent
+    /// physical cameras and computes their optical factors relative to wide-angle = 1×.
+    /// The virtual device is never added to the capture session.
+    func buildBackLensMap() {
+        let virtualTypes: [AVCaptureDevice.DeviceType] = [.builtInTripleCamera, .builtInDualWideCamera, .builtInDualCamera]
+        guard let virtual = virtualTypes.compactMap({ AVCaptureDevice.default($0, for: .video, position: .back) }).first,
+              !virtual.constituentDevices.isEmpty else {
+            // Single back camera
+            if let wide = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) {
+                Task { @MainActor [weak self] in
+                    self?.backLenses = [LensOption(device: wide, label: "1×", opticalFactor: 1.0)]
+                }
+            }
+            return
         }
-        return devices.first
+        let constituents = virtual.constituentDevices
+        let rawFactors = [virtual.minAvailableVideoZoomFactor]
+            + virtual.virtualDeviceSwitchOverVideoZoomFactors.map { CGFloat($0.doubleValue) }
+        // Wide-angle raw factor = the reference (= optical 1×)
+        let mainIdx = constituents.firstIndex(where: { $0.deviceType == .builtInWideAngleCamera }) ?? 0
+        let mainRaw: CGFloat = mainIdx < rawFactors.count ? rawFactors[mainIdx] : 1.0
+
+        let lenses = zip(constituents, rawFactors).map { device, rawFactor -> LensOption in
+            let optical = rawFactor / mainRaw
+            return LensOption(device: device, label: Self.opticalLabel(optical), opticalFactor: optical)
+        }
+        Task { @MainActor [weak self] in self?.backLenses = lenses }
+    }
+
+    // MARK: - Lens switching
+
+    /// Switches the capture session to a different physical back camera.
+    /// Updates `activeLensOpticalFactor` and resets digital zoom to 1×.
+    func switchToCamera(_ lens: LensOption) {
+        sessionQueue.async { [self] in
+            let device = lens.device
+            guard let newInput = try? AVCaptureDeviceInput(device: device) else {
+                Logger.camera.error("switchToCamera: cannot create input for \(device.localizedName)")
+                return
+            }
+            session.beginConfiguration()
+            for input in session.inputs.compactMap({ $0 as? AVCaptureDeviceInput })
+                where input.device.hasMediaType(.video) {
+                session.removeInput(input)
+            }
+            if session.canAddInput(newInput) { session.addInput(newInput) }
+            currentDevice = device
+            processor.isRotationReady = false
+            session.commitConfiguration()
+            Task { @MainActor in
+                self.activeLensOpticalFactor = lens.opticalFactor
+                self.currentZoomFactor = 1.0
+                self.supportsManualFocus = device.isLockingFocusWithCustomLensPositionSupported
+                self.supportsCustomExposure = device.isExposureModeSupported(.custom)
+                self.isDepthDataSupported = self.photoOutput.isDepthDataDeliverySupported
+            }
+            cleanupObservers()
+            setupObservations(for: device)
+            sessionQueue.asyncAfter(deadline: .now() + 0.15) { [self] in
+                configureVideoRotation()
+                processor.isRotationReady = true
+            }
+        }
+    }
+
+    // MARK: - Camera discovery
+
+    func refreshDiscoveredCameras() {
+        var types: [AVCaptureDevice.DeviceType] = [
+            .builtInWideAngleCamera, .builtInUltraWideCamera, .builtInTelephotoCamera,
+            .builtInTrueDepthCamera, .builtInLiDARDepthCamera,
+        ]
+        if #available(iOS 17, *) { types += [.external, .continuityCamera] }
+        let cameras = AVCaptureDevice.DiscoverySession(
+            deviceTypes: types, mediaType: .video, position: .unspecified
+        ).devices
+        Task { @MainActor [weak self] in self?.discoveredCameras = cameras }
+    }
+
+    static func maxSupportedFPS(for device: AVCaptureDevice) -> Int {
+        device.formats.flatMap { $0.videoSupportedFrameRateRanges }.map { Int($0.maxFrameRate) }.max() ?? 30
+    }
+
+    // MARK: - Optical label helpers
+
+    static func opticalLabel(_ optical: CGFloat) -> String {
+        if optical < 1.0 {
+            let s = String(format: "%g", optical)
+            let trimmed = s.hasPrefix("0") ? String(s.dropFirst()) : s
+            return trimmed + "×"
+        }
+        let r = (optical * 10).rounded() / 10
+        if r == r.rounded() { return "\(Int(r))×" }
+        return String(format: "%.1f×", r)
     }
 }
 
@@ -336,6 +483,7 @@ struct LensOption: Identifiable {
     let id = UUID()
     let device: AVCaptureDevice
     let label: String
+    let opticalFactor: CGFloat  // relative to wide-angle = 1× (e.g. 0.5 for ultra-wide, 3.0 for telephoto)
 }
 
 // MARK: - Comparable extensions

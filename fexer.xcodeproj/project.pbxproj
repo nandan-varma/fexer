@@ -6,11 +6,27 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXContainerItemProxy section */
+		A21EC4D32FF9825A00B5F445 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A25D680A2FE3DDCC00F11BF8 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A25D68112FE3DDCC00F11BF8;
+			remoteInfo = fexer;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
+		A21EC4CF2FF9825A00B5F445 /* fexerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = fexerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		A25D68122FE3DDCC00F11BF8 /* fexer.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = fexer.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
+		A21EC4D02FF9825A00B5F445 /* fexerTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Tests/fexerTests;
+			sourceTree = "<group>";
+		};
 		A25D68142FE3DDCC00F11BF8 /* fexer */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = fexer;
@@ -19,6 +35,13 @@
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		A21EC4CC2FF9825A00B5F445 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		A25D680F2FE3DDCC00F11BF8 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -33,6 +56,7 @@
 			isa = PBXGroup;
 			children = (
 				A25D68142FE3DDCC00F11BF8 /* fexer */,
+				A21EC4D02FF9825A00B5F445 /* fexerTests */,
 				A25D68132FE3DDCC00F11BF8 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -41,6 +65,7 @@
 			isa = PBXGroup;
 			children = (
 				A25D68122FE3DDCC00F11BF8 /* fexer.app */,
+				A21EC4CF2FF9825A00B5F445 /* fexerTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -48,6 +73,29 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		A21EC4CE2FF9825A00B5F445 /* fexerTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A21EC4D52FF9825A00B5F445 /* Build configuration list for PBXNativeTarget "fexerTests" */;
+			buildPhases = (
+				A21EC4CB2FF9825A00B5F445 /* Sources */,
+				A21EC4CC2FF9825A00B5F445 /* Frameworks */,
+				A21EC4CD2FF9825A00B5F445 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				A21EC4D42FF9825A00B5F445 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				A21EC4D02FF9825A00B5F445 /* fexerTests */,
+			);
+			name = fexerTests;
+			packageProductDependencies = (
+			);
+			productName = fexerTests;
+			productReference = A21EC4CF2FF9825A00B5F445 /* fexerTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 		A25D68112FE3DDCC00F11BF8 /* fexer */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = A25D681D2FE3DDCD00F11BF8 /* Build configuration list for PBXNativeTarget "fexer" */;
@@ -77,9 +125,13 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
-				LastSwiftUpdateCheck = 2650;
+				LastSwiftUpdateCheck = 2660;
 				LastUpgradeCheck = 2660;
 				TargetAttributes = {
+					A21EC4CE2FF9825A00B5F445 = {
+						CreatedOnToolsVersion = 26.6;
+						TestTargetID = A25D68112FE3DDCC00F11BF8;
+					};
 					A25D68112FE3DDCC00F11BF8 = {
 						CreatedOnToolsVersion = 26.5;
 					};
@@ -100,11 +152,19 @@
 			projectRoot = "";
 			targets = (
 				A25D68112FE3DDCC00F11BF8 /* fexer */,
+				A21EC4CE2FF9825A00B5F445 /* fexerTests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		A21EC4CD2FF9825A00B5F445 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		A25D68102FE3DDCC00F11BF8 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -115,6 +175,13 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		A21EC4CB2FF9825A00B5F445 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		A25D680E2FE3DDCC00F11BF8 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -124,7 +191,57 @@
 		};
 /* End PBXSourcesBuildPhase section */
 
+/* Begin PBXTargetDependency section */
+		A21EC4D42FF9825A00B5F445 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A25D68112FE3DDCC00F11BF8 /* fexer */;
+			targetProxy = A21EC4D32FF9825A00B5F445 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
 /* Begin XCBuildConfiguration section */
+		A21EC4D62FF9825A00B5F445 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 72CW7UW6RB;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.nandanvarma.fexerTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/fexer.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/fexer";
+			};
+			name = Debug;
+		};
+		A21EC4D72FF9825A00B5F445 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 72CW7UW6RB;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.nandanvarma.fexerTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/fexer.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/fexer";
+			};
+			name = Release;
+		};
 		A25D681B2FE3DDCD00F11BF8 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -327,6 +444,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		A21EC4D52FF9825A00B5F445 /* Build configuration list for PBXNativeTarget "fexerTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A21EC4D62FF9825A00B5F445 /* Debug */,
+				A21EC4D72FF9825A00B5F445 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		A25D680D2FE3DDCC00F11BF8 /* Build configuration list for PBXProject "fexer" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (

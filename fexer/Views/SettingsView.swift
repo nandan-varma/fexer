@@ -1,3 +1,4 @@
+import AVFoundation
 import SwiftUI
 
 struct SettingsView: View {
@@ -9,6 +10,7 @@ struct SettingsView: View {
         NavigationStack {
             Form {
                 CameraSection(cameraManager: cameraManager)
+                CamerasInfoSection(cameraManager: cameraManager)
                 CaptureSection()
                 VideoSection(cameraManager: cameraManager)
                 ViewfinderSection()
@@ -63,6 +65,50 @@ private struct CameraSection: View {
                 Text("ProRAW requires iPhone 12 Pro or later. Lock to Optical Zoom snaps zoom to native focal lengths only.")
             } else {
                 Text("Lock to Optical Zoom snaps zoom to native focal lengths only. Location is embedded in EXIF metadata.")
+            }
+        }
+    }
+}
+
+// MARK: - Cameras Info
+
+private struct CamerasInfoSection: View {
+    @Bindable var cameraManager: CameraManager
+
+    private func positionLabel(_ position: AVCaptureDevice.Position) -> String {
+        switch position {
+        case .back:  return "Back"
+        case .front: return "Front"
+        default:     return "External"
+        }
+    }
+
+    private func cameraLabel(_ device: AVCaptureDevice) -> String {
+        switch device.deviceType {
+        case .builtInWideAngleCamera:    return "\(positionLabel(device.position)) Wide"
+        case .builtInUltraWideCamera:    return "\(positionLabel(device.position)) Ultra Wide"
+        case .builtInTelephotoCamera:    return "\(positionLabel(device.position)) Telephoto"
+        case .builtInTrueDepthCamera:    return "Front (TrueDepth)"
+        case .builtInLiDARDepthCamera:   return "Back LiDAR"
+        default:                         return device.localizedName
+        }
+    }
+
+    var body: some View {
+        if !cameraManager.discoveredCameras.isEmpty {
+            Section {
+                ForEach(cameraManager.discoveredCameras, id: \.uniqueID) { camera in
+                    let maxFPS = CameraManager.maxSupportedFPS(for: camera)
+                    HStack {
+                        Text(cameraLabel(camera))
+                        Spacer()
+                        Text("max \(maxFPS) fps")
+                            .foregroundStyle(.secondary)
+                            .font(.caption)
+                    }
+                }
+            } header: {
+                Text("Available Cameras")
             }
         }
     }
@@ -173,6 +219,7 @@ private struct VideoSection: View {
     private var availableColorSpaces: [VideoColorSpace] {
         cameraManager.isAppleLogSupported ? VideoColorSpace.allCases : [.sRGB, .p3, .hlg]
     }
+    private var resolution: VideoResolution { VideoResolution(rawValue: videoResolutionRaw) ?? .hd1080p }
 
     var body: some View {
         Section {
@@ -185,12 +232,9 @@ private struct VideoSection: View {
             }
 
             Picker(selection: $videoFrameRate) {
-                Text("24 fps").tag(24)
-                Text("25 fps").tag(25)
-                Text("30 fps").tag(30)
-                Text("60 fps").tag(60)
-                Text("120 fps").tag(120)
-                Text("240 fps").tag(240)
+                ForEach(cameraManager.supportedFrameRates(for: resolution), id: \.self) { fps in
+                    Text("\(fps) fps").tag(fps)
+                }
             } label: {
                 Label("Frame Rate", systemImage: "film.fill")
             }

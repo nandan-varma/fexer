@@ -1,6 +1,7 @@
 import XCTest
 import UIKit
 import CoreImage
+import SwiftUI
 @testable import fexer
 
 class StylePreviewRendererTests: XCTestCase {
@@ -51,21 +52,20 @@ class StylePreviewRendererTests: XCTestCase {
         )
         
         let expectation1 = XCTestExpectation(description: "First thumbnail generation")
-        
+        let expectation2 = XCTestExpectation(description: "Second thumbnail generation (should use cache)")
+
         renderer.thumbnail(for: style) { image1 in
             XCTAssertNotNil(image1)
-            
-            let expectation2 = XCTestExpectation(description: "Second thumbnail generation (should use cache)")
-            
-            renderer.thumbnail(for: style) { image2 in
+
+            self.renderer.thumbnail(for: style) { image2 in
                 XCTAssertNotNil(image2)
                 XCTAssertEqual(image1, image2)
                 expectation2.fulfill()
             }
-            
+
             expectation1.fulfill()
         }
-        
+
         wait(for: [expectation1, expectation2], timeout: 5.0)
     }
     
@@ -94,9 +94,10 @@ class StylePreviewRendererTests: XCTestCase {
     func testRendererSingleton() {
         let renderer1 = StylePreviewRenderer.shared
         let renderer2 = StylePreviewRenderer.shared
-        
-        XCTAssertEqual(renderer1, renderer2)
+
+        XCTAssert(renderer1 === renderer2)
     }
+}
 
 class StylesManagerTests: XCTestCase {
     var stylesManager: StylesManager!
@@ -246,7 +247,7 @@ class CameraViewModelTests: XCTestCase {
         let timerBinding = Binding(get: { timer }, set: { timer = $0 })
 
         cameraViewModel.selectMode(index: 1, cropRatioRaw: cropBinding, selfTimerDelay: timerBinding)
-        XCTAssertEqual(cameraViewModel.activeMode, ShootingMode.portrait)
+        XCTAssertEqual(cameraViewModel.activeMode, ShootingMode.video)
 
         cameraViewModel.selectMode(index: 0, cropRatioRaw: cropBinding, selfTimerDelay: timerBinding)
         XCTAssertEqual(cameraViewModel.activeMode, ShootingMode.photo)
@@ -293,10 +294,10 @@ class CameraViewModelTests: XCTestCase {
         let initialBias = cameraViewModel.accumulatedExposureBias
         
         cameraViewModel.handleBrightnessSwipe(delta: 0.5)
-        XCTAssertEqual(cameraViewModel.accumulatedExposureBias, initialBias + 0.5)
-        
+        XCTAssertEqual(cameraViewModel.accumulatedExposureBias, initialBias + 0.5, accuracy: 0.001)
+
         cameraViewModel.handleBrightnessSwipe(delta: -0.3)
-        XCTAssertEqual(cameraViewModel.accumulatedExposureBias, initialBias + 0.2)
+        XCTAssertEqual(cameraViewModel.accumulatedExposureBias, initialBias + 0.2, accuracy: 0.001)
     }
     
     func testCameraViewModelZoom() {

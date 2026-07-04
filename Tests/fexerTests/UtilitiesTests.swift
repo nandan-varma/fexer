@@ -65,8 +65,8 @@ class LUTLoaderTests: XCTestCase {
         XCTAssertGreaterThan(data.length, 0)
         XCTAssertEqual(dimension, 17)
         
-        // Verify data size is correct: dimension^3 * 4 bytes per pixel
-        let expectedSize = 17 * 17 * 17 * 4
+        // Verify data size is correct: dimension^3 * 4 Float32 channels
+        let expectedSize = 17 * 17 * 17 * 4 * MemoryLayout<Float32>.size
         XCTAssertEqual(data.length, expectedSize)
     }
     
@@ -96,12 +96,12 @@ class LUTLoaderTests: XCTestCase {
     func testLUTLoaderSingleton() {
         let loader1 = LUTLoader.shared
         let loader2 = LUTLoader.shared
-        
-        XCTAssertEqual(loader1, loader2)
+
+        XCTAssert(loader1 === loader2)
     }
 }
 
-class StyleTransformsTests: XCTestCase {
+class StyleTransformsDetailTests: XCTestCase {
     func testStyleTransformsForPortra400() {
         let style = PhotoStyle(
             id: UUID(),
@@ -201,35 +201,3 @@ class StyleTransformsTests: XCTestCase {
     }
 }
 
-class HistogramCalculatorTests: XCTestCase {
-    var histogramCalculator: HistogramCalculator!
-    
-    override func setUp() async throws {
-        histogramCalculator = HistogramCalculator()
-    }
-    
-    override func tearDown() async throws {
-        histogramCalculator = nil
-    }
-    
-    func testHistogramCalculatorInitialization() {
-        XCTAssertNotNil(histogramCalculator)
-    }
-    
-    func testHistogramCalculatorCompute() {
-        // Create a simple test image
-        let width = 100
-        let height = 100
-        let bytesPerRow = width * 4
-        let buffer = calloc(bytesPerRow * height, MemoryLayout<UInt8>.size)
-        
-        // Fill with a simple gradient pattern
-        let data = Data(bytes: buffer!, count: bytesPerRow * height)
-        free(buffer)
-        
-        // This is a simplified test - in a real implementation,
-        // you would need to create a proper CIImage from pixel data
-        // For now, we'll just test that the method exists
-        XCTAssertTrue(true)
-    }
-}

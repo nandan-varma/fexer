@@ -49,18 +49,6 @@ extension CameraManager {
         return [device.minAvailableVideoZoomFactor] + switchOvers
     }
 
-    /// Raw zoom factor at which the main (wide-angle) constituent camera begins.
-    var mainCameraZoomFactor: CGFloat {
-        guard let device = currentDevice else { return 1.0 }
-        let constituents = device.constituentDevices
-        let switchOvers = device.virtualDeviceSwitchOverVideoZoomFactors.map { CGFloat($0.doubleValue) }
-        guard let mainIdx = constituents.firstIndex(where: { $0.deviceType == .builtInWideAngleCamera }),
-              mainIdx > 0, mainIdx - 1 < switchOvers.count else {
-            return device.minAvailableVideoZoomFactor
-        }
-        return switchOvers[mainIdx - 1]
-    }
-
     // MARK: - Macro Mode
 
     var isMacroSupported: Bool {
@@ -222,17 +210,14 @@ extension CameraManager {
     }
 
     func supportedFrameRates(for resolution: VideoResolution) -> [Int] {
-        let candidates = [24, 30, 60, 120, 240]
-        guard let device = currentDevice else { return [24, 30, 60] }
-        let preset = resolution.sessionPreset
-        let targetDims: (Int32, Int32) = preset == .hd4K3840x2160 ? (3840, 2160) : (1920, 1080)
-        let matchingFormats = device.formats.filter { format in
-            let dims = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
-            return dims.width == targetDims.0 && dims.height == targetDims.1
-        }
-        let maxFPS = matchingFormats.flatMap { $0.videoSupportedFrameRateRanges }
-                                    .map { Int($0.maxFrameRate) }
-                                    .max() ?? 60
+        let candidates = [24, 25, 30, 60, 120, 240]
+        guard let device = currentDevice else { return [24, 25, 30, 60] }
+        let targetWidth: Int32 = resolution.sessionPreset == .hd4K3840x2160 ? 3840 : 1920
+        let maxFPS = device.formats
+            .filter { CMVideoFormatDescriptionGetDimensions($0.formatDescription).width == targetWidth }
+            .flatMap { $0.videoSupportedFrameRateRanges }
+            .map { Int($0.maxFrameRate) }
+            .max() ?? 60
         return candidates.filter { $0 <= maxFPS }
     }
 }

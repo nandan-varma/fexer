@@ -286,18 +286,6 @@ struct CameraView: View {
                 .transition(.opacity)
         }
 
-        // ── Aperture badge (read-only hardware value) ────────────────────────
-        if !isCleanViewActive {
-            let aperture = cameraManager.captureSettings.lensAperture
-            Text(String(format: "ƒ/%.1f", aperture))
-                .font(.system(size: 9, weight: .semibold, design: .monospaced))
-                .foregroundStyle(.white.opacity(0.55))
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-                .padding(.top, CameraView.quickBarHeight + 52)
-                .padding(.trailing, 52)
-                .allowsHitTesting(false)
-        }
-
         // ── Macro proximity indicator ─────────────────────────────────────────
         if cameraManager.isMacroSupported && cameraManager.currentZoomFactor < 0.8 {
             Text("MACRO")

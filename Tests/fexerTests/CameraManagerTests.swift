@@ -81,10 +81,10 @@ class CameraManagerTests: XCTestCase {
         XCTAssertEqual(settings.shutterSpeedDisplayString, "1/250")
         
         let fastSpeed = CMTime(value: 1, timescale: 8000)
-        XCTAssertEqual(settings.formatShutterSpeed(CMTimeGetSeconds(fastSpeed)), "1/8000")
-        
+        XCTAssertEqual(CaptureSettings.formatShutterSpeed(CMTimeGetSeconds(fastSpeed)), "1/8000")
+
         let slowSpeed = CMTime(value: 2, timescale: 1)
-        XCTAssertEqual(settings.formatShutterSpeed(CMTimeGetSeconds(slowSpeed)), "2\"")
+        XCTAssertEqual(CaptureSettings.formatShutterSpeed(CMTimeGetSeconds(slowSpeed)), "2\"")
     }
     
     func testComparableClamping() {
@@ -152,7 +152,7 @@ class CameraManagerTests: XCTestCase {
     }
     
     func testCaptureSettingsCaptureFormatAllCases() {
-        XCTAssertEqual(CaptureFormat.allCases.count, 3)
+        XCTAssertEqual(CaptureFormat.allCases.count, 4)
         XCTAssertTrue(CaptureFormat.allCases.contains(.jpeg))
         XCTAssertTrue(CaptureFormat.allCases.contains(.raw))
         XCTAssertTrue(CaptureFormat.allCases.contains(.rawPlusJpeg))
