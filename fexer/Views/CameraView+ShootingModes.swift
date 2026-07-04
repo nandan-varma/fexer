@@ -197,6 +197,25 @@ extension CameraView {
                 .foregroundStyle(.yellow.opacity(cameraManager.isCapturing ? 0.9 : 0.55))
                 .tracking(1.5)
                 .animation(.easeInOut(duration: 0.2), value: cameraManager.isCapturing)
+        case .photo:
+            if cameraManager.isHDRFormatSupported {
+                HStack(spacing: 8) {
+                    Button {
+                        isHDREnabled.toggle()
+                        cameraManager.setHDREnabled(isHDREnabled)
+                        HapticManager.light()
+                    } label: {
+                        Text("HDR")
+                            .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                            .foregroundStyle(isHDREnabled ? .black : .white.opacity(0.6))
+                            .padding(.horizontal, 8).padding(.vertical, 4)
+                            .background(isHDREnabled ? Color.yellow : .white.opacity(0.1), in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    Spacer()
+                }
+                .padding(.horizontal, 16)
+            }
         case .video:
             videoControlsRow
         default:
