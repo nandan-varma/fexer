@@ -1437,7 +1437,6 @@ struct CameraView: View {
         return String(format: "%02d:%02d:%02d", total / 3600, (total % 3600) / 60, total % 60)
     }
 
-
     // Thread-safe box so onLivePhotoMovie and the save Task share the URL without data races.
     private nonisolated final class MovieURLBox: @unchecked Sendable {
         private let lock = OSAllocatedUnfairLock(initialState: Optional<URL>.none)
@@ -1480,13 +1479,15 @@ struct CameraView: View {
                     let depthData: AVDepthData? = isPortraitMode ? photo.depthData : nil
                     let processedData = CaptureImagePipeline.process(
                         rawData: rawData,
-                        isRaw: photo.isRawPhoto,
-                        captureFilter: captureFilter,
-                        isAnamorphic: isAnamorphic,
-                        cropRatio: capturedCropRatio,
-                        watermark: capturedWatermark,
-                        activeStyle: activeStyle,
-                        depthData: depthData
+                        options: CaptureImagePipeline.Options(
+                            isRaw: photo.isRawPhoto,
+                            captureFilter: captureFilter,
+                            isAnamorphic: isAnamorphic,
+                            cropRatio: capturedCropRatio,
+                            watermark: capturedWatermark,
+                            activeStyle: activeStyle,
+                            depthData: depthData
+                        )
                     )
 
                     // Generate gallery-button thumbnail for all (non-RAW) captures
@@ -1593,8 +1594,6 @@ struct CameraView: View {
             break
         }
     }
-
-
 }
 
 // MARK: - Logger
