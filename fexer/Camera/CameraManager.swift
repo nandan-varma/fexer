@@ -50,9 +50,6 @@ import Photos
     // Live audio level (updated ~10fps while recording, 0.0=silence 1.0=peak)
     var audioLevel: Float = 0.0
 
-    // Trap focus: when true, fire shutter the moment isAdjustingFocus → false
-    var pendingTrapFocusFire: Bool = false
-
     // MARK: - Internal (sessionQueue only)
     let processor = CaptureProcessor()
     private let session = AVCaptureSession()
@@ -61,6 +58,7 @@ import Photos
     private let videoOutput = AVCaptureVideoDataOutput()
     private(set) var currentDevice: AVCaptureDevice?
     private var trapFocusCaptureCallback: (() -> Void)?
+    private var sessionGeneration: UInt64 = 0
 
     // AVAssetWriter recording pipeline — accessed from sessionQueue AND nonisolated audio delegate.
     // All mutations are serialised through sessionQueue; @ObservationIgnored + nonisolated(unsafe)
@@ -138,7 +136,9 @@ import Photos
             // Defer video rotation so the connection stabilises after startRunning.
             // Setting videoRotationAngle immediately can trigger Fig err=-12710.
             // Frames are dropped until this fires (isRotationReady gate in CaptureProcessor).
+            let gen = sessionGeneration
             self.sessionQueue.asyncAfter(deadline: .now() + 0.30) { [self] in
+                guard gen == sessionGeneration else { return }
                 self.configureVideoRotation()
                 self.processor.isRotationReady = true
             }
@@ -147,6 +147,7 @@ import Photos
 
     func stopSession() {
         sessionQueue.async { [self] in
+            sessionGeneration &+= 1
             [sessionErrorObserver, sessionInterruptionObserver, sessionInterruptionEndedObserver]
                 .compactMap { $0 }
                 .forEach { NotificationCenter.default.removeObserver($0) }
@@ -163,6 +164,9 @@ import Photos
         [sessionErrorObserver, sessionInterruptionObserver, sessionInterruptionEndedObserver]
             .compactMap { $0 }
             .forEach { NotificationCenter.default.removeObserver($0) }
+        subjectAreaObserver.map { NotificationCenter.default.removeObserver($0) }
+        if let t = recordingTimer { t.invalidate() }
+        recordingTimer = nil
     }
 
     @objc private func handleSessionError(_ notification: Notification) {
@@ -1156,7 +1160,9 @@ import Photos
                 Logger.camera.warning("Color space \(colorSpace.rawValue) not supported by active format")
                 return
             }
+            session.beginConfiguration()
             device.withLock { device.activeColorSpace = target }
+            session.commitConfiguration()
             Task { @MainActor in self.captureSettings.videoColorSpace = colorSpace }
         }
     }
@@ -1173,8 +1179,13 @@ import Photos
                         CMVideoFormatDescriptionGetDimensions($0.formatDescription).width >= 1920
                     }
                     if let fmt = hdrFormat {
+                        session.beginConfiguration()
                         device.withLock { device.activeFormat = fmt }
+                        session.commitConfiguration()
                         Task { @MainActor in self.captureSettings.isHDREnabled = true }
+                    } else {
+                        Logger.camera.warning("No HDR-capable format found; HDR not available on this device")
+                        Task { @MainActor in self.captureSettings.isHDREnabled = false }
                     }
                 } else if !enabled {
                     Task { @MainActor in self.captureSettings.isHDREnabled = false }

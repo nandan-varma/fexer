@@ -28,7 +28,7 @@ enum VideoCodec: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
-struct VideoSettings {
+struct VideoSettings: Equatable {
     var resolution: VideoResolution = .hd1080p
     var frameRate: Int = 30
     var codec: VideoCodec = .hevc

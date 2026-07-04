@@ -1404,6 +1404,12 @@ struct CameraView: View {
             volumeRouteChangeToken = nil
         }
         cameraManager.stopSession()
+        cameraManager.cancelLongExposureCapture()
+        cameraManager.processor.onPixelBuffer = nil
+        cameraViewModel.stopBurst()
+        cameraViewModel.stopTimelapse()
+        cameraViewModel.cancelTimer()
+        aelToastTask?.cancel()
         UIApplication.shared.isIdleTimerDisabled = false
         DeviceOrientationTracker.shared.stop()
     }
@@ -1454,8 +1460,14 @@ struct CameraView: View {
     }
 
 
-    // ponytail: class box so onLivePhotoMovie and the save Task share the URL without Sendable friction
-    private nonisolated final class MovieURLBox: @unchecked Sendable { var url: URL? }
+    // Thread-safe box so onLivePhotoMovie and the save Task share the URL without data races.
+    private nonisolated final class MovieURLBox: @unchecked Sendable {
+        private let lock = OSAllocatedUnfairLock(initialState: Optional<URL>.none)
+        var url: URL? {
+            get { lock.withLock { $0 } }
+            set { lock.withLock { $0 = newValue } }
+        }
+    }
 
     private func makeCaptureDelegate() -> CapturePhotoDelegate {
         let captureLocation = appState.permissionsManager.currentLocation
@@ -1488,18 +1500,16 @@ struct CameraView: View {
                 // isCapturing) as soon as the sensor is done — not after post-processing.
                 Task.detached(priority: .userInitiated) {
                     let depthData: AVDepthData? = isPortraitMode ? photo.depthData : nil
-                    let processedData = await MainActor.run {
-                        CameraView.processCapture(
-                            rawData: rawData,
-                            isRaw: photo.isRawPhoto,
-                            captureFilter: captureFilter,
-                            isAnamorphic: isAnamorphic,
-                            cropRatio: capturedCropRatio,
-                            watermark: capturedWatermark,
-                            activeStyle: activeStyle,
-                            depthData: depthData
-                        )
-                    }
+                    let processedData = CameraView.processCapture(
+                        rawData: rawData,
+                        isRaw: photo.isRawPhoto,
+                        captureFilter: captureFilter,
+                        isAnamorphic: isAnamorphic,
+                        cropRatio: capturedCropRatio,
+                        watermark: capturedWatermark,
+                        activeStyle: activeStyle,
+                        depthData: depthData
+                    )
 
                     // Generate gallery-button thumbnail for all (non-RAW) captures
                     if !photo.isRawPhoto {

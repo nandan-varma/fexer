@@ -124,6 +124,10 @@ final class CaptureProcessor: NSObject {
     var isLongExposureCapturing: Bool { longExpActiveLock.withLock { $0 } }
 
     func beginLongExposureCapture(duration: Double = 4.0, completion: @escaping (CIImage) -> Void) {
+        guard !isLongExposureCapturing else {
+            Logger.camera.warning("Long exposure already in progress, ignoring duplicate request")
+            return
+        }
         onLongExposureComplete = completion
         longExpDuration = duration
         longExpActiveLock.withLock { $0 = true }
@@ -143,7 +147,7 @@ final class CaptureProcessor: NSObject {
     private var frameCount = 0
     private var reportedSize: CGSize = .zero
     private let histogramQueue = DispatchQueue(label: "com.fexer.histogram", qos: .utility)
-    private lazy var ciContext: CIContext = CIContext.shared
+    private let ciContext: CIContext = CIContext.shared
 
     func setLatestImage(_ image: CIImage) {
         imageLock.withLock { $0 = image }
@@ -274,11 +278,10 @@ extension CaptureProcessor: AVCaptureVideoDataOutputSampleBufferDelegate {
     private static func blendFrames(_ frames: [CIImage]) -> CIImage? {
         guard !frames.isEmpty else { return nil }
         guard frames.count > 1 else { return frames[0] }
-        // Create once per blend pass — not per iteration — to avoid repeated filter allocation.
-        guard let maxFilter = CIFilter(name: "CIMaximumCompositing") else { return frames[0] }
 
         var result = frames[0]
         for frame in frames.dropFirst() {
+            guard let maxFilter = CIFilter(name: "CIMaximumCompositing") else { return result }
             maxFilter.setValue(result, forKey: kCIInputBackgroundImageKey)
             maxFilter.setValue(frame,  forKey: kCIInputImageKey)
             if let out = maxFilter.outputImage { result = out }

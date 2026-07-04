@@ -22,7 +22,7 @@ final class StylePreviewRenderer {
     nonisolated func originalImage(size: CGSize, completion: @escaping (UIImage?) -> Void) {
         let keyStr = "__original__-\(Int(size.width))x\(Int(size.height))"
         let key = keyStr as NSString
-        if let cached = cache.object(forKey: key) { completion(cached); return }
+        if let cached = cache.object(forKey: key) { DispatchQueue.main.async { completion(cached) }; return }
 
         let base = sampleImage
         guard base.extent.width > 0 && base.extent.height > 0 else { completion(nil); return }
@@ -49,7 +49,7 @@ final class StylePreviewRenderer {
                                 completion: @escaping (UIImage?) -> Void) {
         let keyStr = "\(style.id)-\(Int(size.width))x\(Int(size.height))"
         let key = keyStr as NSString
-        if let cached = cache.object(forKey: key) { completion(cached); return }
+        if let cached = cache.object(forKey: key) { DispatchQueue.main.async { completion(cached) }; return }
 
         let base = sampleImage
         guard base.extent.width > 0 && base.extent.height > 0 else { completion(nil); return }

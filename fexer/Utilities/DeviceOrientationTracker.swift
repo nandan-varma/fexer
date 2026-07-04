@@ -12,6 +12,7 @@ final class DeviceOrientationTracker {
     private init() {}
 
     func start() {
+        guard observer == nil else { return }
         UIDevice.current.beginGeneratingDeviceOrientationNotifications()
         observer = NotificationCenter.default.addObserver(
             forName: UIDevice.orientationDidChangeNotification,

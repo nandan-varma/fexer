@@ -112,7 +112,7 @@ final class CaptureSettingsTests: XCTestCase {
     }
 }
 
-final class LUTLoaderTests: XCTestCase {
+final class LUTLoaderProceduralTests: XCTestCase {
     func testProceduralGenerationProducesValidData() {
         let loader = LUTLoader.shared
         let (data, dim) = loader.generateProcedural(name: "test_identity") { r, g, b in

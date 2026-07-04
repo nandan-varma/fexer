@@ -3,6 +3,7 @@ import Photos
 import CoreLocation
 import CoreMotion
 import Observation
+import OSLog
 
 @Observable
 final class PermissionsManager: NSObject {
@@ -10,8 +11,9 @@ final class PermissionsManager: NSObject {
     var microphoneStatus: AVAuthorizationStatus = AVCaptureDevice.authorizationStatus(for: .audio)
     var photoLibraryStatus: PHAuthorizationStatus = PHPhotoLibrary.authorizationStatus(for: .addOnly)
     var locationStatus: CLAuthorizationStatus = .notDetermined
-    var motionAvailable: Bool = CMMotionManager().isDeviceMotionAvailable
     var currentLocation: CLLocation?
+
+    static let isMotionAvailable: Bool = CMMotionManager().isDeviceMotionAvailable
 
     private let locationManager = CLLocationManager()
 
@@ -56,7 +58,8 @@ final class PermissionsManager: NSObject {
     }
 
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-        currentLocation = locations.last
+        guard let loc = locations.last else { return }
+        Task { @MainActor in self.currentLocation = loc }
     }
 
     func requestAllPermissions() async {
@@ -69,9 +72,12 @@ final class PermissionsManager: NSObject {
 
 extension PermissionsManager: CLLocationManagerDelegate {
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
-        locationStatus = manager.authorizationStatus
-        if manager.authorizationStatus == .authorizedWhenInUse || manager.authorizationStatus == .authorizedAlways {
-            manager.startUpdatingLocation()
+        let status = manager.authorizationStatus
+        Task { @MainActor in
+            self.locationStatus = status
+            if status == .authorizedWhenInUse || status == .authorizedAlways {
+                manager.startUpdatingLocation()
+            }
         }
     }
 }

@@ -97,9 +97,9 @@ final class LUTFilter: CIFilter {
             result = colorControlsFilter.outputImage ?? result
         }
 
-        // CITemperatureAndTint: inputTargetNeutral > 6500 warms; < 6500 cools.
+        // CITemperatureAndTint: inputTargetNeutral < 6500 warms (lower target = cooler white balance target = warmer image); > 6500 cools.
         if adjWarmth != 0, let tempTintFilter {
-            let targetTemp = CGFloat(6500 + adjWarmth * 3000)
+            let targetTemp = CGFloat(6500 - adjWarmth * 3000)
             tempTintFilter.setValue(result,                         forKey: "inputImage")
             tempTintFilter.setValue(LUTFilter.neutralD65,           forKey: "inputNeutral")
             tempTintFilter.setValue(CIVector(x: targetTemp, y: 0),  forKey: "inputTargetNeutral")

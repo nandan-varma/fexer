@@ -114,7 +114,16 @@ final class LUTLoader {
                trimmed.uppercased().hasPrefix("DOMAIN_MAX") ||
                trimmed.uppercased().hasPrefix("TITLE") { continue }
 
-            let parts = trimmed.components(separatedBy: .whitespaces).compactMap(Float32.init)
+            // Strip inline comments before parsing data values
+            let dataPart: String
+            if let commentIdx = trimmed.firstIndex(of: "#") {
+                dataPart = String(trimmed[..<commentIdx]).trimmingCharacters(in: .whitespaces)
+            } else {
+                dataPart = trimmed
+            }
+            guard !dataPart.isEmpty else { continue }
+
+            let parts = dataPart.components(separatedBy: .whitespaces).compactMap(Float32.init)
             guard parts.count >= 3 else { continue }
             floats.append(parts[0])
             floats.append(parts[1])

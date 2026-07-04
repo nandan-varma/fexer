@@ -2,6 +2,7 @@ import Vision
 import AVFoundation
 import Observation
 import OSLog
+import os
 
 /// Classifies scenes from camera frames to suggest photographic styles.
 /// Runs inference at ~2fps; debounces suggestions to avoid flickering.
@@ -9,8 +10,12 @@ import OSLog
 final class SceneClassifier {
     private static let log = Logger(subsystem: "com.nandanvarma.fexer", category: "camera")
     var suggestedStyle: PhotoStyle?
-    var isEnabled = true
 
+    var isEnabled = true {
+        didSet { enabledLock.withLock { $0 = isEnabled } }
+    }
+
+    private let enabledLock = OSAllocatedUnfairLock(initialState: true)
     private let stateQueue = DispatchQueue(label: "com.fexer.sceneClassifier", qos: .utility)
     private var frameCounter = 0
     private var pendingMatch: PhotoStyle?
@@ -41,9 +46,9 @@ final class SceneClassifier {
         ]
     }()
 
-    func processFrame(_ pixelBuffer: CVPixelBuffer) {
-        guard isEnabled else { return }
-        frameCounter += 1
+    nonisolated func processFrame(_ pixelBuffer: CVPixelBuffer) {
+        guard enabledLock.withLock({ $0 }) else { return }
+        frameCounter = (frameCounter + 1) % 3600
         guard frameCounter % 30 == 0 else { return } // ~2fps at 60fps
 
         let request = VNClassifyImageRequest { [weak self] request, error in

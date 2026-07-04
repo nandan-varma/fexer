@@ -2,6 +2,7 @@ import SwiftUI
 import CoreImage
 import CoreImage.CIFilterBuiltins
 import Photos
+import OSLog
 
 struct EditView: View {
     let photo: CapturedPhoto
@@ -569,8 +570,8 @@ struct EditView: View {
         if state.warmth != 0 {
             let filter = CIFilter.temperatureAndTint()
             filter.inputImage = image
-            filter.neutral = CIVector(x: CGFloat(6500 - state.warmth * 2000), y: 0)
-            filter.targetNeutral = CIVector(x: 6500, y: 0)
+            filter.neutral = CIVector(x: 6500, y: 0)
+            filter.targetNeutral = CIVector(x: CGFloat(6500 - state.warmth * 2000), y: 0)
             image = filter.outputImage ?? image
         }
         if state.sharpness != 0 {
@@ -666,7 +667,7 @@ struct EditView: View {
             let filter = CIFilter.vignette()
             filter.inputImage = image
             filter.intensity = state.vignette
-            filter.radius = 1.5
+            filter.radius = Float(max(image.extent.width, image.extent.height)) * 0.8
             image = filter.outputImage ?? image
         }
 
@@ -1031,23 +1032,31 @@ struct EditView: View {
             }
             PHPhotoLibrary.shared().performChanges({
                 PHAssetCreationRequest.forAsset().addResource(with: .photo, data: jpegData, options: nil)
-            }, completionHandler: nil)
-            await MainActor.run {
-                let savedPhoto = CapturedPhoto(
-                    jpegData: jpegData,
-                    rawFileURL: capturedPhoto.rawFileURL,
-                    captureSettings: capturedPhoto.captureSettings,
-                    appliedStyle: capturedPhoto.appliedStyle,
-                    styleIntensity: capturedPhoto.styleIntensity,
-                    captureDate: capturedPhoto.captureDate,
-                    location: capturedPhoto.location,
-                    exifMetadata: capturedPhoto.exifMetadata,
-                    editState: capturedState
-                )
-                isSaving = false
-                HapticManager.focusLocked()
-                onSave?(savedPhoto)
-            }
+            }, completionHandler: { success, error in
+                if let error {
+                    Logger.camera.error("Edit save failed: \(error.localizedDescription)")
+                }
+                Task { @MainActor in
+                    self.isSaving = false
+                    guard success else {
+                        HapticManager.error()
+                        return
+                    }
+                    let savedPhoto = CapturedPhoto(
+                        jpegData: jpegData,
+                        rawFileURL: capturedPhoto.rawFileURL,
+                        captureSettings: capturedPhoto.captureSettings,
+                        appliedStyle: capturedPhoto.appliedStyle,
+                        styleIntensity: capturedPhoto.styleIntensity,
+                        captureDate: capturedPhoto.captureDate,
+                        location: capturedPhoto.location,
+                        exifMetadata: capturedPhoto.exifMetadata,
+                        editState: capturedState
+                    )
+                    HapticManager.focusLocked()
+                    onSave?(savedPhoto)
+                }
+            })
         }
     }
 }

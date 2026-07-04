@@ -1,5 +1,6 @@
 import XCTest
 import Foundation
+@testable import fexer
 
 class LUTLoaderTests: XCTestCase {
     var lutLoader: LUTLoader!

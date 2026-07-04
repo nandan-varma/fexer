@@ -73,7 +73,6 @@ included:
 excluded:
   - .build
   - .github
-  - Tests
 
 line_length:
   warning: 150

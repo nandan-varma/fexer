@@ -35,7 +35,7 @@ enum VideoColorSpace: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
-struct CaptureSettings {
+struct CaptureSettings: Equatable {
     var isoValue: Float = 200
     var shutterSpeed: CMTime = CMTime(value: 1, timescale: 250)
     var whiteBalance: Float = 5500

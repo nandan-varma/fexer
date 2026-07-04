@@ -1,6 +1,7 @@
 import XCTest
 import AVFoundation
 import CoreImage
+@testable import fexer
 
 class CameraManagerTests: XCTestCase {
     var cameraManager: CameraManager!
@@ -83,7 +84,7 @@ class CameraManagerTests: XCTestCase {
         XCTAssertEqual(settings.formatShutterSpeed(CMTimeGetSeconds(fastSpeed)), "1/8000")
         
         let slowSpeed = CMTime(value: 2, timescale: 1)
-        XCTAssertEqual(settings.formatShutterSpeed(CMTimeGetSeconds(slowSpeed)), "2s")
+        XCTAssertEqual(settings.formatShutterSpeed(CMTimeGetSeconds(slowSpeed)), "2\"")
     }
     
     func testComparableClamping() {
@@ -158,10 +159,11 @@ class CameraManagerTests: XCTestCase {
     }
     
     func testShootingModeAllCases() {
-        XCTAssertEqual(ShootingMode.allCases.count, 8)
+        XCTAssertEqual(ShootingMode.allCases.count, 9)
         XCTAssertTrue(ShootingMode.allCases.contains(.photo))
         XCTAssertTrue(ShootingMode.allCases.contains(.portrait))
         XCTAssertTrue(ShootingMode.allCases.contains(.longExposure))
+        XCTAssertTrue(ShootingMode.allCases.contains(.anamorphic))
     }
     
     func testStyleCategoryAllCases() {
@@ -173,14 +175,15 @@ class CameraManagerTests: XCTestCase {
     }
     
     func testMeteringModeAllCases() {
-        XCTAssertEqual(MeteringMode.allCases.count, 3)
+        XCTAssertEqual(MeteringMode.allCases.count, 4)
         XCTAssertTrue(MeteringMode.allCases.contains(.matrix))
         XCTAssertTrue(MeteringMode.allCases.contains(.center))
         XCTAssertTrue(MeteringMode.allCases.contains(.spot))
+        XCTAssertTrue(MeteringMode.allCases.contains(.highlightWeighted))
     }
     
     func testQuickAccessItemAllCases() {
-        XCTAssertEqual(QuickAccessItem.allCases.count, 12)
+        XCTAssertEqual(QuickAccessItem.allCases.count, 21)
         XCTAssertTrue(QuickAccessItem.allCases.contains(.flash))
         XCTAssertTrue(QuickAccessItem.allCases.contains(.timer))
         XCTAssertTrue(QuickAccessItem.allCases.contains(.grid))
