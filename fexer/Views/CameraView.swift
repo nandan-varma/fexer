@@ -54,7 +54,6 @@ struct CameraView: View {
     @AppStorage("showReviewAfterShot")   var showReviewAfterShot   = false
     @AppStorage("zebraHighThreshold")    var zebraHighThreshold: Double = 95.0
     @AppStorage("zebraLowThreshold")     var zebraLowThreshold: Double  = 2.0
-    @AppStorage("hintSwipeUpSeen")    var hintSwipeUpSeen      = false
 
     @AppStorage("torchLevel")           var torchLevel: Double = 1.0
     @AppStorage("stabilizationMode")    var stabilizationModeRaw: String = StabilizationMode.auto.rawValue
@@ -70,7 +69,6 @@ struct CameraView: View {
     @State var volumeObservation: NSKeyValueObservation?
     @State var volumeInterruptionToken: NSObjectProtocol?
     @State var volumeRouteChangeToken: NSObjectProtocol?
-    @State var showSwipeUpHint = false
     @State var aelToastText: String? = nil
     @State var aelToastTask: Task<Void, Never>?
     @State var recordingStartDate: Date? = nil
@@ -138,11 +136,6 @@ struct CameraView: View {
         let features = lifecycle
             .onChange(of: focusPeakingColor)            { syncProcessor() }
             .onChange(of: isCleanViewActive)            { syncProcessor() }
-            .onChange(of: cameraViewModel.isPanelExpanded) { _, expanded in
-                if expanded && !hintSwipeUpSeen {
-                    withAnimation { hintSwipeUpSeen = true }
-                }
-            }
         let captureBindings = features
             .onChange(of: cameraViewModel.shutterFlashTick) { triggerShutterFlash() }
             .onChange(of: cameraManager.currentDevice?.position) { _, _ in triggerCameraFlip() }
@@ -255,6 +248,8 @@ struct CameraView: View {
         VStack {
             QuickAccessBar(cameraManager: cameraManager, onShowPresets: {
                 showPresetsSheet = true
+            }, onShowSettings: {
+                showSettings = true
             })
             .environment(appState)
             Spacer()
@@ -344,30 +339,24 @@ struct CameraView: View {
                 .transition(.opacity.combined(with: .scale(scale: 0.85)))
         }
 
-        // ── Live manual exposure values (when panel is closed) ────────────────
-        let hasManualExposure = !cameraManager.captureSettings.isAutoISO || !cameraManager.captureSettings.isAutoShutter
-        let hasManualWB = !cameraManager.captureSettings.isAutoWhiteBalance
-        if (hasManualExposure || hasManualWB) && !cameraViewModel.isPanelExpanded && !isCleanViewActive {
-            HStack(spacing: 10) {
-                if !cameraManager.captureSettings.isAutoISO {
-                    Text("ISO \(Int(cameraManager.captureSettings.isoValue))")
-                }
-                if !cameraManager.captureSettings.isAutoShutter {
-                    Text(cameraManager.captureSettings.shutterSpeedDisplayString)
-                }
-                if hasManualWB {
-                    Text("\(Int(cameraManager.captureSettings.whiteBalance))K")
-                        .foregroundStyle(.cyan)
-                }
+        // ── Side-rail exposure/focus badges ──────────────────────────────────
+        if !isCleanViewActive {
+            ExposureRailView(cameraManager: cameraManager, cameraViewModel: cameraViewModel)
+                .padding(.top, CameraView.quickBarHeight + 8)
+                .allowsHitTesting(true)
+                .transition(.opacity)
+        }
+
+        // ── Parameter strip (contextual horizontal scrub) ─────────────────────
+        if let param = cameraViewModel.activeRailParam {
+            ParameterStripView(param: param, cameraManager: cameraManager) {
+                withAnimation(.easeOut(duration: 0.2)) { cameraViewModel.activeRailParam = nil }
             }
-            .font(.system(size: 10, weight: .semibold, design: .monospaced))
-            .foregroundStyle(.white)
-            .padding(.horizontal, 12).padding(.vertical, 5)
-            .background(.black.opacity(0.55), in: Capsule())
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-            .padding(.bottom, max(220, (letterboxBarHeight ?? 0) + 220))
-            .allowsHitTesting(false)
-            .transition(.opacity)
+            .padding(.bottom, max(160, (letterboxBarHeight ?? 0) + 160))
+            .transition(.opacity.combined(with: .scale(scale: 0.97)))
+            .allowsHitTesting(true)
+            .zIndex(5)
         }
 
         // ── Histogram ────────────────────────────────────────────────────────
@@ -464,14 +453,6 @@ struct CameraView: View {
                 .transition(.opacity)
         }
 
-        // ── Swipe-up hint ────────────────────────────────────────────────────
-        if showSwipeUpHint && !hintSwipeUpSeen && !cameraViewModel.isPanelExpanded {
-            SwipeUpHintView()
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-                .padding(.bottom, 180)
-                .allowsHitTesting(false)
-                .transition(.opacity)
-        }
     }
 
     @ViewBuilder
@@ -504,23 +485,6 @@ struct CameraView: View {
             )
         }
 
-        // Always rendered (not `if`) so Canvas/Metal pipeline compilation
-        // happens at launch, not on first swipe-up gesture.
-        VStack {
-            Spacer()
-            ManualControlsPanel(
-                cameraManager: cameraManager,
-                onSettings: { showSettings = true }
-            ) {
-                cameraViewModel.handleSwipeDown()
-            }
-            .frame(height: cameraManager.captureSettings.isAutoWhiteBalance ? 382 : 428)
-            .offset(y: cameraViewModel.isPanelExpanded ? 0 : 480)
-            .opacity(cameraViewModel.isPanelExpanded ? 1 : 0)
-            .allowsHitTesting(cameraViewModel.isPanelExpanded)
-            .padding(.bottom, 8)
-        }
-        .ignoresSafeArea(edges: .bottom)
     }
 
     @ViewBuilder
@@ -566,19 +530,14 @@ struct CameraView: View {
     private var swipeUpGesture: some Gesture {
         DragGesture(minimumDistance: 40)
             .onEnded { g in
-                let isVertical = abs(g.translation.height) > abs(g.translation.width)
-                if isVertical && g.translation.height < -40 {
-                    cameraViewModel.handleSwipeUp()
-                } else if isVertical && g.translation.height > 40 && cameraViewModel.isPanelExpanded {
-                    cameraViewModel.handleSwipeDown()
-                } else if !isVertical && !cameraViewModel.isPanelExpanded {
-                    let direction = g.translation.width < 0 ? 1 : -1
-                    let newIndex = (cameraViewModel.activeModeIndex + direction)
-                        .fxClamped(to: 0...ShootingMode.allCases.count - 1)
-                    if newIndex != cameraViewModel.activeModeIndex {
-                        cameraViewModel.selectMode(index: newIndex, cropRatioRaw: $cropRatioRaw,
-                                                   selfTimerDelay: $selfTimerDelay)
-                    }
+                guard abs(g.translation.width) > abs(g.translation.height) else { return }
+                guard cameraViewModel.activeRailParam == nil else { return }
+                let direction = g.translation.width < 0 ? 1 : -1
+                let newIndex = (cameraViewModel.activeModeIndex + direction)
+                    .fxClamped(to: 0...ShootingMode.allCases.count - 1)
+                if newIndex != cameraViewModel.activeModeIndex {
+                    cameraViewModel.selectMode(index: newIndex, cropRatioRaw: $cropRatioRaw,
+                                               selfTimerDelay: $selfTimerDelay)
                 }
             }
     }

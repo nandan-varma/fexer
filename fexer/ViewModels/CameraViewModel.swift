@@ -21,7 +21,8 @@ final class CameraViewModel {
     let stylesManager: StylesManager
 
     // UI state
-    var isPanelExpanded = false
+    enum RailParam: Equatable { case iso, shutter, wb, focus }
+    var activeRailParam: RailParam? = nil
     var activeModeIndex = 0
     var shutterFlashTick: Int = 0
     var isZooming: Bool = false
@@ -155,19 +156,6 @@ final class CameraViewModel {
     func setBrightnessBias(_ ev: Float) {
         let delta = CGFloat(ev.fxClamped(to: -3...3) - accumulatedExposureBias)
         handleBrightnessSwipe(delta: delta)
-    }
-
-    func handleSwipeUp() {
-        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-            isPanelExpanded = true
-        }
-        HapticManager.light()
-    }
-
-    func handleSwipeDown() {
-        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-            isPanelExpanded = false
-        }
     }
 
     func handleDoubleTapReset() {

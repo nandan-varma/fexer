@@ -53,11 +53,32 @@ extension CameraManager {
 
     // MARK: - Still Capture
 
+    // MARK: - Photo connection orientation
+
+    /// Maps the UI counter-rotation angle (from DeviceOrientationTracker) to the
+    /// AVCaptureConnection angle that makes pixels upright for the physical device orientation.
+    /// Must be called on MainActor; result is passed into sessionQueue before each capture.
+    private func currentPhotoConnectionAngle() -> CGFloat {
+        let uiAngle = Int(DeviceOrientationTracker.shared.rotationAngle)
+        // portrait(0)→90°  landscapeLeft(90)→0°  landscapeRight(-90)→180°  upsideDown(180)→270°
+        return CGFloat((90 - uiAngle + 360) % 360)
+    }
+
+    /// Apply rotation to the photo output connection. Must be called on sessionQueue.
+    private func applyPhotoConnectionRotation(_ angle: CGFloat) {
+        guard let conn = photoOutput.connection(with: .video),
+              conn.isVideoRotationAngleSupported(angle) else { return }
+        conn.videoRotationAngle = angle
+    }
+
+    // MARK: - Still Capture
+
     /// - Parameter bypassBusyGuard: Set `true` for burst mode, which needs overlapping captures.
     func capturePhoto(delegate: AVCapturePhotoCaptureDelegate, bypassBusyGuard: Bool = false) {
         // Snapshot @MainActor properties before crossing to sessionQueue.
         let captureFormat = captureSettings.captureFormat
         let flash = flashMode
+        let photoAngle = currentPhotoConnectionAngle()
         sessionQueue.async { [self] in
             // _captureBusy is checked and set on sessionQueue atomically — no TOCTOU.
             guard bypassBusyGuard || !_captureBusy else { return }
@@ -65,6 +86,7 @@ extension CameraManager {
                 _captureBusy = true
                 Task { @MainActor in self.isCapturing = true }
             }
+            applyPhotoConnectionRotation(photoAngle)
             let settings = makePhotoSettings(format: captureFormat)
             settings.flashMode = flash
             // photoQualityPrioritization is unsupported for RAW captures
@@ -79,10 +101,12 @@ extension CameraManager {
 
     func capturePhotoBracketed(evStep: Float, delegate: AVCapturePhotoCaptureDelegate) {
         let flash = flashMode
+        let photoAngle = currentPhotoConnectionAngle()
         sessionQueue.async { [self] in
             guard !_captureBusy else { return }
             _captureBusy = true
             Task { @MainActor in self.isCapturing = true }
+            applyPhotoConnectionRotation(photoAngle)
 
             let offsets: [Float] = [-evStep, 0, evStep]
             let maxCount = photoOutput.maxBracketedCapturePhotoCount
@@ -102,9 +126,11 @@ extension CameraManager {
 
     /// Captures 3 shots sequentially at current K ± kStep, then current K.
     func capturePhotoBracketedWB(kStep: Float, captureFormat: CaptureFormat, flash: AVCaptureDevice.FlashMode, delegate: AVCapturePhotoCaptureDelegate) {
+        let photoAngle = currentPhotoConnectionAngle()
         sessionQueue.async { [self] in
             guard !_captureBusy else { return }
             _captureBusy = true
+            applyPhotoConnectionRotation(photoAngle)
             let steps: [Float] = [-kStep, 0, kStep]
             pendingBracketCompletions = steps.count
             Task { @MainActor in self.isCapturing = true }

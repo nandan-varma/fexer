@@ -22,7 +22,7 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		A21EC4D02FF9825A00B5F445 /* fexerTests */ = {
+		A21EC4D02FF9825A00B5F445 /* Tests/fexerTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = Tests/fexerTests;
 			sourceTree = "<group>";
@@ -56,7 +56,7 @@
 			isa = PBXGroup;
 			children = (
 				A25D68142FE3DDCC00F11BF8 /* fexer */,
-				A21EC4D02FF9825A00B5F445 /* fexerTests */,
+				A21EC4D02FF9825A00B5F445 /* Tests/fexerTests */,
 				A25D68132FE3DDCC00F11BF8 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -87,7 +87,7 @@
 				A21EC4D42FF9825A00B5F445 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
-				A21EC4D02FF9825A00B5F445 /* fexerTests */,
+				A21EC4D02FF9825A00B5F445 /* Tests/fexerTests */,
 			);
 			name = fexerTests;
 			packageProductDependencies = (

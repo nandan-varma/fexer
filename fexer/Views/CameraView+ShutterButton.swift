@@ -45,7 +45,7 @@ extension CameraView {
             Spacer()
             shutterButton
             Spacer()
-            formatBadge
+            Color.clear.frame(width: 52, height: 52)
         }
     }
 
@@ -200,31 +200,4 @@ extension CameraView {
         }
     }
 
-    // MARK: - Format badge (right of shutter)
-
-    var formatBadge: some View {
-        let cs = cameraManager.captureSettings
-        let isRaw = cs.captureFormat == .raw || cs.captureFormat == .rawPlusJpeg
-        return VStack(spacing: 3) {
-            if isProRAWEnabled {
-                Text("ProRAW")
-                    .font(.system(size: 9, weight: .bold, design: .monospaced))
-                    .foregroundStyle(.orange)
-            } else if isRaw {
-                Text("RAW")
-                    .font(.system(size: 11, weight: .bold, design: .monospaced))
-                    .foregroundStyle(.orange)
-            } else {
-                Text(defaultCaptureFormat)
-                    .font(.system(size: 10, weight: .medium, design: .monospaced))
-                    .foregroundStyle(.white.opacity(0.5))
-            }
-            if cameraManager.currentDevice?.position == .front {
-                Image(systemName: "arrow.triangle.2.circlepath.camera.fill")
-                    .font(.system(size: 9, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.4))
-            }
-        }
-        .frame(width: 52, height: 52)
-    }
 }

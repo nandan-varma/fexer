@@ -18,15 +18,10 @@ struct ViewfinderView: View {
                 CameraPreview(
                     cameraManager: cameraViewModel.cameraManager,
                     cropRatio: cropRatio,
-                    onTapToFocus: { normalizedPoint, _ in
-                        // Invert the 90° rotation coordinate mapping (swapped axes):
-                        let screenPoint = CGPoint(
-                            x: (1 - normalizedPoint.y) * geo.size.width,
-                            y: normalizedPoint.x * geo.size.height
-                        )
+                    onTapToFocus: { avPoint, screenPoint in
                         cameraViewModel.focusIndicatorPosition = screenPoint
                         withAnimation(.spring(response: 0.35, dampingFraction: 0.65)) {
-                            cameraViewModel.handleTapToFocus(at: normalizedPoint)
+                            cameraViewModel.handleTapToFocus(at: avPoint)
                         }
                     },
                     onDoubleTap: {

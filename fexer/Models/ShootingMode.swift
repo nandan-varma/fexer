@@ -123,6 +123,8 @@ enum QuickAccessItem: String, CaseIterable, Identifiable {
     case opticalZoomLock = "ZoomLock"
     case trapFocus = "TrapFocus"
     case presets = "Presets"
+    case hdr = "HDR"
+    case metering = "Metering"
 
     var id: String { rawValue }
 
@@ -149,6 +151,28 @@ enum QuickAccessItem: String, CaseIterable, Identifiable {
         case .opticalZoomLock: return "lock.fill"
         case .trapFocus:       return "camera.aperture"
         case .presets:         return "square.stack.3d.down.right"
+        case .hdr:             return "rays"
+        case .metering:        return "dot.scope"   // overridden dynamically in QuickAccessBar
+        }
+    }
+}
+
+enum SideRailItem: String, CaseIterable, Identifiable {
+    case flash    = "Flash"
+    case metering = "Metering"
+    case hdr      = "HDR"
+    case torch    = "Torch"
+    case timer    = "Timer"
+
+    var id: String { rawValue }
+
+    var systemImageName: String {
+        switch self {
+        case .flash:    return "bolt"
+        case .metering: return "dot.scope"
+        case .hdr:      return "rays"
+        case .torch:    return "flashlight.off.fill"
+        case .timer:    return "timer"
         }
     }
 }

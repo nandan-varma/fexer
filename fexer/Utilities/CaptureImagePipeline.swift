@@ -19,6 +19,9 @@ nonisolated enum CaptureImagePipeline {
         var watermark = ""
         var activeStyle: PhotoStyle?
         var depthData: AVDepthData?
+        /// Photo connection angle at capture time: 90=portrait, 0=landscapeLeft, 180=landscapeRight, 270=upsideDown
+        var captureAngle: CGFloat = 90
+        var isLandscapeCapture: Bool { captureAngle == 0 || captureAngle == 180 }
     }
 
     // MARK: - Full still-capture pass
@@ -63,7 +66,9 @@ nonisolated enum CaptureImagePipeline {
 
         // Crop in CI space — a free transform on the lazy graph, avoids a second decode/encode cycle
         if needsCrop, let aspect = options.cropRatio.portraitAspect {
-            out = centerCropped(out, toAspect: aspect)
+            // Invert portrait aspect for landscape captures (photo connection rotated pixels to landscape)
+            let cropAspect = options.isLandscapeCapture ? 1.0 / aspect : aspect
+            out = centerCropped(out, toAspect: cropAspect)
         }
 
         let props = metadataProps(source: source, activeStyle: options.activeStyle)

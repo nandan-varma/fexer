@@ -1,32 +1,5 @@
 import SwiftUI
 
-// MARK: - Swipe-Up Hint
-
-struct SwipeUpHintView: View {
-    @State private var floatOffset: CGFloat = 0
-
-    var body: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "chevron.up")
-                .font(.system(size: 11, weight: .semibold))
-            Text("MANUAL CONTROLS")
-                .font(.system(size: 10, weight: .semibold))
-                .tracking(1.2)
-        }
-        .foregroundStyle(.white.opacity(0.7))
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-        .background(.ultraThinMaterial.opacity(0.9), in: Capsule())
-        .overlay(Capsule().stroke(.white.opacity(0.15), lineWidth: 0.5))
-        .offset(y: floatOffset)
-        .onAppear {
-            withAnimation(.easeInOut(duration: 1.4).repeatForever(autoreverses: true)) {
-                floatOffset = -5
-            }
-        }
-    }
-}
-
 // MARK: - Brightness Zone Hint
 
 struct BrightnessHintView: View {

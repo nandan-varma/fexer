@@ -77,6 +77,9 @@ import Photos
     var pendingRecordingLocation: CLLocation?
     var pendingRecordingStyleName: String?
 
+    // Saved before HDR format switch so disabling HDR can restore the original format.
+    @ObservationIgnored nonisolated(unsafe) var preHDRFormat: AVCaptureDevice.Format?
+
     // Busy guard for still capture — checked and set atomically on sessionQueue to prevent TOCTOU.
     // isCapturing mirrors this on MainActor for UI binding.
     var _captureBusy = false

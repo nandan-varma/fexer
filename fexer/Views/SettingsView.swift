@@ -10,7 +10,6 @@ struct SettingsView: View {
         NavigationStack {
             Form {
                 CameraSection(cameraManager: cameraManager)
-                CamerasInfoSection(cameraManager: cameraManager)
                 CaptureSection()
                 VideoSection(cameraManager: cameraManager)
                 ViewfinderSection()
@@ -18,8 +17,10 @@ struct SettingsView: View {
                 StylesSection(stylesManager: stylesManager)
                 InterfaceSection()
                 QuickAccessSection(appState: appState)
+                SideRailsSection(appState: appState)
                 WatermarkSection()
                 AboutSection()
+                CamerasInfoSection(cameraManager: cameraManager)
             }
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
@@ -69,11 +70,7 @@ private struct CameraSection: View {
         } header: {
             Text("Camera")
         } footer: {
-            if !cameraManager.isProRAWSupported {
-                Text("ProRAW requires iPhone 12 Pro or later. Lock to Optical Zoom snaps zoom to native focal lengths only.")
-            } else {
-                Text("Lock to Optical Zoom snaps zoom to native focal lengths only. Location is embedded in EXIF metadata.")
-            }
+            Text("Lock to Optical Zoom snaps zoom to native focal lengths only. Location is embedded in EXIF metadata.\(cameraManager.isProRAWSupported ? "" : " ProRAW requires iPhone 12 Pro or later.")")
         }
     }
 }
@@ -220,7 +217,6 @@ private struct VideoSection: View {
     @AppStorage("videoFrameRate")     private var videoFrameRate: Int         = 30
     @AppStorage("stabilizationMode")  private var stabilizationModeRaw: String = StabilizationMode.auto.rawValue
     @AppStorage("videoColorSpace")    private var videoColorSpaceRaw: String  = VideoColorSpace.sRGB.rawValue
-    @AppStorage("isHDREnabled")       private var isHDREnabled                = false
 
     private var stabilizationMode: StabilizationMode { StabilizationMode(rawValue: stabilizationModeRaw) ?? .auto }
     private var videoColorSpace: VideoColorSpace { VideoColorSpace(rawValue: videoColorSpaceRaw) ?? .sRGB }
@@ -266,11 +262,6 @@ private struct VideoSection: View {
             }
             .pickerStyle(.menu)
 
-            if cameraManager.isHDRFormatSupported {
-                Toggle(isOn: $isHDREnabled) {
-                    Label("HDR", systemImage: "sun.max.fill")
-                }
-            }
         } header: {
             Text("Video")
         } footer: {
@@ -531,6 +522,88 @@ private struct QuickAccessSection: View {
             Text("Quick Access Bar")
         } footer: {
             Text("Drag to reorder · Swipe left to remove")
+        }
+    }
+}
+
+// MARK: - Side Rails
+
+private struct SideRailsSection: View {
+    var appState: AppState
+
+    // Items not already on either rail
+    private var available: [SideRailItem] {
+        let used = Set(appState.leftRailItems + appState.rightRailItems)
+        return SideRailItem.allCases.filter { !used.contains($0) }
+    }
+
+    var body: some View {
+        Section {
+            ForEach(appState.leftRailItems) { item in
+                HStack(spacing: 12) {
+                    Image(systemName: item.systemImageName).frame(width: 24).foregroundStyle(.yellow)
+                    Text(item.rawValue)
+                }
+            }
+            .onMove { from, to in
+                appState.leftRailItems.move(fromOffsets: from, toOffset: to)
+                appState.saveRailItems()
+            }
+            .onDelete { offsets in
+                appState.leftRailItems.remove(atOffsets: offsets)
+                appState.saveRailItems()
+            }
+            if !available.isEmpty {
+                Menu {
+                    ForEach(available) { item in
+                        Button {
+                            appState.leftRailItems.append(item)
+                            appState.saveRailItems()
+                        } label: {
+                            Label(item.rawValue, systemImage: item.systemImageName)
+                        }
+                    }
+                } label: {
+                    Label("Add to Left Rail", systemImage: "plus.circle.fill").foregroundStyle(.yellow)
+                }
+            }
+        } header: {
+            Text("Left Rail")
+        }
+
+        Section {
+            ForEach(appState.rightRailItems) { item in
+                HStack(spacing: 12) {
+                    Image(systemName: item.systemImageName).frame(width: 24).foregroundStyle(.yellow)
+                    Text(item.rawValue)
+                }
+            }
+            .onMove { from, to in
+                appState.rightRailItems.move(fromOffsets: from, toOffset: to)
+                appState.saveRailItems()
+            }
+            .onDelete { offsets in
+                appState.rightRailItems.remove(atOffsets: offsets)
+                appState.saveRailItems()
+            }
+            if !available.isEmpty {
+                Menu {
+                    ForEach(available) { item in
+                        Button {
+                            appState.rightRailItems.append(item)
+                            appState.saveRailItems()
+                        } label: {
+                            Label(item.rawValue, systemImage: item.systemImageName)
+                        }
+                    }
+                } label: {
+                    Label("Add to Right Rail", systemImage: "plus.circle.fill").foregroundStyle(.yellow)
+                }
+            }
+        } header: {
+            Text("Right Rail")
+        } footer: {
+            Text("ISO · SS are always left. WB · Focus are always right. Drag to reorder · Swipe left to remove.")
         }
     }
 }

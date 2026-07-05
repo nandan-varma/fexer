@@ -131,16 +131,22 @@ extension CameraManager {
         sessionQueue.async { [self] in
             guard videoOutput.connection(with: .video) != nil else { return }
             if enabled, let device = currentDevice {
-                let hdrFormat = device.formats.first {
-                    let w = CMVideoFormatDescriptionGetDimensions($0.formatDescription).width
-                    return w >= 1920 &&
-                        ($0.isVideoHDRSupported || $0.supportedColorSpaces.contains(.HLG_BT2020))
+                let currentDims = CMVideoFormatDescriptionGetDimensions(device.activeFormat.formatDescription)
+                let isHDRCapable: (AVCaptureDevice.Format) -> Bool = {
+                    $0.isVideoHDRSupported || $0.supportedColorSpaces.contains(.HLG_BT2020)
                 }
+                // Prefer same dimensions, fall back to any >= 1920 wide HDR format.
+                let hdrFormat = device.formats.first(where: {
+                    let d = CMVideoFormatDescriptionGetDimensions($0.formatDescription)
+                    return d.width == currentDims.width && d.height == currentDims.height && isHDRCapable($0)
+                }) ?? device.formats.first(where: {
+                    CMVideoFormatDescriptionGetDimensions($0.formatDescription).width >= 1920 && isHDRCapable($0)
+                })
                 if let fmt = hdrFormat {
+                    preHDRFormat = device.activeFormat
                     session.beginConfiguration()
                     device.withLock {
                         device.activeFormat = fmt
-                        // Modern HDR path: activate the HLG color space when available
                         if fmt.supportedColorSpaces.contains(.HLG_BT2020) {
                             device.activeColorSpace = .HLG_BT2020
                         }
@@ -151,7 +157,16 @@ extension CameraManager {
                     Logger.camera.warning("No HDR-capable format found; HDR not available on this device")
                     Task { @MainActor in self.captureSettings.isHDREnabled = false }
                 }
-            } else if !enabled {
+            } else if !enabled, let device = currentDevice {
+                if let saved = preHDRFormat {
+                    preHDRFormat = nil
+                    session.beginConfiguration()
+                    device.withLock {
+                        device.activeFormat = saved
+                        device.activeColorSpace = .sRGB
+                    }
+                    session.commitConfiguration()
+                }
                 Task { @MainActor in self.captureSettings.isHDREnabled = false }
             }
         }

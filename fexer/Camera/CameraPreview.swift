@@ -1,3 +1,4 @@
+import AVFoundation
 import SwiftUI
 import MetalKit
 import CoreImage
@@ -7,7 +8,7 @@ import CoreImage
 struct CameraPreview: UIViewRepresentable {
     let cameraManager: CameraManager
     var cropRatio: CropRatio = .full
-    var onTapToFocus: ((CGPoint, CGSize) -> Void)?
+    var onTapToFocus: ((CGPoint, CGPoint) -> Void)?
     var onDoubleTap: (() -> Void)?
     var onPinchZoom: ((CGFloat, CGFloat) -> Void)?
     var onSwipeBrightness: ((CGFloat) -> Void)?
@@ -44,7 +45,7 @@ struct CameraPreview: UIViewRepresentable {
     final class Coordinator: NSObject, MTKViewDelegate {
         let cameraManager: CameraManager
         var cropRatio: CropRatio = .full
-        var onTapToFocus: ((CGPoint, CGSize) -> Void)?
+        var onTapToFocus: ((CGPoint, CGPoint) -> Void)?
         var onDoubleTap: (() -> Void)?
         var onPinchZoom: ((CGFloat, CGFloat) -> Void)?
         var onSwipeBrightness: ((CGFloat) -> Void)?
@@ -156,21 +157,25 @@ struct CameraPreview: UIViewRepresentable {
             let point = gesture.location(in: view)
             let size = view.bounds.size
 
-            // Ignore taps in letterbox bar areas (neither focus point nor indicator should land there)
+            // Ignore taps in letterbox bar areas.
             let barH = previewBarHeight(viewSize: size)
             guard point.y >= barH && point.y <= size.height - barH else { return }
 
-            // Convert to AVFoundation normalized coordinates (origin bottom-left, axes swapped for portrait).
-            // In .full mode the image is letterboxed — map only the active (non-bar) area to [0, 1].
-            let normalizedX: CGFloat
+            // Map screen tap → AVFoundation focusPointOfInterest (portrait, 90° rotated delivery).
+            // x axis: screen-Y → sensor row (mapped from active area in .full letterbox mode).
+            // y axis: screen-X → sensor column; front camera flips due to landscape-left native orientation.
+            let avX: CGFloat
             if cropRatio == .full && barH > 0 {
                 let activeHeight = size.height - 2 * barH
-                normalizedX = (point.y - barH) / max(activeHeight, 1)
+                avX = (point.y - barH) / max(activeHeight, 1)
             } else {
-                normalizedX = point.y / size.height
+                avX = point.y / size.height
             }
-            let normalized = CGPoint(x: normalizedX, y: 1 - point.x / size.width)
-            onTapToFocus?(normalized, size)
+            let isFront = cameraManager.currentDevice?.position == .front
+            let avY: CGFloat = isFront ? point.x / size.width : 1 - point.x / size.width
+            let avPoint = CGPoint(x: avX, y: avY)
+            // Pass the raw view-space point so the caller never has to invert the transform.
+            onTapToFocus?(avPoint, point)
         }
 
         /// Height of each letterbox bar in the view's points coordinate system.

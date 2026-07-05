@@ -109,13 +109,16 @@ extension CameraView {
         let captureFilter = stylesManager.makeCaptureFilter()
         let capturedCropRatio = cropRatio
         let capturedWatermark = watermarkText
+        // Video frames are always portrait-upright; snapshot orientation at capture start
+        // to rotate the composite into the correct physical orientation.
+        let capturedRotationAngle = DeviceOrientationTracker.shared.rotationAngle
 
         cameraManager.processor.beginLongExposureCapture(duration: longExposureDuration) { ciImage in
             Task { @MainActor in
                 await self.saveLongExposureImage(
                     ciImage, filter: captureFilter,
                     cropRatio: capturedCropRatio, watermark: capturedWatermark,
-                    location: location
+                    location: location, rotationAngle: capturedRotationAngle
                 )
             }
         }
@@ -123,15 +126,28 @@ extension CameraView {
 
     func saveLongExposureImage(_ ciImage: CIImage, filter: LUTFilter?,
                                cropRatio: CropRatio, watermark: String,
-                               location: CLLocation?) async {
+                               location: CLLocation?, rotationAngle: Double = 0) async {
         var out = ciImage
+
+        // Rotate portrait-upright composite to match physical device orientation.
+        // Video frames are delivered portrait-upright (videoRotationAngle=90 on videoOutput);
+        // rotate by the inverse of the UI counter-rotation to get the correct physical orientation.
+        if rotationAngle != 0 {
+            let radians = CGFloat(-rotationAngle * .pi / 180)
+            let rotated = out.transformed(by: CGAffineTransform(rotationAngle: radians))
+            out = rotated.transformed(by: CGAffineTransform(translationX: -rotated.extent.origin.x,
+                                                             y: -rotated.extent.origin.y))
+        }
+
         if let f = filter {
             f.inputImage = out
             out = f.outputImage ?? out
         }
         // Crop in CI space — free transform on the lazy CIImage graph, no extra decode/encode
         if cropRatio != .full, let aspect = cropRatio.portraitAspect {
-            out = CaptureImagePipeline.centerCropped(out, toAspect: aspect)
+            let isLandscape = abs(rotationAngle) == 90
+            let cropAspect = isLandscape ? 1.0 / aspect : aspect
+            out = CaptureImagePipeline.centerCropped(out, toAspect: cropAspect)
         }
         guard let sRGB = CGColorSpace(name: CGColorSpace.sRGB),
               var cg = CIContext.shared.createCGImage(out, from: out.extent, format: .RGBA8, colorSpace: sRGB)
@@ -183,6 +199,8 @@ extension CameraView {
         let capturedWatermark = watermarkText
         let isAnamorphic = cameraManager.processor.isAnamorphicDesqueezeEnabled
         let isPortraitMode = cameraViewModel.activeMode == .portrait
+        let uiAngle = Int(DeviceOrientationTracker.shared.rotationAngle)
+        let capturedPhotoAngle = CGFloat((90 - uiAngle + 360) % 360)
         let movieBox = MovieURLBox()
         let onShowReview: (CapturedPhoto) -> Void = { [self] photo in
             capturedPhoto = photo
@@ -213,7 +231,8 @@ extension CameraView {
                             cropRatio: capturedCropRatio,
                             watermark: capturedWatermark,
                             activeStyle: activeStyle,
-                            depthData: depthData
+                            depthData: depthData,
+                            captureAngle: capturedPhotoAngle
                         )
                     )
 

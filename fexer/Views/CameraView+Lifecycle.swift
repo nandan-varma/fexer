@@ -26,7 +26,6 @@ extension CameraView {
         cameraManager.captureSettings.isOpticalZoomLocked = isOpticalZoomLocked
         cameraManager.captureSettings.isTrapFocusEnabled = isTrapFocusEnabled
         setupVolumeButtonObserver()
-        if !hintSwipeUpSeen { scheduleSwipeUpHint() }
         applyPendingShootingMode()
     }
 
@@ -58,14 +57,6 @@ extension CameraView {
               let index = ShootingMode.allCases.firstIndex(of: mode) else { return }
         appState.pendingShootingMode = nil
         cameraViewModel.selectMode(index: index, cropRatioRaw: $cropRatioRaw, selfTimerDelay: $selfTimerDelay)
-    }
-
-    func scheduleSwipeUpHint() {
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 4_000_000_000)
-            guard !hintSwipeUpSeen else { return }
-            withAnimation(.easeIn(duration: 0.4)) { showSwipeUpHint = true }
-        }
     }
 
     func formatTimecode(_ seconds: TimeInterval) -> String {

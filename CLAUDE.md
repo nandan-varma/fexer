@@ -38,7 +38,9 @@ SourceKit shows many false-positive errors (UIKit types "unavailable in macOS", 
 fexer/
 ├── App/                          # AppState.swift
 ├── Camera/                       # CameraManager, CaptureProcessor, filters, CameraPreview
-├── Models/                       # ShootingMode, CaptureSettings, CapturedPhoto, EditState, VideoSettings
+│                                 # CameraManager+ManualControls, CameraManager+VideoConfiguration
+├── Models/                       # ShootingMode (+ QuickAccessItem + MeteringMode + WBPreset),
+│                                 # CaptureSettings, CapturedPhoto, EditState, VideoSettings
 ├── ViewModels/                   # CameraViewModel, StylesViewModel, GalleryViewModel
 ├── Utilities/                    # PermissionsManager, CaptureService, HapticManager,
 │                                 # ExifReader, HistogramCalculator, LUTLoader, CIContext+Shared,
@@ -46,7 +48,12 @@ fexer/
 ├── Styles/                       # StylesManager, LUTFilter, StyleTransforms, SceneClassifier,
 │                                 # StylePreviewRenderer
 ├── Views/
-│   ├── CameraView.swift          # Main camera UI (1100+ lines)
+│   ├── CameraView.swift          # Main camera UI — layer composition, @AppStorage keys, gesture routing
+│   ├── CameraView+Capture.swift  # Capture flow, delegate wiring, flash, shutter actions
+│   ├── CameraView+ShootingModes.swift  # shootingModePicker, modeAdvisoryLine, videoControlsRow
+│   ├── CameraView+ShutterButton.swift  # shutterRow, shutterButton, formatBadge
+│   ├── CameraView+LensSwitcher.swift   # lensSwitcherRow, ZoomDial
+│   ├── CameraView+Lifecycle.swift      # onCameraViewAppear/Disappear, volume observer
 │   ├── ViewfinderView.swift      # MTKView + overlay composition
 │   ├── ReviewView.swift          # Post-capture review
 │   ├── EditView.swift            # Non-destructive editor
@@ -54,14 +61,13 @@ fexer/
 │   ├── SettingsView.swift        # Preferences
 │   ├── OnboardingView.swift      # First-run permissions
 │   ├── SplashView.swift          # Launch animation (aperture iris)
-│   ├── QuickAccessBar.swift      # Customizable bottom toolbar
+│   ├── QuickAccessBar.swift      # Top icon bar — fixed gear + customisable scrollable items
 │   ├── ApertureLogoView.swift    # Programmatic aperture animation
 │   ├── Overlays/                 # Histogram, Waveform, Vectorscope, LevelIndicator,
 │   │                             # GridOverlay, FocusPeakingOverlay, ZebraOverlay,
-│   │                             # GestureHintOverlay
-│   ├── ControlsPanel/            # ManualControlsPanel, VerticalDialSlider, ISOSlider,
-│   │                             # ShutterSlider, WhiteBalanceSlider, FocusSlider,
-│   │                             # AutoToggleButton
+│   │                             # GestureHintOverlay (BrightnessEVIndicator, BrightnessHintView)
+│   ├── ControlsPanel/            # ExposureRailView (side-rail badges),
+│   │                             # ParameterStripView (contextual horizontal scrub)
 │   ├── StylePicker/              # StylePickerView, StyleCategoryView, StyleThumbnailView,
 │   │                             # StyleBeforeAfterView, StyleAdjustmentsRow
 │   └── SupportingTypes/          # CapturePhotoDelegate, ShutterButtonStyle, VolumeHUDSuppressor,
@@ -131,7 +137,7 @@ Swapping x/y when recovering screen position is intentional — do not "simplify
 
 `configureSession()` starts on `AVCaptureDevice.default(.builtInWideAngleCamera, …, position: .back)`. `switchToCamera(_ lens: LensOption)` swaps the video device input to a different physical camera, updates `activeLensOpticalFactor`, and resets digital zoom to 1×.
 
-`CameraView+LensSwitcher.swift` drives the lens-switcher row from `backLenses`. The active button is identified by `lens.device == cameraManager.currentDevice`. The live optical zoom label = `currentZoomFactor × activeLensOpticalFactor`. The ZoomDial (long-press) controls digital zoom within the current physical lens; optical label range = `[opticalFactor × minDigitalZoom … opticalFactor × maxDigitalZoom]`.
+`CameraView+LensSwitcher.swift` drives the lens-switcher row from `backLenses`. The active button is identified by `lens.device == cameraManager.currentDevice`. The live optical zoom label = `currentZoomFactor × activeLensOpticalFactor`. The ZoomDial (long-press) controls digital zoom within the current physical lens.
 
 `flipCamera()` restores the back camera to the wide-angle (`backLenses.first { $0.opticalFactor == 1.0 }?.device`) and the front camera uses `bestCamera(for: .front)` (TrueDepth → wide-angle, both physical).
 
@@ -141,7 +147,7 @@ Swapping x/y when recovering screen position is intentional — do not "simplify
 |---|---|---|
 | `CameraManager` | `@Observable`, properties read on MainActor, mutations dispatched to `sessionQueue` | `AVCaptureSession`, `AVCapturePhotoOutput`, `AVCaptureVideoDataOutput`, KVO observations, `previewImageSize`, `backLenses`, `activeLensOpticalFactor`, `discoveredCameras` |
 | `CaptureProcessor` | `sessionQueue` | Per-frame CI filter chain, histogram computation (every 3rd frame), `OSAllocatedUnfairLock`-protected `latestImage`, `onPixelBuffer` callback (fires on first frame, then every 60th) |
-| `CameraViewModel` | `@MainActor` | UI gesture state, overlay toggles, histogram data, self-timer, AE lock toggle, burst/timelapse state |
+| `CameraViewModel` | `@MainActor` | UI gesture state (`activeRailParam`, overlay toggles, histogram data), self-timer, AE lock toggle, burst/timelapse state |
 | `StylesManager` | `@Observable` | LUT catalog, active style, `SceneClassifier`; `activeLUTFilter()` falls back to procedural generation |
 | `StylesViewModel` | `@Observable` | Thumbnail cache, wires `CaptureProcessor.onPixelBuffer` → `StylePreviewRenderer` |
 | `GalleryViewModel` | `@Observable` | Photo Library fetch, PHImageManager, PHPhotoLibraryChangeObserver |
@@ -173,26 +179,59 @@ All viewfinder overlays (grid, histogram, level indicator, timer countdown) must
 
 `captureSettings.isAELocked` is the **single source of truth** — it is set/cleared by `lockAutoExposure()` / `unlockAutoExposure()` / `setAutoExposure()` on `sessionQueue`, then posted to `MainActor`. `CameraViewModel.isAELocked` is a computed property that reads through to `captureSettings`; it has no stored state. This prevents AEL badge and slider state from drifting out of sync with hardware.
 
-AEL is implemented as `device.setExposureModeCustom(duration: device.exposureDuration, iso: device.iso)` — it freezes the current auto values. The EV strip is dimmed and non-interactive while AEL is active.
+AEL is implemented as `device.setExposureModeCustom(duration: device.exposureDuration, iso: device.iso)` — it freezes the current auto values. Long-press on the shutter button toggles AEL.
 
-### Manual controls data flow
+### Manual controls — side-rail system
+
+Manual exposure is exposed via two persistent side-rail columns overlaid on the viewfinder (`ExposureRailView`):
+
+- **Left rail**: ISO badge + shutter speed badge
+- **Right rail**: WB (Kelvin) badge + focus (lens position) badge — focus only shown when `cameraManager.supportsManualFocus`
+
+Badges are yellow when in manual mode, dim when auto. Tapping a badge sets `cameraViewModel.activeRailParam: RailParam?` (`.iso`, `.shutter`, `.wb`, `.focus`), which triggers `ParameterStripView` to appear above the bottom controls.
+
+`ParameterStripView` is a 280 × ~90 pt horizontal strip containing:
+1. Parameter name + live value label + auto/manual toggle button
+2. A draggable scrub track — snaps to `CaptureSettings.isoStops` / `CaptureSettings.shutterStops` for discrete params, continuous for WB and focus
+3. Representative step labels
+
+The strip auto-dismisses after 4 s of inactivity via a `Task`. Tapping the badge again dismisses it immediately. Both `ExposureRailView` and `ParameterStripView` apply `.rotationEffect(.degrees(DeviceOrientationTracker.shared.rotationAngle))` to counter-rotate when the device is held in landscape.
+
+**Manual controls data flow:**
 
 ```
-User drags VerticalDialSlider
-  → ISOSlider / ShutterSlider / etc. onChanged callback
-  → CameraManager.setISO() / setShutterSpeed() / etc.
-      → sessionQueue.async → device.lockForConfiguration → setExposureModeCustom
+User drags ParameterStripView track
+  → applyNormalized(_:) sets captureSettings.isAutoISO/Shutter = false, isoValue = stops[idx]
+  → cameraManager.setISO(iso)
+      → sessionQueue.async → device.setExposureModeCustom(duration: .current, iso: clamped)
       → [KVO fires back] → captureSettings.isoValue updated on MainActor
-          → SwiftUI re-renders slider label
+          → SwiftUI re-renders strip label and rail badge
 ```
 
-`captureSettings` is the single source of truth for the slider display. KVO observers update it in auto mode so sliders always show the actual camera value, not a stale set point.
+`captureSettings` is the single source of truth for all displayed values. KVO observers update it in auto mode so badges always show the actual camera value, not a stale set point.
+
+**Auto/manual flag rules:**
+- ISO and shutter share exposure mode — switching either to manual calls `setISO`/`setShutterSpeed` (which internally calls `setExposureModeCustom`), switching back calls `setAutoExposure()` and sets both flags to true.
+- WB and focus have independent auto flags; use `setAutoWhiteBalance()` / `setAutoFocus()` to restore auto.
+- Directly toggling `captureSettings.isAutoXxx` does NOT configure the device; always pair it with the appropriate `cameraManager.setXxx()` call.
 
 ### White balance
 
-WB uses `WhiteBalanceTemperatureAndTintValues` with both temperature (Kelvin) and tint (-150 green … +150 magenta). The `TintStrip` in `ManualControlsPanel` appears only when WB is in manual mode. **Crash risk:** each WB gain channel **must** be clamped to `[1.0, device.maxWhiteBalanceGain]` before calling `setWhiteBalanceModeLocked(with:)` — unclamped gains throw `NSInvalidArgumentException`. See `CameraManager.setWhiteBalance(kelvin:tint:)`.
+WB uses `WhiteBalanceTemperatureAndTintValues` with both temperature (Kelvin) and tint (-150 green … +150 magenta). **Crash risk:** each WB gain channel **must** be clamped to `[1.0, device.maxWhiteBalanceGain]` before calling `setWhiteBalanceModeLocked(with:)` — unclamped gains throw `NSInvalidArgumentException`. See `CameraManager.setWhiteBalance(kelvin:tint:)`.
 
-The `WBPreset` enum (in `Models/ShootingMode.swift`) defines 7 presets: Auto (nil Kelvin), Day (5600 K), Cloud (6500 K), Shade (7500 K), Bulb (3200 K), Fluor (4000 K), Flash (5500 K). The preset row in `ManualControlsPanel` shows these as horizontal chips; selecting one calls `CameraManager.setWhiteBalance(kelvin:tint:)` with the preset's Kelvin value.
+The `WBPreset` enum (in `Models/ShootingMode.swift`) defines 7 presets: Auto (nil Kelvin), Day (5600 K), Cloud (6500 K), Shade (7500 K), Bulb (3200 K), Fluor (4000 K), Flash (5500 K).
+
+### QuickAccessBar
+
+`QuickAccessBar` (top of viewfinder, 50 pt tall) has two sections:
+1. **Fixed settings gear** — always the first button, `onShowSettings` callback, not customisable and cannot be removed
+2. **Scrollable customisable items** — driven by `appState.quickAccessItems: [QuickAccessItem]`
+
+`QuickAccessItem` cases live in `Models/ShootingMode.swift`. Adding a new item requires: a new `case` in the enum, a `systemImageName`, and handling in `isActive`, `badge`, `handleTap`, and `iconName` (if the icon is dynamic) inside `QuickAccessBar`. Default items in `AppState.loadQuickAccessItems()` should be updated too.
+
+**Counter-rotation:** all icons and their badges rotate together as a unit using `.rotationEffect(.degrees(DeviceOrientationTracker.shared.rotationAngle))`. The frame is on the `Image` inside the `ZStack` (not outside) so that `.topTrailing` alignment anchors the badge relative to the full button bounds before rotation. The background `RoundedRectangle` is applied after rotation and stays portrait-aligned.
+
+Currently registered items include: `.flash`, `.timer`, `.hdr`, `.format`, `.metering`, `.grid`, `.histogram`, `.flipCamera`, `.focusPeaking`, `.afMode`, `.waveform`, `.vectorscope`, `.zebra`, `.levelIndicator`, `.livePhoto`, `.falseColor`, `.bracketAEB`, `.wbBracket`, `.waveform`, `.vectorscope`, `.cleanView`, `.opticalZoomLock`, `.trapFocus`, `.presets`.
 
 ### Style system
 
@@ -239,7 +278,9 @@ selectMode(newIndex)
   └── setup incoming: preset ISO/shutter; enable depth/night API; set crop; enable desqueeze
 ```
 
-The `modeAdvisoryLine` view in `CameraView` shows per-mode controls (duration slider for long exposure, interval for timelapse, FPS/resolution/codec pickers for video). Add new per-mode controls there.
+The `modeAdvisoryLine` view in `CameraView+ShootingModes.swift` shows per-mode controls (duration slider for long exposure, interval for timelapse, FPS/resolution/codec pickers for video). Add new per-mode controls there.
+
+Horizontal swipe on the viewfinder cycles `activeModeIndex`. The panel-expansion gesture has been removed; the swipe-up gesture now only handles horizontal mode cycling.
 
 ### Capture flow
 
@@ -286,25 +327,25 @@ Shutter tap → CameraView.handleShutter()
 
 ### Feature flags and `@AppStorage` persistence
 
-Runtime visibility for features is controlled via `@AppStorage` keys shared between `CameraView` and `SettingsView` (e.g. `"showGrid"`, `"showHistogram"`, `"showStylePicker"`). After changing a flag that controls a processor-side filter (focus peaking, zebra, false color, LUT), call `cameraViewModel.syncOverlaysToProcessor()`.
+Runtime visibility for features is controlled via `@AppStorage` keys shared between `CameraView` and `SettingsView`. After changing a flag that controls a processor-side filter (focus peaking, zebra, false color, LUT), call `cameraViewModel.syncOverlaysToProcessor()`.
 
 `@AppStorage` keys are the persistence layer — there is no separate UserDefaults wrapper. `CameraView` holds the keys and syncs them to `CameraManager`/`CameraViewModel` via `.onChange` modifiers at the bottom of `mainContent`. When adding a new persisted setting, declare it in `CameraView`, mirror it to `SettingsView` by using the same key string, and add an `.onChange` handler to apply it.
 
 Key `@AppStorage` keys:
 - Overlays: `showHistogram`, `showGrid`, `showFocusPeaking`, `showZebra`, `showLevelIndicator`, `showFalseColor`, `showWaveform`, `showVectorscope`, `isCleanViewActive`, `histogramMode`
-- Capture: `isBracketingEnabled`, `bracketEVStep`, `selfTimerDelay`, `selfTimerRepeat`, `isProRAWEnabled`, `defaultCaptureFormat`, `isWBBracketEnabled`, `wbBracketKStep`, `focusPeakingColor`
+- Capture: `isBracketingEnabled`, `bracketEVStep`, `selfTimerDelay`, `selfTimerRepeat`, `isProRAWEnabled`, `defaultCaptureFormat` (default `"HEIF"`), `isWBBracketEnabled`, `wbBracketKStep`, `focusPeakingColor`, `isHDREnabled`
 - Video: `videoFrameRate`, `videoResolution`
 - Other: `cropRatio`, `timelapseInterval`, `longExposureDuration`, `volumeButtonBehavior`, `watermarkText`
 
 ### Utility classes
 
 - **`PermissionsManager`** — wraps camera, microphone, photo library, and location authorization in a single `@Observable` class; also owns `CLLocationManager` for GPS tagging.
-- **`HapticManager`** — lazy `UIFeedbackGenerator` singletons (`shutter`, `focus`, `selection`, `error`). Call sites just use `HapticManager.shared.shutter.impactOccurred()`.
+- **`HapticManager`** — static convenience methods (`light()`, `medium()`, `selectionChanged()`, `focusLocked()`). Call sites use e.g. `HapticManager.light()`.
 - **`ExifReader`** — ImageIO-based extraction of ISO, shutter, aperture, WB temperature, GPS coordinates, and capture timestamp from JPEG data.
 - **`VolumeHUDSuppressor`** — mutes the system volume pop-up that would otherwise appear during photo capture triggered by the volume button.
 - **`HistogramCalculator`** — uses `CIAreaHistogram` to produce a normalized 256-bin RGBL histogram; called every 3rd frame from `CaptureProcessor`.
 - **`CapturePresetsManager`** — `@Observable` singleton; saves/loads named `CapturePreset` structs (ISO, shutter, WB, style) to UserDefaults as JSON.
-- **`DeviceOrientationTracker`** — `@Observable` singleton; listens to `UIDevice.orientationDidChangeNotification` and exposes `rotationAngle` (in degrees) so UI elements can counter-rotate to stay upright.
+- **`DeviceOrientationTracker`** — `@Observable` singleton; listens to `UIDevice.orientationDidChangeNotification` and exposes `rotationAngle` (in degrees, 0/90/-90/180). Apply `.rotationEffect(.degrees(DeviceOrientationTracker.shared.rotationAngle))` to any UI element that should stay upright when the device rotates (the app is portrait-locked but icons counter-rotate). `start()` / `stop()` are called from `CameraView+Lifecycle.swift`.
 
 ### `CIContext.shared`
 
@@ -332,12 +373,8 @@ CIFilter lookups and `MTLCreateSystemDefaultDevice()` use `fatalError` with desc
 
 ### Orientation lock
 
-Portrait-only on iPhone via two layers: `AppDelegate.supportedInterfaceOrientationsFor` returns `.portrait`, and `INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationPortrait` in `project.pbxproj`.
+Portrait-only on iPhone via two layers: `AppDelegate.supportedInterfaceOrientationsFor` returns `.portrait`, and `INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationPortrait` in `project.pbxproj`. Individual UI elements counter-rotate using `DeviceOrientationTracker`.
 
 ### Privacy keys (project.pbxproj)
 
 All privacy strings live as `INFOPLIST_KEY_NS*` build settings (both Debug and Release configs), not in a separate `Info.plist` file, because `GENERATE_INFOPLIST_FILE = YES`. Edit them in `project.pbxproj`.
-
-### VerticalDialSlider layout contract
-
-Each slider column is pinned to `kColumnWidth = 68pt`. The value label uses `.monospacedDigit()` + `.frame(width: kColumnWidth)` to prevent layout shifts when numbers change length (e.g., "1/8000" vs "30\""). The floating drag capsule is absolutely positioned inside the `ZStack` and uses `.fixedSize()` so it never affects column width.
