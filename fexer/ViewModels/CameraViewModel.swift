@@ -23,6 +23,9 @@ final class CameraViewModel {
     // UI state
     var isPanelExpanded = false
     var activeModeIndex = 0
+    var shutterFlashTick: Int = 0
+    var isZooming: Bool = false
+    private var zoomHideTask: Task<Void, Never>?
     var isFocusLocked = false
     var focusIndicatorPosition: CGPoint = .zero
     var showFocusIndicator = false
@@ -141,6 +144,17 @@ final class CameraViewModel {
         let newZoom = scale.fxClamped(to: 0.5...15.0)
         zoomLevel = newZoom
         cameraManager.setZoom(newZoom)
+        isZooming = true
+        zoomHideTask?.cancel()
+        zoomHideTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_200_000_000)
+            withAnimation(.easeOut(duration: 0.3)) { self.isZooming = false }
+        }
+    }
+
+    func setBrightnessBias(_ ev: Float) {
+        let delta = CGFloat(ev.fxClamped(to: -3...3) - accumulatedExposureBias)
+        handleBrightnessSwipe(delta: delta)
     }
 
     func handleSwipeUp() {
@@ -298,6 +312,7 @@ final class CameraViewModel {
                 guard !Task.isCancelled else { break }
                 await MainActor.run {
                     self.burstCount = i
+                    self.shutterFlashTick += 1
                     HapticManager.shutter()
                 }
                 cameraManager.capturePhoto(delegate: makeDelegate(), bypassBusyGuard: true)
@@ -331,6 +346,7 @@ final class CameraViewModel {
             while !Task.isCancelled {
                 await MainActor.run {
                     self.timelapseCount += 1
+                    self.shutterFlashTick += 1
                     HapticManager.shutter()
                 }
                 cameraManager.capturePhoto(delegate: makeDelegate(), bypassBusyGuard: true)

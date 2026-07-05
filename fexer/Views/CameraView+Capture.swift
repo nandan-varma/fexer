@@ -67,6 +67,7 @@ extension CameraView {
             }
         }
         HapticManager.shutter()
+        triggerShutterFlash()
         let delegate = makeCaptureDelegate()
         activeDelegates[delegate.id] = delegate
         if isWBBracketEnabled {
@@ -80,9 +81,30 @@ extension CameraView {
         }
     }
 
+    func triggerCameraFlip() {
+        // Fade to black to cover the camera-swap artifact, then fade back as new preview appears
+        withAnimation(.easeOut(duration: 0.12)) { cameraFlipOpacity = 1 }
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 120_000_000)
+            withAnimation(.easeIn(duration: 0.28)) { cameraFlipOpacity = 0 }
+        }
+    }
+
+    func triggerShutterFlash() {
+        shutterFlashOpacity = 1
+        Task { @MainActor in
+            // Sleep one display frame so SwiftUI renders opacity=1 before starting the fade
+            try? await Task.sleep(nanoseconds: 16_700_000)
+            withAnimation(.easeOut(duration: 0.25)) {
+                shutterFlashOpacity = 0
+            }
+        }
+    }
+
     func performLongExposureCapture() {
         guard !cameraManager.processor.isLongExposureCapturing else { return }
         HapticManager.shutter()
+        triggerShutterFlash()
         let location = appState.permissionsManager.currentLocation
         let captureFilter = stylesManager.makeCaptureFilter()
         let capturedCropRatio = cropRatio

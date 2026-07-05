@@ -75,6 +75,8 @@ struct CameraView: View {
     @State var aelToastTask: Task<Void, Never>?
     @State var recordingStartDate: Date? = nil
     @State var nightProcessingAngle: Double = 0
+    @State var shutterFlashOpacity: Double = 0
+    @State var cameraFlipOpacity: Double = 0
 
     var stabilizationMode: StabilizationMode {
         StabilizationMode(rawValue: stabilizationModeRaw) ?? .auto
@@ -101,6 +103,14 @@ struct CameraView: View {
             baseLayer
             hudOverlayLayer
             controlLayer
+            Color.black
+                .opacity(shutterFlashOpacity)
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
+            Color.black
+                .opacity(cameraFlipOpacity)
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
             modalOverlayLayer
         }
         let styleStack = core
@@ -134,6 +144,8 @@ struct CameraView: View {
                 }
             }
         let captureBindings = features
+            .onChange(of: cameraViewModel.shutterFlashTick) { triggerShutterFlash() }
+            .onChange(of: cameraManager.currentDevice?.position) { _, _ in triggerCameraFlip() }
             .onChange(of: cameraViewModel.isAELocked) { _, locked in
                 aelToastTask?.cancel()
                 withAnimation(.easeIn(duration: 0.15)) {
@@ -297,6 +309,65 @@ struct CameraView: View {
                 .padding(.top, CameraView.quickBarHeight + 10)
                 .padding(.trailing, 52)
                 .allowsHitTesting(false)
+        }
+
+        // ── Trap focus badge ──────────────────────────────────────────────────
+        if isTrapFocusEnabled && !isCleanViewActive {
+            HStack(spacing: 4) {
+                Image(systemName: "scope")
+                    .font(.system(size: 8, weight: .bold))
+                Text("TRAP")
+                    .font(.system(size: 9, weight: .bold))
+                    .tracking(1)
+            }
+            .foregroundStyle(.black)
+            .padding(.horizontal, 7).padding(.vertical, 3)
+            .background(Color.orange, in: Capsule())
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+            .padding(.top, CameraView.quickBarHeight + 30)
+            .padding(.trailing, 16)
+            .allowsHitTesting(false)
+            .transition(.opacity.combined(with: .scale(scale: 0.85)))
+        }
+
+        // ── Zoom level HUD (during active pinch zoom) ─────────────────────────
+        if cameraViewModel.isZooming && !isCleanViewActive {
+            let liveZoom = cameraManager.activeLensOpticalFactor * cameraManager.currentZoomFactor
+            Text(CameraManager.opticalLabel(liveZoom))
+                .font(.system(size: 28, weight: .semibold, design: .rounded))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 22).padding(.vertical, 10)
+                .background(.black.opacity(0.55), in: Capsule())
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                .padding(.bottom, 200)
+                .allowsHitTesting(false)
+                .transition(.opacity.combined(with: .scale(scale: 0.85)))
+        }
+
+        // ── Live manual exposure values (when panel is closed) ────────────────
+        let hasManualExposure = !cameraManager.captureSettings.isAutoISO || !cameraManager.captureSettings.isAutoShutter
+        let hasManualWB = !cameraManager.captureSettings.isAutoWhiteBalance
+        if (hasManualExposure || hasManualWB) && !cameraViewModel.isPanelExpanded && !isCleanViewActive {
+            HStack(spacing: 10) {
+                if !cameraManager.captureSettings.isAutoISO {
+                    Text("ISO \(Int(cameraManager.captureSettings.isoValue))")
+                }
+                if !cameraManager.captureSettings.isAutoShutter {
+                    Text(cameraManager.captureSettings.shutterSpeedDisplayString)
+                }
+                if hasManualWB {
+                    Text("\(Int(cameraManager.captureSettings.whiteBalance))K")
+                        .foregroundStyle(.cyan)
+                }
+            }
+            .font(.system(size: 10, weight: .semibold, design: .monospaced))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 12).padding(.vertical, 5)
+            .background(.black.opacity(0.55), in: Capsule())
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+            .padding(.bottom, max(220, (letterboxBarHeight ?? 0) + 220))
+            .allowsHitTesting(false)
+            .transition(.opacity)
         }
 
         // ── Histogram ────────────────────────────────────────────────────────
@@ -500,6 +571,14 @@ struct CameraView: View {
                     cameraViewModel.handleSwipeUp()
                 } else if isVertical && g.translation.height > 40 && cameraViewModel.isPanelExpanded {
                     cameraViewModel.handleSwipeDown()
+                } else if !isVertical && !cameraViewModel.isPanelExpanded {
+                    let direction = g.translation.width < 0 ? 1 : -1
+                    let newIndex = (cameraViewModel.activeModeIndex + direction)
+                        .fxClamped(to: 0...ShootingMode.allCases.count - 1)
+                    if newIndex != cameraViewModel.activeModeIndex {
+                        cameraViewModel.selectMode(index: newIndex, cropRatioRaw: $cropRatioRaw,
+                                                   selfTimerDelay: $selfTimerDelay)
+                    }
                 }
             }
     }
