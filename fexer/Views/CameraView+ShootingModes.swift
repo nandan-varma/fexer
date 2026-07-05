@@ -263,8 +263,6 @@ extension CameraView {
                         videoResolutionRaw = newRes.rawValue
                         if newRes.isSlowMotion {
                             cameraManager.configureForSlowMotion(fps: cameraManager.maxSlowMotionFPS)
-                        } else {
-                            cameraManager.configureForVideoMode(resolution: newRes)
                         }
                         HapticManager.light()
                     } label: {
@@ -369,6 +367,9 @@ extension CameraView {
                     Button {
                         isHDREnabled.toggle()
                         cameraManager.setHDREnabled(isHDREnabled)
+                        if cameraViewModel.activeMode == .video {
+                            cameraManager.configureVideoFrameRate(videoFrameRate)
+                        }
                         HapticManager.light()
                     } label: {
                         Text("HDR")

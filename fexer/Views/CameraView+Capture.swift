@@ -33,7 +33,7 @@ extension CameraView {
     }
 
     func startVideoRecording() {
-        let location = appState.permissionsManager.currentLocation
+        let location = isLocationEnabled ? appState.permissionsManager.currentLocation : nil
         let styleName = stylesManager.activeStyle?.name
         cameraManager.startRecording(location: location, styleName: styleName)
     }
@@ -105,7 +105,7 @@ extension CameraView {
         guard !cameraManager.processor.isLongExposureCapturing else { return }
         HapticManager.shutter()
         triggerShutterFlash()
-        let location = appState.permissionsManager.currentLocation
+        let location = isLocationEnabled ? appState.permissionsManager.currentLocation : nil
         let captureFilter = stylesManager.makeCaptureFilter()
         let capturedCropRatio = cropRatio
         let capturedWatermark = watermarkText
@@ -125,8 +125,13 @@ extension CameraView {
     }
 
     func saveLongExposureImage(_ ciImage: CIImage, filter: LUTFilter?,
-                               cropRatio: CropRatio, watermark: String,
-                               location: CLLocation?, rotationAngle: Double = 0) async {
+                                cropRatio: CropRatio, watermark: String,
+                                location: CLLocation?, rotationAngle: Double = 0) async {
+        guard photoLibraryIsAvailable else {
+            Logger.camera.error("Long exposure save: photo library access denied")
+            return
+        }
+
         var out = ciImage
 
         // Rotate portrait-upright composite to match physical device orientation.
@@ -190,7 +195,7 @@ extension CameraView {
     // MARK: - Capture delegate
 
     func makeCaptureDelegate() -> CapturePhotoDelegate {
-        let captureLocation = appState.permissionsManager.currentLocation
+        let captureLocation = isLocationEnabled ? appState.permissionsManager.currentLocation : nil
         let activeStyle = stylesManager.activeStyle
         let styleIntensity = stylesManager.styleIntensity
         let captureSettings = cameraManager.captureSettings

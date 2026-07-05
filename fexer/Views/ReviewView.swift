@@ -1,5 +1,6 @@
 import SwiftUI
 import Photos
+import OSLog
 
 struct ReviewView: View {
     let photo: CapturedPhoto
@@ -207,16 +208,26 @@ struct ReviewView: View {
     }
 
     private func deletePhoto() {
-        guard let id = photo.assetLocalIdentifier else { return }
+        guard let id = photo.assetLocalIdentifier else {
+            Logger.camera.error("deletePhoto: assetLocalIdentifier is nil — photo may not have been saved")
+            HapticManager.error()
+            return
+        }
         let assets = PHAsset.fetchAssets(withLocalIdentifiers: [id], options: nil)
-        guard assets.count > 0 else { return }
-        PHPhotoLibrary.shared().performChanges({
-            PHAssetChangeRequest.deleteAssets(assets)
-        }) { success, _ in
-            if success {
-                Task { @MainActor in
-                    onDelete?()
-                    onDismiss?()
+        guard assets.count > 0 else {
+            Logger.camera.error("deletePhoto: no asset found for identifier \(id)")
+            HapticManager.error()
+            return
+        }
+        performPhotoLibraryChange {
+            PHPhotoLibrary.shared().performChanges({
+                PHAssetChangeRequest.deleteAssets(assets)
+            }) { success, _ in
+                if success {
+                    Task { @MainActor in
+                        onDelete?()
+                        onDismiss?()
+                    }
                 }
             }
         }

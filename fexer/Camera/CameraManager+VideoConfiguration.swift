@@ -5,20 +5,45 @@ extension CameraManager {
 
     // MARK: - Video mode session preset
 
-    /// Reconfigures the capture session for video recording at the specified resolution.
+    /// Reconfigures the capture session for video recording at the specified resolution and frame rate.
     /// Must NOT be called while recording is active.
-    func configureForVideoMode(resolution: VideoResolution) {
+    func configureForVideoMode(resolution: VideoResolution, fps: Int = 30) {
         sessionQueue.async { [self] in
+            guard let device = currentDevice else { return }
             guard !isRecording, !isWaitingToRecord else { return }
             Task { @MainActor in self.onVolumeGateWillBlock?() }
-            let preset = resolution.sessionPreset
+
+            let targetWidth: Int32 = resolution == .uhd4K ? 3840 : 1920
+            let targetFPS = Double(fps)
+
+            // Find a format matching both resolution and desired frame rate
+            let matchingFormat = device.formats.first { format in
+                let dims = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
+                return dims.width == targetWidth &&
+                    format.videoSupportedFrameRateRanges.contains { $0.maxFrameRate >= targetFPS }
+            }
+
             session.beginConfiguration()
+
+            let preset = resolution.sessionPreset
             if session.canSetSessionPreset(preset) {
                 session.sessionPreset = preset
             } else {
                 session.sessionPreset = .hd1920x1080
                 Logger.camera.warning("4K preset unsupported on this device, falling back to 1080p")
             }
+
+            if let fmt = matchingFormat {
+                device.withLock {
+                    device.activeFormat = fmt
+                    let dur = CMTimeMake(value: 1, timescale: Int32(targetFPS))
+                    device.activeVideoMinFrameDuration = dur
+                    device.activeVideoMaxFrameDuration = dur
+                }
+            } else {
+                Logger.camera.warning("No format for \(resolution.rawValue) at \(fps)fps; using preset default")
+            }
+
             session.commitConfiguration()
             configureVideoRotation()
             Task { @MainActor in self.captureSettings.videoSettings.resolution = resolution }
@@ -239,12 +264,34 @@ extension CameraManager {
         sessionQueue.async { [self] in
             guard let device = currentDevice else { return }
             let targetFPS = Double(fps)
-            let supportedRanges = device.activeFormat.videoSupportedFrameRateRanges
-            guard supportedRanges.contains(where: { $0.maxFrameRate >= targetFPS }) else { return }
-            let cmDuration = CMTimeMake(value: 1, timescale: Int32(targetFPS))
-            device.withLock {
-                device.activeVideoMinFrameDuration = cmDuration
-                device.activeVideoMaxFrameDuration = cmDuration
+            let currentFormat = device.activeFormat
+            let currentRanges = currentFormat.videoSupportedFrameRateRanges
+
+            if currentRanges.contains(where: { $0.maxFrameRate >= targetFPS }) {
+                let cmDuration = CMTimeMake(value: 1, timescale: Int32(targetFPS))
+                device.withLock {
+                    device.activeVideoMinFrameDuration = cmDuration
+                    device.activeVideoMaxFrameDuration = cmDuration
+                }
+            } else {
+                let dims = CMVideoFormatDescriptionGetDimensions(currentFormat.formatDescription)
+                guard let fmt = device.formats.first(where: { format in
+                    let fd = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
+                    return fd.width == dims.width && fd.height == dims.height &&
+                        format.videoSupportedFrameRateRanges.contains { $0.maxFrameRate >= targetFPS }
+                }) else {
+                    Logger.camera.warning("No format at \(dims.width)×\(dims.height) supports \(fps)fps")
+                    return
+                }
+                let dur = CMTimeMake(value: 1, timescale: Int32(targetFPS))
+                session.beginConfiguration()
+                device.withLock {
+                    device.activeFormat = fmt
+                    device.activeVideoMinFrameDuration = dur
+                    device.activeVideoMaxFrameDuration = dur
+                }
+                session.commitConfiguration()
+                configureVideoRotation()
             }
         }
     }

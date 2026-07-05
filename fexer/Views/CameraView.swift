@@ -61,6 +61,7 @@ struct CameraView: View {
     @AppStorage("isHDREnabled")         var isHDREnabled        = false
     @AppStorage("isOpticalZoomLocked")  var isOpticalZoomLocked = false
     @AppStorage("isTrapFocusEnabled")   var isTrapFocusEnabled  = false
+    @AppStorage("isLocationEnabled")    var isLocationEnabled   = true
 
     @State var isZoomDialActive = false
     @State var showPresetsSheet = false
@@ -167,17 +168,22 @@ struct CameraView: View {
             }
         let settingsSync = captureBindings
             .onChange(of: videoFrameRate) { _, fps in
-                cameraManager.configureVideoFrameRate(fps)
+                cameraManager.captureSettings.videoSettings.frameRate = fps
+                if cameraViewModel.activeMode == .video {
+                    cameraManager.configureVideoFrameRate(fps)
+                }
             }
             .onChange(of: videoResolutionRaw) { _, raw in
                 let res = VideoResolution(rawValue: raw) ?? .hd1080p
                 if cameraViewModel.activeMode == .video {
-                    cameraManager.configureForVideoMode(resolution: res)
+                    cameraManager.captureSettings.videoSettings.frameRate = videoFrameRate
+                    cameraManager.configureForVideoMode(resolution: res, fps: videoFrameRate)
                 }
             }
             .onChange(of: cameraViewModel.activeMode) { _, newMode in
                 if newMode == .video {
-                    cameraManager.configureForVideoMode(resolution: videoResolution)
+                    cameraManager.captureSettings.videoSettings.frameRate = videoFrameRate
+                    cameraManager.configureForVideoMode(resolution: videoResolution, fps: videoFrameRate)
                 } else {
                     cameraManager.configureForPhotoMode()
                 }
@@ -555,6 +561,14 @@ struct CameraView: View {
     }
 
     // MARK: - Helpers
+
+    var photoLibraryIsAvailable: Bool {
+        let status = PHPhotoLibrary.authorizationStatus(for: .addOnly)
+        if status == .notDetermined {
+            return true // will be requested when performing the save
+        }
+        return status == .authorized || status == .limited
+    }
 
     func syncProcessor() {
         cameraViewModel.syncOverlaysToProcessor(

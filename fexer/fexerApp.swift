@@ -45,6 +45,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         default:                                         mode = .photo
         }
         AppState.shared.pendingShootingMode = mode
+        AppState.shared.currentScreen = .camera
         completionHandler(true)
     }
 

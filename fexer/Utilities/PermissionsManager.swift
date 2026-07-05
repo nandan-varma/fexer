@@ -29,7 +29,9 @@ final class PermissionsManager: NSObject {
 
     var allGranted: Bool {
         cameraStatus == .authorized &&
-        photoLibraryStatus == .authorized
+        photoLibraryStatus == .authorized &&
+        (microphoneStatus == .authorized || microphoneStatus == .notDetermined) &&
+        (locationStatus == .authorizedWhenInUse || locationStatus == .authorizedAlways || locationStatus == .notDetermined)
     }
 
     func requestCameraAccess() async {

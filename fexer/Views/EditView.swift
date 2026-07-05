@@ -1030,33 +1030,35 @@ struct EditView: View {
                 }
                 return
             }
-            PHPhotoLibrary.shared().performChanges({
-                PHAssetCreationRequest.forAsset().addResource(with: .photo, data: jpegData, options: nil)
-            }, completionHandler: { success, error in
-                if let error {
-                    Logger.camera.error("Edit save failed: \(error.localizedDescription)")
-                }
-                Task { @MainActor in
-                    self.isSaving = false
-                    guard success else {
-                        HapticManager.error()
-                        return
+            performPhotoLibraryChange {
+                PHPhotoLibrary.shared().performChanges({
+                    PHAssetCreationRequest.forAsset().addResource(with: .photo, data: jpegData, options: nil)
+                }, completionHandler: { success, error in
+                    if let error {
+                        Logger.camera.error("Edit save failed: \(error.localizedDescription)")
                     }
-                    let savedPhoto = CapturedPhoto(
-                        jpegData: jpegData,
-                        rawFileURL: capturedPhoto.rawFileURL,
-                        captureSettings: capturedPhoto.captureSettings,
-                        appliedStyle: capturedPhoto.appliedStyle,
-                        styleIntensity: capturedPhoto.styleIntensity,
-                        captureDate: capturedPhoto.captureDate,
-                        location: capturedPhoto.location,
-                        exifMetadata: capturedPhoto.exifMetadata,
-                        editState: capturedState
-                    )
-                    HapticManager.focusLocked()
-                    onSave?(savedPhoto)
-                }
-            })
+                    Task { @MainActor in
+                        self.isSaving = false
+                        guard success else {
+                            HapticManager.error()
+                            return
+                        }
+                        let savedPhoto = CapturedPhoto(
+                            jpegData: jpegData,
+                            rawFileURL: capturedPhoto.rawFileURL,
+                            captureSettings: capturedPhoto.captureSettings,
+                            appliedStyle: capturedPhoto.appliedStyle,
+                            styleIntensity: capturedPhoto.styleIntensity,
+                            captureDate: capturedPhoto.captureDate,
+                            location: capturedPhoto.location,
+                            exifMetadata: capturedPhoto.exifMetadata,
+                            editState: capturedState
+                        )
+                        HapticManager.focusLocked()
+                        onSave?(savedPhoto)
+                    }
+                })
+            }
         }
     }
 }

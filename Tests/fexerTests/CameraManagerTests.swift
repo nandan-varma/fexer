@@ -183,7 +183,7 @@ class CameraManagerTests: XCTestCase {
     }
     
     func testQuickAccessItemAllCases() {
-        XCTAssertEqual(QuickAccessItem.allCases.count, 21)
+        XCTAssertEqual(QuickAccessItem.allCases.count, 23)
         XCTAssertTrue(QuickAccessItem.allCases.contains(.flash))
         XCTAssertTrue(QuickAccessItem.allCases.contains(.timer))
         XCTAssertTrue(QuickAccessItem.allCases.contains(.grid))

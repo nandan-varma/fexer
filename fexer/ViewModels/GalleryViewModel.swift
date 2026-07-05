@@ -12,8 +12,11 @@ final class GalleryViewModel: NSObject, PHPhotoLibraryChangeObserver {
 
     override init() {
         super.init()
-        PHPhotoLibrary.shared().register(self)
-        fetchPhotos()
+        let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+        if status == .authorized || status == .limited {
+            PHPhotoLibrary.shared().register(self)
+            fetchPhotos()
+        }
     }
 
     deinit {
@@ -91,11 +94,30 @@ final class GalleryViewModel: NSObject, PHPhotoLibraryChangeObserver {
         }
     }
 
+    func authorizeIfNeeded() {
+        let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+        if status == .notDetermined {
+            PHPhotoLibrary.requestAuthorization(for: .readWrite) { [weak self] newStatus in
+                if newStatus == .authorized || newStatus == .limited {
+                    Task { @MainActor in
+                        PHPhotoLibrary.shared().register(self!)
+                        self?.fetchPhotos()
+                    }
+                }
+            }
+        } else if status == .authorized || status == .limited {
+            PHPhotoLibrary.shared().register(self)
+            fetchPhotos()
+        }
+    }
+
     func delete(asset: PHAsset, completion: @escaping (Bool) -> Void) {
-        PHPhotoLibrary.shared().performChanges({
-            PHAssetChangeRequest.deleteAssets([asset] as NSArray)
-        }) { success, _ in
-            Task { @MainActor in completion(success) }
+        performPhotoLibraryChange {
+            PHPhotoLibrary.shared().performChanges({
+                PHAssetChangeRequest.deleteAssets([asset] as NSArray)
+            }) { success, _ in
+                Task { @MainActor in completion(success) }
+            }
         }
     }
 

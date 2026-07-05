@@ -21,9 +21,8 @@ final class SceneClassifier {
     }
 
     private let enabledLock = OSAllocatedUnfairLock(initialState: true)
+    private let frameCounterLock = OSAllocatedUnfairLock(initialState: 0)
     private let stateQueue = DispatchQueue(label: "com.fexer.sceneClassifier", qos: .utility)
-    // Read and written only inside processFrame, which is always called from sessionQueue.
-    @ObservationIgnored nonisolated(unsafe) private var frameCounter = 0
     private var pendingMatch: PhotoStyle?
     private var consecutiveCount = 0
     private let debounceThreshold = 3
@@ -54,8 +53,11 @@ final class SceneClassifier {
 
     nonisolated func processFrame(_ pixelBuffer: CVPixelBuffer) {
         guard enabledLock.withLock({ $0 }) else { return }
-        frameCounter = (frameCounter + 1) % 3600
-        guard frameCounter % 30 == 0 else { return } // ~2fps at 60fps
+        let count = frameCounterLock.withLock { v in
+            v = (v + 1) % 3600
+            return v
+        }
+        guard count % 30 == 0 else { return } // ~2fps at 60fps
 
         let request = VNClassifyImageRequest { [weak self] request, error in
             if let error {

@@ -33,6 +33,8 @@ final class CapturePhotoDelegate: NSObject, AVCapturePhotoCaptureDelegate {
         if let auto = photo.bracketSettings
             as? AVCaptureAutoExposureBracketedStillImageSettings {
             shouldShowReview = abs(auto.exposureTargetBias) < 0.01
+        } else if photo.bracketSettings != nil {
+            shouldShowReview = true
         }
         onProcessed(photo, shouldShowReview)
     }

@@ -54,15 +54,17 @@ extension CameraManager {
                     Logger.camera.error("Video writing failed: \(writer.error?.localizedDescription ?? "unknown")")
                     return
                 }
-                PHPhotoLibrary.shared().performChanges({
-                    let request = PHAssetCreationRequest.forAsset()
-                    let options = PHAssetResourceCreationOptions()
-                    options.shouldMoveFile = true
-                    request.addResource(with: .video, fileURL: outputURL, options: options)
-                    request.location = savedLocation
-                }, completionHandler: { _, error in
-                    if let error { Logger.camera.error("Video save failed: \(error.localizedDescription)") }
-                })
+                performPhotoLibraryChange {
+                    PHPhotoLibrary.shared().performChanges({
+                        let request = PHAssetCreationRequest.forAsset()
+                        let options = PHAssetResourceCreationOptions()
+                        options.shouldMoveFile = true
+                        request.addResource(with: .video, fileURL: outputURL, options: options)
+                        request.location = savedLocation
+                    }, completionHandler: { _, error in
+                        if let error { Logger.camera.error("Video save failed: \(error.localizedDescription)") }
+                    })
+                }
             }
             Task { @MainActor in
                 self.isRecording = false

@@ -3,6 +3,21 @@ import AVFoundation
 import UniformTypeIdentifiers
 import OSLog
 
+/// Perform a Photos library change with proper authorization handling.
+/// Requests authorization if needed; silently skips if denied.
+nonisolated func performPhotoLibraryChange(_ change: @escaping () -> Void) {
+    let status = PHPhotoLibrary.authorizationStatus(for: .addOnly)
+    if status == .notDetermined {
+        PHPhotoLibrary.requestAuthorization(for: .addOnly) { granted in
+            if granted == .authorized || granted == .limited { change() }
+        }
+    } else if status == .authorized || status == .limited {
+        change()
+    } else {
+        Logger.camera.error("Photo library access denied — cannot perform change")
+    }
+}
+
 nonisolated func saveToPhotoLibrary(data: Data, photo: AVCapturePhoto, location: CLLocation?,
                         livePhotoMovieURL: URL? = nil,
                         completion: ((String?) -> Void)? = nil) {

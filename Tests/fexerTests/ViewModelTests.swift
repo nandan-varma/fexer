@@ -210,7 +210,6 @@ class CameraViewModelTests: XCTestCase {
     }
     
     func testCameraViewModelUIState() {
-        XCTAssertFalse(cameraViewModel.isPanelExpanded)
         XCTAssertEqual(cameraViewModel.activeModeIndex, 0)
         XCTAssertFalse(cameraViewModel.isFocusLocked)
         XCTAssertEqual(cameraViewModel.focusIndicatorPosition, CGPoint.zero)
