@@ -245,27 +245,66 @@ final class CameraViewModel {
 
     // MARK: - Overlay Sync
 
+    /// Stores consolidated FrameFlags on the processor (single lock acquisition).
+    private func flagsFrom(
+        focusPeaking: Bool, zebra: Bool, falseColor: Bool, histogram: Bool,
+        waveform: Bool, vectorscope: Bool, peakingColorName: String,
+        zebraHighThreshold: Float, zebraLowThreshold: Float
+    ) -> CaptureProcessor.FrameFlags {
+        var f = CaptureProcessor.FrameFlags()
+        f.peaking = focusPeaking
+        f.zebra = zebra
+        f.falseColor = falseColor
+        f.histogram = histogram
+        f.waveform = waveform
+        f.vectorscope = vectorscope
+        f.zebraHigh = zebraHighThreshold
+        f.zebraLow = zebraLowThreshold
+        return f
+    }
+
     /// Caller passes AppStorage flags so this class doesn't need to own them.
     func syncOverlaysToProcessor(
         focusPeaking: Bool = false,
         zebra: Bool = false,
         falseColor: Bool = false,
+        histogram: Bool = false,
         waveform: Bool = false,
         vectorscope: Bool = false,
         peakingColorName: String = "red",
         zebraHighThreshold: Float = 0.95,
         zebraLowThreshold: Float = 0.02
     ) {
-        cameraManager.processor.isFocusPeakingEnabled = focusPeaking
-        cameraManager.processor.isZebraEnabled = zebra
-        cameraManager.processor.isFalseColorEnabled = falseColor
-        cameraManager.processor.isWaveformEnabled = waveform
-        cameraManager.processor.isVectorscopeEnabled = vectorscope
+        cameraManager.processor.frameFlags = flagsFrom(
+            focusPeaking: focusPeaking, zebra: zebra, falseColor: falseColor,
+            histogram: histogram, waveform: waveform, vectorscope: vectorscope,
+            peakingColorName: peakingColorName,
+            zebraHighThreshold: zebraHighThreshold, zebraLowThreshold: zebraLowThreshold
+        )
         cameraManager.processor.peakingColor = Self.ciColor(forPeakingColorName: peakingColorName)
-        cameraManager.processor.zebraHighThreshold = zebraHighThreshold
-        cameraManager.processor.zebraLowThreshold = zebraLowThreshold
         let filter = stylesManager.activeLUTFilter()
         cameraManager.processor.lutFilter = filter
+    }
+
+    /// Only updates flags, does NOT touch the LUT filter (cheaper path for overlay toggles).
+    func syncFlagsToProcessor(
+        focusPeaking: Bool = false,
+        zebra: Bool = false,
+        falseColor: Bool = false,
+        histogram: Bool = false,
+        waveform: Bool = false,
+        vectorscope: Bool = false,
+        peakingColorName: String = "red",
+        zebraHighThreshold: Float = 0.95,
+        zebraLowThreshold: Float = 0.02
+    ) {
+        cameraManager.processor.frameFlags = flagsFrom(
+            focusPeaking: focusPeaking, zebra: zebra, falseColor: falseColor,
+            histogram: histogram, waveform: waveform, vectorscope: vectorscope,
+            peakingColorName: peakingColorName,
+            zebraHighThreshold: zebraHighThreshold, zebraLowThreshold: zebraLowThreshold
+        )
+        cameraManager.processor.peakingColor = Self.ciColor(forPeakingColorName: peakingColorName)
     }
 
     static func ciColor(forPeakingColorName name: String) -> CIColor {
@@ -369,7 +408,7 @@ final class CameraViewModel {
             stopTimelapse()
         case .anamorphic:
             cropRatioRaw.wrappedValue = preModeRaw
-            cameraManager.processor.isAnamorphicDesqueezeEnabled = false
+            cameraManager.processor.setAnamorphic(false)
         case .longExposure:
             cameraManager.cancelLongExposureCapture()
             if let saved = savedExposure {
@@ -475,7 +514,7 @@ final class CameraViewModel {
             // Save current crop, apply 2.39:1 guide, and enable 2× horizontal desqueeze in preview
             preModeRaw = cropRatioRaw.wrappedValue
             cropRatioRaw.wrappedValue = CropRatio.r239_100.rawValue
-            cameraManager.processor.isAnamorphicDesqueezeEnabled = true
+            cameraManager.processor.setAnamorphic(true)
             Logger.camera.info("Anamorphic mode: 2.39:1 crop + 2× desqueeze enabled")
         }
     }

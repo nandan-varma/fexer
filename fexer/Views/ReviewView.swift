@@ -16,6 +16,7 @@ struct ReviewView: View {
     @State private var showEdit = false
     @State private var editedPhoto: CapturedPhoto?
     @State private var showDeleteConfirmation = false
+    @State private var displayImage: UIImage?
 
     var body: some View {
         ZStack {
@@ -27,6 +28,7 @@ struct ReviewView: View {
                     },
                     onSave: { updatedPhoto in
                         editedPhoto = updatedPhoto
+                        Task { await loadDisplayImage() }
                         withAnimation(.easeInOut(duration: 0.22)) { showEdit = false }
                     }
                 )
@@ -39,6 +41,7 @@ struct ReviewView: View {
         }
         .onAppear {
             computeReviewHistogram()
+            Task { await loadDisplayImage() }
             Task.detached(priority: .utility) { [jpegData = photo.jpegData] in
                 let exif = ExifReader.read(from: jpegData ?? Data())
                 await MainActor.run { self.cachedExif = exif }
@@ -46,13 +49,31 @@ struct ReviewView: View {
         }
     }
 
+    /// Decode the review image off the main thread, using CGImageSource
+    /// to avoid full-resolution decode (P18 + P19).
+    private func loadDisplayImage() async {
+        guard let data = (editedPhoto ?? photo).jpegData else { return }
+        let image = await Task.detached(priority: .medium) {
+            guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil as UIImage? }
+            let options: [CFString: Any] = [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceThumbnailMaxPixelSize: 2048,
+                kCGImageSourceShouldCacheImmediately: false
+            ]
+            guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
+            else { return nil as UIImage? }
+            return UIImage(cgImage: cgImage)
+        }.value
+        await MainActor.run { displayImage = image }
+    }
+
     private var reviewContent: some View {
         ZStack {
             Color.black.ignoresSafeArea()
 
-            // Photo display
+            // Photo display (loaded off main thread via loadDisplayImage)
             Group {
-                if let data = (editedPhoto ?? photo).jpegData, let uiImage = UIImage(data: data) {
+                if let uiImage = displayImage {
                     Image(uiImage: uiImage)
                         .resizable()
                         .aspectRatio(contentMode: .fit)

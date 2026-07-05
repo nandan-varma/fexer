@@ -268,9 +268,10 @@ class CameraViewModelTests: XCTestCase {
     func testCameraViewModelSyncOverlaysToProcessor() {
         cameraViewModel.syncOverlaysToProcessor(focusPeaking: true, zebra: true, falseColor: true)
         
-        XCTAssertTrue(cameraManager.processor.isFocusPeakingEnabled)
-        XCTAssertTrue(cameraManager.processor.isZebraEnabled)
-        XCTAssertTrue(cameraManager.processor.isFalseColorEnabled)
+        let flags = cameraManager.processor.frameFlags
+        XCTAssertTrue(flags.peaking)
+        XCTAssertTrue(flags.zebra)
+        XCTAssertTrue(flags.falseColor)
     }
     
     func testCameraViewModelDoubleTapReset() {

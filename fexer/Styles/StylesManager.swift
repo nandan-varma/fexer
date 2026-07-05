@@ -50,7 +50,6 @@ final class StylesManager {
     /// Creates a new instance each call so capture and preview never share mutable filter state.
     func makeCaptureFilter() -> LUTFilter? {
         guard let style = activeStyle else { return nil }
-        guard lutLoader.effectiveLUT(for: style) != nil else { return nil }
         let filter = LUTFilter()
         configureFilter(filter, for: style)
         return filter

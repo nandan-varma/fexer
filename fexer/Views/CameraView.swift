@@ -128,16 +128,18 @@ struct CameraView: View {
             .onDisappear { onCameraViewDisappear() }
             .onChange(of: stylesManager.activeStyle)    { syncProcessor() }
             .onChange(of: stylesManager.styleIntensity) { syncProcessor() }
-            .onChange(of: showFocusPeaking)             { syncProcessor() }
-            .onChange(of: showZebra)                    { syncProcessor() }
-            .onChange(of: showFalseColor)               { syncProcessor() }
-            .onChange(of: showWaveform)                 { syncProcessor() }
-            .onChange(of: showVectorscope)              { syncProcessor() }
-            .onChange(of: zebraHighThreshold)           { syncProcessor() }
-            .onChange(of: zebraLowThreshold)            { syncProcessor() }
+            .onChange(of: stylesManager.adjustments)    { syncProcessor() }
+            .onChange(of: showFocusPeaking)             { syncFlags() }
+            .onChange(of: showZebra)                    { syncFlags() }
+            .onChange(of: showFalseColor)               { syncFlags() }
+            .onChange(of: showHistogram)                { syncFlags() }
+            .onChange(of: showWaveform)                 { syncFlags() }
+            .onChange(of: showVectorscope)              { syncFlags() }
+            .onChange(of: zebraHighThreshold)           { syncFlags() }
+            .onChange(of: zebraLowThreshold)            { syncFlags() }
         let features = lifecycle
-            .onChange(of: focusPeakingColor)            { syncProcessor() }
-            .onChange(of: isCleanViewActive)            { syncProcessor() }
+            .onChange(of: focusPeakingColor)            { syncFlags() }
+            .onChange(of: isCleanViewActive)            { syncFlags() }
         let captureBindings = features
             .onChange(of: cameraViewModel.shutterFlashTick) { triggerShutterFlash() }
             .onChange(of: cameraManager.currentDevice?.position) { _, _ in triggerCameraFlip() }
@@ -575,6 +577,22 @@ struct CameraView: View {
             focusPeaking: showFocusPeaking && !isCleanViewActive,
             zebra: showZebra && !isCleanViewActive,
             falseColor: showFalseColor && !isCleanViewActive,
+            histogram: showHistogram,
+            waveform: showWaveform && !isCleanViewActive,
+            vectorscope: showVectorscope && !isCleanViewActive,
+            peakingColorName: focusPeakingColor,
+            zebraHighThreshold: Float(zebraHighThreshold / 100),
+            zebraLowThreshold: Float(zebraLowThreshold / 100)
+        )
+    }
+
+    /// Flags-only sync: does NOT recreate the LUT filter — used for overlay toggles.
+    func syncFlags() {
+        cameraViewModel.syncFlagsToProcessor(
+            focusPeaking: showFocusPeaking && !isCleanViewActive,
+            zebra: showZebra && !isCleanViewActive,
+            falseColor: showFalseColor && !isCleanViewActive,
+            histogram: showHistogram,
             waveform: showWaveform && !isCleanViewActive,
             vectorscope: showVectorscope && !isCleanViewActive,
             peakingColorName: focusPeakingColor,

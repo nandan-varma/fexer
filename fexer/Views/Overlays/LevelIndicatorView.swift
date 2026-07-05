@@ -3,7 +3,7 @@ import CoreMotion
 
 private let sharedMotionManager: CMMotionManager = {
     let manager = CMMotionManager()
-    manager.deviceMotionUpdateInterval = 1.0 / 60.0
+    manager.deviceMotionUpdateInterval = 1.0 / 15.0
     return manager
 }()
 

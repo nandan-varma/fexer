@@ -47,6 +47,7 @@ nonisolated final class LUTFilter: CIFilter {
             lutData = data
             lutDimension = dimension
             styleName = name
+            colorCubeFilter?.setValue(LUTFilter.sRGB, forKey: "inputColorSpace")
         }
     }
 
@@ -64,7 +65,6 @@ nonisolated final class LUTFilter: CIFilter {
         colorCubeFilter.setValue(input,          forKey: "inputImage")
         colorCubeFilter.setValue(lutDimension,   forKey: "inputCubeDimension")
         colorCubeFilter.setValue(lut,            forKey: "inputCubeData")
-        colorCubeFilter.setValue(LUTFilter.sRGB, forKey: "inputColorSpace")
 
         guard let lutOutput = colorCubeFilter.outputImage else { return input }
 

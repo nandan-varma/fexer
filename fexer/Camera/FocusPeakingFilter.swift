@@ -10,28 +10,27 @@ final class FocusPeakingFilter: CIFilter {
     private static let edgeIntensity: Double = 4.0
     private static let maskThreshold: Double = 0.5
 
+    private lazy var edgesFilter = CIFilter(name: "CIEdges")
+    private lazy var thresholdFilter = CIFilter(name: "CIColorThreshold")
+    private lazy var blendFilter = CIFilter(name: "CIBlendWithMask")
+
     override var outputImage: CIImage? {
         guard let input = inputImage else { return nil }
+        guard let edgesFilter, let thresholdFilter, let blendFilter else { return input }
         let extent = input.extent
 
-        // CIEdges computes gradient magnitude per-channel: sharp transitions → bright,
-        // blurry transitions (out-of-focus areas) → dim. This is the right discriminator
-        // for focus peaking — sharpness, not contrast.
-        let edges = input.applyingFilter("CIEdges", parameters: [
-            kCIInputIntensityKey: NSNumber(value: Self.edgeIntensity)
-        ])
+        edgesFilter.setValue(input, forKey: kCIInputImageKey)
+        edgesFilter.setValue(Self.edgeIntensity, forKey: kCIInputIntensityKey)
+        guard let edges = edgesFilter.outputImage else { return input }
 
-        // Hard threshold: pixels bright enough to represent genuine in-focus sharpness
-        // become white (pass), soft/blurry areas become black (suppress).
-        let mask = edges.applyingFilter("CIColorThreshold", parameters: [
-            "inputThreshold": NSNumber(value: Self.maskThreshold)
-        ])
+        thresholdFilter.setValue(edges, forKey: kCIInputImageKey)
+        thresholdFilter.setValue(Self.maskThreshold, forKey: "inputThreshold")
+        guard let mask = thresholdFilter.outputImage else { return input }
 
-        // Composite the highlight colour only where the mask is white.
         let highlight = CIImage(color: inputHighlightColor).cropped(to: extent)
-        return highlight.applyingFilter("CIBlendWithMask", parameters: [
-            "inputBackgroundImage": input,
-            "inputMaskImage": mask
-        ])
+        blendFilter.setValue(highlight, forKey: kCIInputImageKey)
+        blendFilter.setValue(input, forKey: "inputBackgroundImage")
+        blendFilter.setValue(mask, forKey: "inputMaskImage")
+        return blendFilter.outputImage ?? input
     }
 }

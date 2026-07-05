@@ -48,6 +48,22 @@ final class CaptureProcessor: NSObject {
         zebraTimeLock.withLock { $0 = time }
     }
 
+    /// Sets only the anamorphic flag without touching other flags (used in mode switching).
+    func setAnamorphic(_ enabled: Bool) {
+        flagsLock.withLock { $0.anamorphic = enabled }
+    }
+
+    // Updates adjustment properties on the existing LUTFilter in-place, avoiding filter recreation.
+    func updateAdjustments(exposure: Float, contrast: Float, saturation: Float, warmth: Float) {
+        lutFilterLock.withLock { filter in
+            guard let filter else { return }
+            filter.adjExposure = exposure
+            filter.adjContrast = contrast
+            filter.adjSaturation = saturation
+            filter.adjWarmth = warmth
+        }
+    }
+
     private let peakingColorLock = OSAllocatedUnfairLock(
         initialState: CIColor(red: 1, green: 0.2, blue: 0.2, alpha: 0.9)
     )
@@ -57,55 +73,32 @@ final class CaptureProcessor: NSObject {
         set { peakingColorLock.withLock { $0 = newValue } }
     }
 
-    private let flagsLock = OSAllocatedUnfairLock(
-        initialState: (peaking: false, zebra: false, falseColor: false, waveform: false, vectorscope: false)
-    )
-
-    var isFocusPeakingEnabled: Bool {
-        get { flagsLock.withLock { $0.peaking } }
-        set { flagsLock.withLock { $0.peaking = newValue } }
-    }
-    var isZebraEnabled: Bool {
-        get { flagsLock.withLock { $0.zebra } }
-        set { flagsLock.withLock { $0.zebra = newValue } }
-    }
-    var isFalseColorEnabled: Bool {
-        get { flagsLock.withLock { $0.falseColor } }
-        set { flagsLock.withLock { $0.falseColor = newValue } }
-    }
-    var isWaveformEnabled: Bool {
-        get { flagsLock.withLock { $0.waveform } }
-        set { flagsLock.withLock { $0.waveform = newValue } }
-    }
-    var isVectorscopeEnabled: Bool {
-        get { flagsLock.withLock { $0.vectorscope } }
-        set { flagsLock.withLock { $0.vectorscope = newValue } }
-    }
-
-    // Zebra threshold storage (sessionQueue-safe via lock)
-    private let zebraThresholdLock = OSAllocatedUnfairLock(initialState: (high: Float(0.95), low: Float(0.02)))
-    var zebraHighThreshold: Float {
-        get { zebraThresholdLock.withLock { $0.high } }
-        set { zebraThresholdLock.withLock { $0.high = newValue } }
-    }
-    var zebraLowThreshold: Float {
-        get { zebraThresholdLock.withLock { $0.low } }
-        set { zebraThresholdLock.withLock { $0.low = newValue } }
-    }
-
-    // Anamorphic 2× desqueeze (thread-safe: set from MainActor, read from sessionQueue)
-    private let anamorphicLock = OSAllocatedUnfairLock(initialState: false)
-    var isAnamorphicDesqueezeEnabled: Bool {
-        get { anamorphicLock.withLock { $0 } }
-        set { anamorphicLock.withLock { $0 = newValue } }
-    }
-
-    // Gates frame delivery until AVFoundation rotation is configured.
-    // Frames arriving before rotation is set are landscape — drop them to avoid the boot flash.
+    // Must be true before frames are processed (set after 90° rotation is configured).
+    // Written from sessionQueue, read per-frame in captureOutput.
     private let rotationReadyLock = OSAllocatedUnfairLock(initialState: false)
     var isRotationReady: Bool {
         get { rotationReadyLock.withLock { $0 } }
         set { rotationReadyLock.withLock { $0 = newValue } }
+    }
+
+    // Consolidated per-frame flags — read once at the top of captureOutput.
+    // Set by syncOverlaysToProcessor on MainActor; flagsLock syncs the struct.
+    struct FrameFlags: Equatable {
+        var peaking: Bool = false
+        var zebra: Bool = false
+        var falseColor: Bool = false
+        var histogram: Bool = false
+        var waveform: Bool = false
+        var vectorscope: Bool = false
+        var zebraHigh: Float = 0.95
+        var zebraLow: Float = 0.02
+        var anamorphic: Bool = false
+    }
+
+    private let flagsLock = OSAllocatedUnfairLock(initialState: FrameFlags())
+    var frameFlags: FrameFlags {
+        get { flagsLock.withLock { $0 } }
+        set { flagsLock.withLock { $0 = newValue } }
     }
 
     // Long exposure frame accumulation — all mutable state below is sessionQueue-only
@@ -147,6 +140,7 @@ final class CaptureProcessor: NSObject {
     private var frameCount = 0
     private var reportedSize: CGSize = .zero
     private let histogramQueue = DispatchQueue(label: "com.fexer.histogram", qos: .utility)
+    private let longExpBlendQueue = DispatchQueue(label: "com.fexer.longexp", qos: .userInitiated)
     private let ciContext: CIContext = CIContext.shared
 
     func setLatestImage(_ image: CIImage) {
@@ -167,13 +161,12 @@ extension CaptureProcessor: AVCaptureVideoDataOutputSampleBufferDelegate {
 
         frameCount += 1
         let presentationTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
-        let currentTime = Float(CACurrentMediaTime().truncatingRemainder(dividingBy: 100.0))
-        setZebraTime(currentTime)
+        let flags = frameFlags // single lock read — all flags snapshot for this frame
 
         var image = CIImage(cvPixelBuffer: pixelBuffer)
 
         // Anamorphic 2× horizontal desqueeze (applied before all other processing)
-        if anamorphicLock.withLock({ $0 }) {
+        if flags.anamorphic {
             image = image.transformed(by: CGAffineTransform(scaleX: 2.0, y: 1.0))
         }
 
@@ -203,14 +196,14 @@ extension CaptureProcessor: AVCaptureVideoDataOutputSampleBufferDelegate {
                 longExpFrames = []
                 let callback = onLongExposureComplete
                 onLongExposureComplete = nil
-                histogramQueue.async {
+                longExpBlendQueue.async {
                     if let blended = Self.blendFrames(frames) { callback?(blended) }
                 }
             }
         }
 
         // False color must see the ungraded signal — apply before LUT
-        if isFalseColorEnabled {
+        if flags.falseColor {
             falseColorFilter.inputImage = image
             if let output = falseColorFilter.outputImage {
                 image = output
@@ -218,7 +211,7 @@ extension CaptureProcessor: AVCaptureVideoDataOutputSampleBufferDelegate {
         }
 
         // LUT (skip when false color is active — monitoring tool shows ungraded image)
-        if !isFalseColorEnabled {
+        if !flags.falseColor {
             let lut = lutFilterLock.withLock { $0 }
             if let lut {
                 lut.inputImage = image
@@ -229,7 +222,7 @@ extension CaptureProcessor: AVCaptureVideoDataOutputSampleBufferDelegate {
         }
 
         // Focus peaking (composited on top of false color if both active)
-        if isFocusPeakingEnabled {
+        if flags.peaking {
             focusPeakingFilter.inputHighlightColor = peakingColor
             focusPeakingFilter.inputImage = image
             if let output = focusPeakingFilter.outputImage {
@@ -238,12 +231,12 @@ extension CaptureProcessor: AVCaptureVideoDataOutputSampleBufferDelegate {
         }
 
         // Zebra stripes (skipped when false color is on — redundant)
-        if isZebraEnabled && !isFalseColorEnabled {
-            let thresholds = zebraThresholdLock.withLock { $0 }
+        if flags.zebra && !flags.falseColor {
+            setZebraTime(Float(CACurrentMediaTime().truncatingRemainder(dividingBy: 100.0)))
             zebraFilter.inputImage = image
             zebraFilter.inputTime = getZebraTime()
-            zebraFilter.inputOverThreshold = thresholds.high
-            zebraFilter.inputUnderThreshold = thresholds.low
+            zebraFilter.inputOverThreshold = flags.zebraHigh
+            zebraFilter.inputUnderThreshold = flags.zebraLow
             if let output = zebraFilter.outputImage {
                 image = output
             }
@@ -252,14 +245,17 @@ extension CaptureProcessor: AVCaptureVideoDataOutputSampleBufferDelegate {
         onProcessedFrame?(image, presentationTime)
         setLatestImage(image)
 
-        // Histogram + waveform + vectorscope every 2nd frame (~30 fps) — off sessionQueue
-        if frameCount % 2 == 0 {
+        // Histogram + waveform + vectorscope — only when any monitoring overlay is visible
+        let needsMonitoring = flags.histogram || flags.waveform || flags.vectorscope
+        if needsMonitoring && frameCount % 2 == 0 {
             let capturedImage = rawImage
             let context = ciContext
-            let needsWaveform = isWaveformEnabled
-            let needsVectorscope = isVectorscopeEnabled
+            let needsWaveform = flags.waveform
+            let needsVectorscope = flags.vectorscope
             histogramQueue.async { [self] in
-                computeHistogram(from: capturedImage, context: context)
+                if flags.histogram {
+                    computeHistogram(from: capturedImage, context: context)
+                }
                 if needsWaveform {
                     let data = HistogramCalculator.computeWaveform(from: capturedImage, context: context)
                     Task { @MainActor in onWaveformUpdate?(data) }

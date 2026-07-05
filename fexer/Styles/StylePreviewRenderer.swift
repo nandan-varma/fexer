@@ -6,7 +6,7 @@ final class StylePreviewRenderer {
     static let shared = StylePreviewRenderer()
 
     nonisolated(unsafe) private let cache = NSCache<NSString, UIImage>()
-    private let renderQueue = DispatchQueue(label: "com.fexer.stylePreview", qos: .userInitiated, attributes: .concurrent)
+    private let renderQueue = DispatchQueue(label: "com.fexer.stylePreview", qos: .userInitiated)
     private let ciContext: CIContext = .shared
     private let sampleImage: CIImage
 

@@ -202,7 +202,7 @@ extension CameraView {
         let captureFilter = stylesManager.makeCaptureFilter()
         let capturedCropRatio = cropRatio
         let capturedWatermark = watermarkText
-        let isAnamorphic = cameraManager.processor.isAnamorphicDesqueezeEnabled
+        let isAnamorphic = cameraManager.processor.frameFlags.anamorphic
         let isPortraitMode = cameraViewModel.activeMode == .portrait
         let uiAngle = Int(DeviceOrientationTracker.shared.rotationAngle)
         let capturedPhotoAngle = CGFloat((90 - uiAngle + 360) % 360)

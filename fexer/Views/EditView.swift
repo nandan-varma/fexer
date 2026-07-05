@@ -20,6 +20,7 @@ struct EditView: View {
     @State private var renderTask: Task<Void, Never>?
     @State private var didHapticAtCenter = false
     @GestureState private var isPressingOriginal = false
+    @State private var cachedInput: CIImage?
     @GestureState private var liveCropDrag: CGSize = .zero
     @GestureState private var liveCropScale: CGFloat = 1
     @State private var selectedHSLBand: Int = 0
@@ -498,9 +499,16 @@ struct EditView: View {
         return drag.simultaneously(with: pinch)
     }
 
-    private func renderPreview(debounced: Bool = false) {
+    private func ensureInputDecoded() -> CIImage? {
+        if let cached = cachedInput { return cached }
         guard let data = photo.jpegData,
-              let input = CIImage(data: data, options: [.applyOrientationProperty: true]) else { return }
+              let input = CIImage(data: data, options: [.applyOrientationProperty: true]) else { return nil }
+        cachedInput = input
+        return input
+    }
+
+    private func renderPreview(debounced: Bool = false) {
+        guard let input = ensureInputDecoded() else { return }
         let requestID = UUID()
         renderID = requestID
         var capturedState = state
