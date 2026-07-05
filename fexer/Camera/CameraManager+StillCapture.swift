@@ -9,10 +9,14 @@ extension CameraManager {
     func setProRAWEnabled(_ enabled: Bool) {
         sessionQueue.async { [self] in
             guard photoOutput.isAppleProRAWSupported else { return }
+            Task { @MainActor in self.onVolumeGateWillBlock?() }
             session.beginConfiguration()
             photoOutput.isAppleProRAWEnabled = enabled
             session.commitConfiguration()
             Logger.camera.info("ProRAW \(enabled ? "enabled" : "disabled")")
+            sessionQueue.asyncAfter(deadline: .now() + 0.15) { [self] in
+                Task { @MainActor in self.onVolumeGateDidUnblock?() }
+            }
         }
     }
 
@@ -30,15 +34,20 @@ extension CameraManager {
                     device.automaticallyEnablesLowLightBoostWhenAvailable = enabled
                 }
             }
+            Task { @MainActor in self.onVolumeGateWillBlock?() }
             session.beginConfiguration()
             photoOutput.maxPhotoQualityPrioritization = enabled ? .quality : .balanced
             session.commitConfiguration()
+            sessionQueue.asyncAfter(deadline: .now() + 0.15) { [self] in
+                Task { @MainActor in self.onVolumeGateDidUnblock?() }
+            }
         }
     }
 
     func setDepthDataEnabled(_ enabled: Bool) {
         sessionQueue.async { [self] in
             guard photoOutput.isDepthDataDeliverySupported else { return }
+            Task { @MainActor in self.onVolumeGateWillBlock?() }
             session.beginConfiguration()
             photoOutput.isDepthDataDeliveryEnabled = enabled
             if enabled && photoOutput.isPortraitEffectsMatteDeliverySupported {
@@ -48,6 +57,9 @@ extension CameraManager {
             }
             session.commitConfiguration()
             Logger.camera.info("Depth data \(enabled ? "enabled" : "disabled")")
+            sessionQueue.asyncAfter(deadline: .now() + 0.15) { [self] in
+                Task { @MainActor in self.onVolumeGateDidUnblock?() }
+            }
         }
     }
 

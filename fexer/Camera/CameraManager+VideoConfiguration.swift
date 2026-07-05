@@ -10,6 +10,7 @@ extension CameraManager {
     func configureForVideoMode(resolution: VideoResolution) {
         sessionQueue.async { [self] in
             guard !isRecording, !isWaitingToRecord else { return }
+            Task { @MainActor in self.onVolumeGateWillBlock?() }
             let preset = resolution.sessionPreset
             session.beginConfiguration()
             if session.canSetSessionPreset(preset) {
@@ -21,6 +22,9 @@ extension CameraManager {
             session.commitConfiguration()
             configureVideoRotation()
             Task { @MainActor in self.captureSettings.videoSettings.resolution = resolution }
+            sessionQueue.asyncAfter(deadline: .now() + 0.15) { [self] in
+                Task { @MainActor in self.onVolumeGateDidUnblock?() }
+            }
         }
     }
 
@@ -28,9 +32,13 @@ extension CameraManager {
     func configureForPhotoMode() {
         sessionQueue.async { [self] in
             guard !isRecording, !isWaitingToRecord else { return }
+            Task { @MainActor in self.onVolumeGateWillBlock?() }
             session.beginConfiguration()
             session.sessionPreset = .photo
             session.commitConfiguration()
+            sessionQueue.asyncAfter(deadline: .now() + 0.15) { [self] in
+                Task { @MainActor in self.onVolumeGateDidUnblock?() }
+            }
         }
     }
 
@@ -120,16 +128,26 @@ extension CameraManager {
                 Logger.camera.warning("Color space \(colorSpace.rawValue) not supported by active format")
                 return
             }
+            Task { @MainActor in self.onVolumeGateWillBlock?() }
             session.beginConfiguration()
             device.withLock { device.activeColorSpace = target }
             session.commitConfiguration()
             Task { @MainActor in self.captureSettings.videoColorSpace = colorSpace }
+            sessionQueue.asyncAfter(deadline: .now() + 0.15) { [self] in
+                Task { @MainActor in self.onVolumeGateDidUnblock?() }
+            }
         }
     }
 
     func setHDREnabled(_ enabled: Bool) {
         sessionQueue.async { [self] in
             guard videoOutput.connection(with: .video) != nil else { return }
+            Task { @MainActor in self.onVolumeGateWillBlock?() }
+            defer {
+                sessionQueue.asyncAfter(deadline: .now() + 0.15) {
+                    Task { @MainActor in self.onVolumeGateDidUnblock?() }
+                }
+            }
             if enabled, let device = currentDevice {
                 let currentDims = CMVideoFormatDescriptionGetDimensions(device.activeFormat.formatDescription)
                 let isHDRCapable: (AVCaptureDevice.Format) -> Bool = {
@@ -188,6 +206,7 @@ extension CameraManager {
                 Logger.camera.warning("No format found for \(fps)fps slow motion")
                 return
             }
+            Task { @MainActor in self.onVolumeGateWillBlock?() }
             session.beginConfiguration()
             device.withLock {
                 device.activeFormat = fmt
@@ -197,6 +216,9 @@ extension CameraManager {
             }
             session.commitConfiguration()
             configureVideoRotation()
+            sessionQueue.asyncAfter(deadline: .now() + 0.15) { [self] in
+                Task { @MainActor in self.onVolumeGateDidUnblock?() }
+            }
         }
     }
 

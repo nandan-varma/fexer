@@ -75,6 +75,7 @@ struct CameraView: View {
     @State var nightProcessingAngle: Double = 0
     @State var shutterFlashOpacity: Double = 0
     @State var cameraFlipOpacity: Double = 0
+    @State var volumeGate = VolumeGate()
 
     var stabilizationMode: StabilizationMode {
         StabilizationMode(rawValue: stabilizationModeRaw) ?? .auto

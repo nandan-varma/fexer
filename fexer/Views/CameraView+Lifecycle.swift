@@ -16,6 +16,13 @@ extension CameraView {
             guard cameraManager.captureSettings.isTrapFocusEnabled else { return }
             performCapture()
         }
+        // Wire session-reconfiguration guards to gate volume-button captures.
+        cameraManager.onVolumeGateWillBlock = { [self] in
+            self.volumeGate.block()
+        }
+        cameraManager.onVolumeGateDidUnblock = { [self] in
+            self.volumeGate.unblock()
+        }
         UIApplication.shared.isIdleTimerDisabled = true
         Task { await appState.permissionsManager.requestPhotoLibraryAccess() }
         Task { await appState.permissionsManager.requestMicrophoneAccess() }
@@ -40,6 +47,8 @@ extension CameraView {
             NotificationCenter.default.removeObserver(token)
             volumeRouteChangeToken = nil
         }
+        cameraManager.onVolumeGateWillBlock = nil
+        cameraManager.onVolumeGateDidUnblock = nil
         cameraManager.stopSession()
         cameraManager.cancelLongExposureCapture()
         cameraManager.processor.onPixelBuffer = nil

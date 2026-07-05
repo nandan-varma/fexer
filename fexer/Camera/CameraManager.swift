@@ -101,6 +101,12 @@ import Photos
 
     @ObservationIgnored lazy var iso8601Formatter = ISO8601DateFormatter()
 
+    // Called on MainActor before/after every session beginConfiguration/commitConfiguration pair.
+    // CameraView wires these to volumeGate.block() / volumeGate.unblock() so that spurious
+    // AVAudioSession.outputVolume KVO events triggered by session reconfiguration are suppressed.
+    var onVolumeGateWillBlock: (() -> Void)?
+    var onVolumeGateDidUnblock: (() -> Void)?
+
     // MARK: - Notification observation tokens
 
     private var sessionErrorObserver: NSObjectProtocol?
@@ -322,6 +328,7 @@ import Photos
                 return
             }
 
+            Task { @MainActor in self.onVolumeGateWillBlock?() }
             session.beginConfiguration()
             for input in session.inputs.compactMap({ $0 as? AVCaptureDeviceInput }) {
                 session.removeInput(input)
@@ -348,6 +355,7 @@ import Photos
             sessionQueue.asyncAfter(deadline: .now() + 0.15) { [self] in
                 configureVideoRotation()
                 processor.isRotationReady = true
+                Task { @MainActor in self.onVolumeGateDidUnblock?() }
             }
         }
     }
@@ -423,6 +431,7 @@ extension CameraManager {
                 Logger.camera.error("switchToCamera: cannot create input for \(device.localizedName)")
                 return
             }
+            Task { @MainActor in self.onVolumeGateWillBlock?() }
             session.beginConfiguration()
             for input in session.inputs.compactMap({ $0 as? AVCaptureDeviceInput })
                 where input.device.hasMediaType(.video) {
@@ -444,6 +453,7 @@ extension CameraManager {
             sessionQueue.asyncAfter(deadline: .now() + 0.15) { [self] in
                 configureVideoRotation()
                 processor.isRotationReady = true
+                Task { @MainActor in self.onVolumeGateDidUnblock?() }
             }
         }
     }
