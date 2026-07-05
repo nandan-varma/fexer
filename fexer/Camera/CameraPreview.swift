@@ -88,6 +88,9 @@ struct CameraPreview: UIViewRepresentable {
 
         private lazy var commandQueue: MTLCommandQueue? = mtlDevice?.makeCommandQueue()
 
+        // Tracks prior recording state so we only adjust preferredFramesPerSecond on change.
+        private var lastWasRecording = false
+
         init(cameraManager: CameraManager) {
             self.cameraManager = cameraManager
         }
@@ -101,6 +104,15 @@ struct CameraPreview: UIViewRepresentable {
                   let image = cameraManager.processor.getLatestImage(),
                   let sRGB
             else { return }
+
+            // Halve the display refresh rate during recording to reduce GPU contention
+            // between the recording render (CIContext.render → pixel buffer on recordingQueue)
+            // and the preview render (CIContext.render → drawable texture on MainActor).
+            let isRec = cameraManager.isRecording
+            if isRec != lastWasRecording {
+                lastWasRecording = isRec
+                view.preferredFramesPerSecond = isRec ? 30 : 60
+            }
 
             let drawableSize = view.drawableSize
             let imageExtent  = image.extent

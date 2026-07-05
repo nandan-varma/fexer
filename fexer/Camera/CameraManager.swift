@@ -80,6 +80,9 @@ import Photos
     // Saved before HDR format switch so disabling HDR can restore the original format.
     @ObservationIgnored nonisolated(unsafe) var preHDRFormat: AVCaptureDevice.Format?
 
+    // Decimated counter appended in the audio-sample callback (~60 fps → ~10 fps RMS).
+    @ObservationIgnored nonisolated(unsafe) var audioRMSFrameCount = 0
+
     // Busy guard for still capture — checked and set atomically on sessionQueue to prevent TOCTOU.
     // isCapturing mirrors this on MainActor for UI binding.
     var _captureBusy = false
@@ -90,6 +93,14 @@ import Photos
     // KVO observation tokens are created and invalidated exclusively on sessionQueue.
     var deviceObservations: [NSKeyValueObservation] = []
     var subjectAreaObserver: NSObjectProtocol?
+
+    // Dedicated serial queue for GPU render + encoder append during video recording.
+    // Keeps the synchronous CIContext.render() and adaptor.append() off sessionQueue
+    // so captureOutput never blocks on GPU round-trips.
+    let recordingQueue = DispatchQueue(label: "com.fexer.recording", qos: .userInitiated)
+    // Lock-protected buffer of frames awaiting encoding on recordingQueue.
+    // Written from sessionQueue (in onProcessedFrame), consumed from recordingQueue.
+    let pendingFramesLock = OSAllocatedUnfairLock(initialState: [RecordingFrame]())
 
     // Timer runs on MainActor; kept here so we can invalidate from MainActor context
     var recordingTimer: Timer?

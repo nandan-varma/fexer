@@ -1,9 +1,18 @@
 import AVFoundation
 import CoreImage
 import CoreLocation
+import Foundation
 import Photos
 import UIKit
 import OSLog
+
+// CIImage graphs are immutable and thread-safe for read-only access across queues.
+// This wrapper lets the compiler enforce Sendable safety without forcing MainActor isolation
+// on the frame-buffer queue used to decouple GPU render from the capture pipeline.
+struct RecordingFrame: @unchecked Sendable {
+    let image: CIImage
+    let time: CMTime
+}
 
 extension CameraManager {
 
@@ -18,6 +27,11 @@ extension CameraManager {
             pendingRecordingStyleName = styleName
             guard !isWaitingToRecord && assetWriter == nil else { return }
             isWaitingToRecord = true
+            // onProcessedFrame is called synchronously from captureOutput on sessionQueue.
+            // The first frame triggers setupAssetWriter (still on sessionQueue so we have
+            // the writer + pool ready before the recordingQueue starts consuming).
+            // Subsequent frames are enqueued to a small lock-protected buffer and rendered
+            // on recordingQueue — keeping sessionQueue free for the next frame delivery.
             processor.onProcessedFrame = { [weak self, captureSnap, proResOK] ciImage, time in
                 guard let self else { return }
                 if self.isWaitingToRecord {
@@ -25,7 +39,7 @@ extension CameraManager {
                     self.setupAssetWriter(firstImage: ciImage, startTime: time,
                                          captureSettings: captureSnap, proResOK: proResOK)
                 } else {
-                    self.appendVideoFrame(ciImage, time: time)
+                    self.enqueueRecordingFrame(ciImage, time: time)
                 }
             }
             audioOutput.setSampleBufferDelegate(self, queue: sessionQueue)
@@ -37,6 +51,12 @@ extension CameraManager {
         sessionQueue.async { [self] in
             isWaitingToRecord = false
             processor.onProcessedFrame = nil
+            // Drain any pending encode work on recordingQueue before finalizing the writer.
+            // This prevents a race where a dispatched work-item calls appendVideoFrame
+            // after markAsFinished / writer deallocation.
+            recordingQueue.sync {
+                drainRecordingFrames()
+            }
             audioOutput.setSampleBufferDelegate(nil, queue: nil)
             guard let writer = assetWriter else { return }
             videoWriterInput?.markAsFinished()
@@ -133,12 +153,23 @@ extension CameraManager {
         let pixelAttrs: [String: Any] = [
             kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
             kCVPixelBufferWidthKey as String: width,
-            kCVPixelBufferHeightKey as String: height
+            kCVPixelBufferHeightKey as String: height,
+            kCVPixelBufferPoolMinimumBufferCountKey as String: 15
         ]
         let adaptor = AVAssetWriterInputPixelBufferAdaptor(
             assetWriterInput: videoInput,
             sourcePixelBufferAttributes: pixelAttrs
         )
+
+        // Pre-warm the pixel buffer pool so the first frames don't stall on allocation.
+        // Allocate and immediately release 3 buffers — the pool retains their slots.
+        if let pool = adaptor.pixelBufferPool {
+            for _ in 0..<3 {
+                var pb: CVPixelBuffer?
+                CVPixelBufferPoolCreatePixelBuffer(nil, pool, &pb)
+                pb = nil
+            }
+        }
 
         // Audio input — AAC at sample rate and bitrate scaled to resolution
         let audioOutputSettings: [String: Any] = [
@@ -235,16 +266,63 @@ extension CameraManager {
         return items
     }
 
+    /// Render ciImage to a pixel buffer and append to the asset writer.
+    /// Runs on recordingQueue (never sessionQueue) after the first frame.
+    /// Includes a short retry loop for encoder readiness to minimise startup gaps.
     func appendVideoFrame(_ ciImage: CIImage, time: CMTime) {
         guard let input = videoWriterInput,
               let adaptor = pixelBufferAdaptor,
-              let pool = adaptor.pixelBufferPool,
-              input.isReadyForMoreMediaData else { return }
+              let pool = adaptor.pixelBufferPool else { return }
+
+        // Retry up to 3× (~10ms total) if the encoder is not yet ready for media data.
+        // This prevents silent frame drops during the first ~500ms when the encoder
+        // is still warming up its internal buffers.
+        var ready = input.isReadyForMoreMediaData
+        if !ready {
+            for _ in 0..<3 {
+                Thread.sleep(forTimeInterval: 0.003)
+                ready = input.isReadyForMoreMediaData
+                if ready { break }
+            }
+        }
+        guard ready else { return }
+
         var pb: CVPixelBuffer?
         CVPixelBufferPoolCreatePixelBuffer(nil, pool, &pb)
         guard let pixelBuffer = pb else { return }
         CIContext.shared.render(ciImage, to: pixelBuffer)
         adaptor.append(pixelBuffer, withPresentationTime: time)
+    }
+
+    /// Enqueue a frame for asynchronous processing on the recording queue.
+    /// Must be called from sessionQueue (called from onProcessedFrame closure).
+    /// Drops the oldest frame if the buffer exceeds 30 entries (~500ms at 60fps)
+    /// to cap memory pressure during extreme GPU stalls.
+    private func enqueueRecordingFrame(_ ciImage: CIImage, time: CMTime) {
+        let frame = RecordingFrame(image: ciImage, time: time)
+        pendingFramesLock.withLock { frames in
+            if frames.count >= 30 {
+                frames.removeFirst()
+            }
+            frames.append(frame)
+        }
+        recordingQueue.async { [weak self] in
+            self?.drainRecordingFrames()
+        }
+    }
+
+    /// Drain all pending frames from the lock-protected buffer and issue GPU render + append.
+    /// Runs on recordingQueue. Called both during live recording (signalled by enqueue)
+    /// and synchronously from stopRecording via recordingQueue.sync.
+    private func drainRecordingFrames() {
+        let frames: [RecordingFrame] = pendingFramesLock.withLock { buffer in
+            let batch = buffer
+            buffer = []
+            return batch
+        }
+        for frame in frames {
+            appendVideoFrame(frame.image, time: frame.time)
+        }
     }
 
     /// Checks if the current device supports ProRes recording.
@@ -270,6 +348,12 @@ extension CameraManager: AVCaptureAudioDataOutputSampleBufferDelegate {
            assetWriter?.status == .writing {
             input.append(sampleBuffer)
         }
+
+        // Decimate RMS computation to ~10fps (every 6th callback at ~60fps).
+        // Full-rate per-sample RMS with the IIR smoother is wasteful on the sessionQueue
+        // and the UI meter updates at display rate regardless.
+        audioRMSFrameCount += 1
+        guard audioRMSFrameCount % 6 == 0 else { return }
 
         // Compute RMS audio level for the VU meter (~10fps update cadence)
         guard let channelData = CMSampleBufferGetDataBuffer(sampleBuffer) else { return }
