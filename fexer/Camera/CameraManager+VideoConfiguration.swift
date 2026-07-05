@@ -75,11 +75,13 @@ extension CameraManager {
 
     // MARK: - Zoom Levels
 
-    /// Raw AVFoundation zoom factors for each optical stop on the current device.
+    /// Optical-only zoom stops for the current physical camera.
+    /// Physical cameras have one optical stop (min = 1× native glass).
+    /// virtualDeviceSwitchOverVideoZoomFactors is always empty on physical cameras.
     var availableZoomFactors: [CGFloat] {
-        guard let device = currentDevice else { return [] }
-        let switchOvers = device.virtualDeviceSwitchOverVideoZoomFactors.map { CGFloat($0.doubleValue) }
-        return [device.minAvailableVideoZoomFactor] + switchOvers
+        guard let device = currentDevice else { return [1.0] }
+        let minFactor = device.minAvailableVideoZoomFactor
+        return minFactor < 1.0 ? [minFactor, 1.0] : [1.0]
     }
 
     // MARK: - Macro Mode

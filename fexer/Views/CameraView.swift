@@ -438,6 +438,19 @@ struct CameraView: View {
                 .allowsHitTesting(false)
         }
 
+        // ── Recording error toast ────────────────────────────────────────────
+        if let err = cameraManager.recordingError {
+            Text("Recording failed: \(err.localizedDescription)")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 14).padding(.vertical, 7)
+                .background(.red.opacity(0.85), in: Capsule())
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .padding(.top, CameraView.quickBarHeight + 72)
+                .allowsHitTesting(false)
+                .transition(.opacity.combined(with: .scale(scale: 0.92)))
+        }
+
         // ── AEL toast notification ───────────────────────────────────────────
         if let msg = aelToastText {
             Text(msg)

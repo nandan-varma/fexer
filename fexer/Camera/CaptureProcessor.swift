@@ -102,14 +102,26 @@ final class CaptureProcessor: NSObject {
     }
 
     // Long exposure frame accumulation — all mutable state below is sessionQueue-only
-    // except longExpActiveLock (read/written from caller + sessionQueue)
+    // except longExpActiveLock and longExpConfigLock (read/written from caller + sessionQueue)
     private let longExpActiveLock = OSAllocatedUnfairLock(initialState: false)
     // Capped at 60 frames (sampled every 4th at 60fps ≈ 15fps), so peak memory stays ~480 MB
     // instead of the ~1.9 GB that 240 raw frames at 8 MB each would require.
     private var longExpFrames: [CIImage] = []
     private var longExpStart: CMTime = .invalid
-    var longExpDuration: Double = 4.0
-    var onLongExposureComplete: ((CIImage) -> Void)?
+
+    // beginLongExposureCapture is called from MainActor; captureOutput reads these on sessionQueue.
+    // OSAllocatedUnfairLock prevents the data race without requiring a sessionQueue dispatch.
+    private struct LongExpConfig { var duration: Double = 4.0; var completion: ((CIImage) -> Void)? }
+    private let longExpConfigLock = OSAllocatedUnfairLock(initialState: LongExpConfig())
+
+    var longExpDuration: Double {
+        get { longExpConfigLock.withLock { $0.duration } }
+        set { longExpConfigLock.withLock { $0.duration = newValue } }
+    }
+    var onLongExposureComplete: ((CIImage) -> Void)? {
+        get { longExpConfigLock.withLock { $0.completion } }
+        set { longExpConfigLock.withLock { $0.completion = newValue } }
+    }
 
     private let kLongExpMaxFrames = 60
     private let kLongExpFrameSkip = 4  // sample every 4th frame → ~15 fps from 60 fps input

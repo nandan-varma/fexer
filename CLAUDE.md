@@ -90,7 +90,9 @@ com.fexer.session  (sessionQueue, .userInteractive)
 
 **Rule:** AVFoundation calls (`lockForConfiguration`, `setExposureModeCustom`, etc.) must stay on `sessionQueue`. Any mutation of `@Observable` properties that SwiftUI reads must cross back with `Task { @MainActor in ... }`. Never call `UIView.setNeedsDisplay` from `sessionQueue` — use the MTKView's continuous render mode instead (`isPaused = false`, `enableSetNeedsDisplay = false`).
 
-**`nonisolated(unsafe)` pattern:** `CameraManager` is `@MainActor` by default (via `SWIFT_DEFAULT_ACTOR_ISOLATION`), but its recording-pipeline vars (`assetWriter`, `videoWriterInput`, `audioWriterInput`, `pixelBufferAdaptor`, `isWaitingToRecord`, `pendingRecordingLocation`, `pendingRecordingStyleName`, `_captureBusy`) are read and written exclusively on `sessionQueue`. Mark these `nonisolated(unsafe)` and serialize all access through `sessionQueue` — do not let Swift's actor checker treat them as MainActor state.
+**Session interruption:** `startSession()` registers `sessionInterruptionObserver` on `AVCaptureSession.wasInterruptedNotification`. When a phone call, Siri, or system audio event fires the notification, the handler calls `stopRecording()` (which internally dispatches to `sessionQueue`) if `isRecording || isWaitingToRecord`. `sessionInterruptionEndedObserver` restarts the session and re-applies rotation. Both observers are torn down in `stopSession()`.
+
+**`nonisolated(unsafe)` pattern:** `CameraManager` is `@MainActor` by default (via `SWIFT_DEFAULT_ACTOR_ISOLATION`), but its recording-pipeline vars are read and written exclusively on `sessionQueue`. Every var in this category must carry `@ObservationIgnored nonisolated(unsafe)` — without `@ObservationIgnored`, `@Observable` will register observation access/mutation on the MainActor and produce actor-isolation violations at runtime. The complete set of sessionQueue-only vars: `assetWriter`, `videoWriterInput`, `audioWriterInput`, `pixelBufferAdaptor`, `isWaitingToRecord`, `isFinishingRecording`, `pendingRecordingLocation`, `pendingRecordingStyleName`, `_captureBusy`, `pendingBracketCompletions`, `audioSampleCount`, `preHDRFormat`. When adding a new var that is read/written on `sessionQueue`, always add both annotations.
 
 Classes with explicit `nonisolated` methods that may be called from non-MainActor contexts: `StylePreviewRenderer` (all public methods), `StylesViewModel.onFrameAvailable`. These use `OSAllocatedUnfairLock` for internal thread safety rather than actor isolation.
 
@@ -110,7 +112,9 @@ CameraPreview.Coordinator.draw(in: MTKView) — continuous 60fps
 
 **Pipeline order rationale:** False color must see the ungraded signal (diagnostic tool), LUT is the creative grade, peaking and zebra are analysis tools drawn on top of whatever the user is monitoring.
 
-All mutable state in `CaptureProcessor` that crosses the sessionQueue/MainActor boundary uses `OSAllocatedUnfairLock`: `imageLock`, `lutFilterLock`, `peakingColorLock`, `flagsLock`, `zebraTimeLock`, `anamorphicLock`, `longExpActiveLock`. The single shared `CIContext(mtlDevice:)` is never recreated; recreating it per-frame is expensive.
+All mutable state in `CaptureProcessor` that crosses the sessionQueue/MainActor boundary uses `OSAllocatedUnfairLock`: `imageLock`, `lutFilterLock`, `peakingColorLock`, `flagsLock`, `zebraTimeLock`, `rotationReadyLock`, `longExpActiveLock`, `longExpConfigLock`. The single shared `CIContext(mtlDevice:)` is never recreated; recreating it per-frame is expensive.
+
+`longExpConfigLock` (an `OSAllocatedUnfairLock<LongExpConfig>`) protects `longExpDuration` and `onLongExposureComplete` — `beginLongExposureCapture` is called from MainActor but `captureOutput` reads them on sessionQueue. Access both exclusively through their computed-property wrappers; do not read the lock's raw state directly.
 
 Video frames arrive in landscape orientation. `configureVideoRotation()` sets `connection.videoRotationAngle = 90` immediately after `session.commitConfiguration()` to deliver portrait-upright frames. This must also be called after `flipCamera()`. The rotation setup is deferred ~150ms after `startRunning()` to allow AVFoundation stabilization and prevent Fig error -12710.
 
@@ -129,6 +133,14 @@ screenPoint = CGPoint(x: (1 - normalized.y) * geo.size.width,
 
 Swapping x/y when recovering screen position is intentional — do not "simplify" it.
 
+### Video recording state — additional invariants
+
+`isFinishingRecording` (`nonisolated(unsafe)`, sessionQueue only) is set to `true` the moment `stopRecording` clears the writer vars, and cleared inside `finishWriting`'s completion via `sessionQueue.async`. The `startRecording` guard checks it: `guard !isWaitingToRecord && !isFinishingRecording && assetWriter == nil`. This prevents a new writer from starting while the old one's `finishWriting` callback is still running (TOCTOU window).
+
+`recordingError: Error?` (MainActor, `@Observable`) is set to a non-nil value from `finishWriting`'s system thread via `Task { @MainActor in }` when `writer.status != .completed`. Cleared to nil at the start of each new `startRecording`. `CameraView.hudOverlayLayer` shows a red toast while it is non-nil.
+
+`audioSampleCount` (`nonisolated(unsafe)`, sessionQueue only) is incremented with `&+=` (overflow-safe) in the audio delegate. The delegate only creates a MainActor Task when `audioSampleCount % 5 == 0`, throttling VU meter updates to ~10fps.
+
 ### Lens switching
 
 **Session always uses a physical camera** — never a virtual multi-lens device (`builtInTripleCamera`, `builtInDualCamera`, etc.). Virtual devices return `false` for `isLockingFocusWithCustomLensPositionSupported` and `isExposureModeSupported(.custom)`, which silently blocks all manual controls.
@@ -139,13 +151,15 @@ Swapping x/y when recovering screen position is intentional — do not "simplify
 
 `CameraView+LensSwitcher.swift` drives the lens-switcher row from `backLenses`. The active button is identified by `lens.device == cameraManager.currentDevice`. The live optical zoom label = `currentZoomFactor × activeLensOpticalFactor`. The ZoomDial (long-press) controls digital zoom within the current physical lens.
 
+`availableZoomFactors` (used by optical zoom lock to snap the pinch gesture to glass-only stops) returns `[minAvailableVideoZoomFactor, 1.0]` when min < 1.0 (ultra-wide), or `[1.0]` otherwise. It does **not** use `virtualDeviceSwitchOverVideoZoomFactors` — that property returns `[]` on physical cameras, which fexer always uses.
+
 `flipCamera()` restores the back camera to the wide-angle (`backLenses.first { $0.opticalFactor == 1.0 }?.device`) and the front camera uses `bestCamera(for: .front)` (TrueDepth → wide-angle, both physical).
 
 ### Key classes
 
 | Class | Thread | Owns |
 |---|---|---|
-| `CameraManager` | `@Observable`, properties read on MainActor, mutations dispatched to `sessionQueue` | `AVCaptureSession`, `AVCapturePhotoOutput`, `AVCaptureVideoDataOutput`, KVO observations, `previewImageSize`, `backLenses`, `activeLensOpticalFactor`, `discoveredCameras` |
+| `CameraManager` | `@Observable`, properties read on MainActor, mutations dispatched to `sessionQueue` | `AVCaptureSession`, `AVCapturePhotoOutput`, `AVCaptureVideoDataOutput`, KVO observations, `previewImageSize`, `backLenses`, `activeLensOpticalFactor`, `discoveredCameras`, `recordingError` |
 | `CaptureProcessor` | `sessionQueue` | Per-frame CI filter chain, histogram computation (every 3rd frame), `OSAllocatedUnfairLock`-protected `latestImage`, `onPixelBuffer` callback (fires on first frame, then every 60th) |
 | `CameraViewModel` | `@MainActor` | UI gesture state (`activeRailParam`, overlay toggles, histogram data), self-timer, AE lock toggle, burst/timelapse state |
 | `StylesManager` | `@Observable` | LUT catalog, active style, `SceneClassifier`; `activeLUTFilter()` falls back to procedural generation |

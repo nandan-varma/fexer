@@ -70,22 +70,31 @@ import Photos
     // All mutations are serialised through sessionQueue; @ObservationIgnored + nonisolated(unsafe)
     // lets the nonisolated AVCaptureAudioDataOutputSampleBufferDelegate read them without warnings.
     @ObservationIgnored nonisolated(unsafe) var assetWriter: AVAssetWriter?
-    var videoWriterInput: AVAssetWriterInput?
+    @ObservationIgnored nonisolated(unsafe) var videoWriterInput: AVAssetWriterInput?
     @ObservationIgnored nonisolated(unsafe) var audioWriterInput: AVAssetWriterInput?
-    var pixelBufferAdaptor: AVAssetWriterInputPixelBufferAdaptor?
-    var isWaitingToRecord = false
-    var pendingRecordingLocation: CLLocation?
-    var pendingRecordingStyleName: String?
+    @ObservationIgnored nonisolated(unsafe) var pixelBufferAdaptor: AVAssetWriterInputPixelBufferAdaptor?
+    @ObservationIgnored nonisolated(unsafe) var isWaitingToRecord = false
+    @ObservationIgnored nonisolated(unsafe) var pendingRecordingLocation: CLLocation?
+    @ObservationIgnored nonisolated(unsafe) var pendingRecordingStyleName: String?
+    // True between stopRecording clearing the writer vars and finishWriting completing.
+    // Gates startRecording so a new writer can't start while the old one is still flushing.
+    @ObservationIgnored nonisolated(unsafe) var isFinishingRecording = false
 
     // Saved before HDR format switch so disabling HDR can restore the original format.
     @ObservationIgnored nonisolated(unsafe) var preHDRFormat: AVCaptureDevice.Format?
 
     // Busy guard for still capture — checked and set atomically on sessionQueue to prevent TOCTOU.
     // isCapturing mirrors this on MainActor for UI binding.
-    var _captureBusy = false
+    @ObservationIgnored nonisolated(unsafe) var _captureBusy = false
     // WB bracket fires N separate capturePhoto calls sharing one delegate.
     // clearCaptureGuard only truly clears when all expected completions arrive.
-    var pendingBracketCompletions = 0
+    @ObservationIgnored nonisolated(unsafe) var pendingBracketCompletions = 0
+
+    // Non-nil when a recording failed mid-capture (e.g. disk full). Cleared on next recording start.
+    var recordingError: Error? = nil
+
+    // Counter for throttling audio-level MainActor updates to ~10fps. sessionQueue only.
+    @ObservationIgnored nonisolated(unsafe) var audioSampleCount: Int = 0
 
     // KVO observation tokens are created and invalidated exclusively on sessionQueue.
     var deviceObservations: [NSKeyValueObservation] = []
@@ -130,6 +139,16 @@ import Photos
                 queue: .main
             ) { [weak self] notification in
                 self?.handleSessionError(notification)
+            }
+            // Stop recording cleanly when a phone call, Siri, or other system event interrupts.
+            self.sessionInterruptionObserver = NotificationCenter.default.addObserver(
+                forName: AVCaptureSession.wasInterruptedNotification,
+                object: session,
+                queue: nil
+            ) { [weak self] _ in
+                guard let self else { return }
+                // stopRecording internally dispatches to sessionQueue — safe to call from any thread.
+                if self.isRecording || self.isWaitingToRecord { self.stopRecording() }
             }
             // Restart after interruptions (permission dialogs, phone calls, background, etc.)
             self.sessionInterruptionEndedObserver = NotificationCenter.default.addObserver(

@@ -16,7 +16,8 @@ extension CameraManager {
         sessionQueue.async { [self] in
             pendingRecordingLocation = location
             pendingRecordingStyleName = styleName
-            guard !isWaitingToRecord && assetWriter == nil else { return }
+            guard !isWaitingToRecord && !isFinishingRecording && assetWriter == nil else { return }
+            Task { @MainActor in self.recordingError = nil }
             isWaitingToRecord = true
             processor.onProcessedFrame = { [weak self, captureSnap, proResOK] ciImage, time in
                 guard let self else { return }
@@ -39,6 +40,7 @@ extension CameraManager {
             processor.onProcessedFrame = nil
             audioOutput.setSampleBufferDelegate(nil, queue: nil)
             guard let writer = assetWriter else { return }
+            isFinishingRecording = true
             videoWriterInput?.markAsFinished()
             audioWriterInput?.markAsFinished()
             assetWriter = nil
@@ -50,8 +52,11 @@ extension CameraManager {
             pendingRecordingLocation = nil
             pendingRecordingStyleName = nil
             writer.finishWriting {
+                defer { self.sessionQueue.async { self.isFinishingRecording = false } }
                 guard writer.status == .completed else {
-                    Logger.camera.error("Video writing failed: \(writer.error?.localizedDescription ?? "unknown")")
+                    let err = writer.error
+                    Logger.camera.error("Video writing failed: \(err?.localizedDescription ?? "unknown")")
+                    Task { @MainActor in self.recordingError = err }
                     return
                 }
                 performPhotoLibraryChange {
@@ -236,7 +241,8 @@ extension CameraManager {
     }
 
     func appendVideoFrame(_ ciImage: CIImage, time: CMTime) {
-        guard let input = videoWriterInput,
+        guard let writer = assetWriter, writer.status == .writing,
+              let input = videoWriterInput,
               let adaptor = pixelBufferAdaptor,
               let pool = adaptor.pixelBufferPool,
               input.isReadyForMoreMediaData else { return }
@@ -289,6 +295,9 @@ extension CameraManager: AVCaptureAudioDataOutputSampleBufferDelegate {
             sumSq += s * s
         }
         let rms = sampleCount > 0 ? sqrt(sumSq / Float(sampleCount)) : 0
-        Task { @MainActor in self.audioLevel = self.audioLevel * 0.7 + rms * 0.3 }
+        audioSampleCount &+= 1
+        if audioSampleCount % 5 == 0 {
+            Task { @MainActor in self.audioLevel = self.audioLevel * 0.7 + rms * 0.3 }
+        }
     }
 }
