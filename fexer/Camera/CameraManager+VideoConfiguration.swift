@@ -8,7 +8,10 @@ extension CameraManager {
     /// Reconfigures the capture session for video recording at the specified resolution and frame rate.
     /// Must NOT be called while recording is active.
     func configureForVideoMode(resolution: VideoResolution, fps: Int = 30) {
+        let tMode = CFAbsoluteTimeGetCurrent()
+        Logger.camera.info("⏱ videoMode[0] dispatching to sessionQueue: \(resolution.rawValue) \(fps)fps")
         sessionQueue.async { [self] in
+            Logger.camera.info("⏱ videoMode[1] sessionQueue start: waited \(String(format: "%.0f", (CFAbsoluteTimeGetCurrent()-tMode)*1000))ms")
             guard let device = currentDevice else { return }
             guard !isRecording, !isWaitingToRecord else { return }
             Task { @MainActor in self.onVolumeGateWillBlock?() }
@@ -23,6 +26,7 @@ extension CameraManager {
                     format.videoSupportedFrameRateRanges.contains { $0.maxFrameRate >= targetFPS }
             }
 
+            let tCommit = CFAbsoluteTimeGetCurrent()
             session.beginConfiguration()
 
             let preset = resolution.sessionPreset
@@ -45,6 +49,7 @@ extension CameraManager {
             }
 
             session.commitConfiguration()
+            Logger.camera.info("⏱ videoMode[2] commitConfiguration took: \(String(format: "%.0f", (CFAbsoluteTimeGetCurrent()-tCommit)*1000))ms, total: \(String(format: "%.0f", (CFAbsoluteTimeGetCurrent()-tMode)*1000))ms")
             configureVideoRotation()
             Task { @MainActor in self.captureSettings.videoSettings.resolution = resolution }
             sessionQueue.asyncAfter(deadline: .now() + 0.15) { [self] in

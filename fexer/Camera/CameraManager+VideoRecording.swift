@@ -10,72 +10,175 @@ extension CameraManager {
     // MARK: - Video Recording
 
     func startRecording(location: CLLocation? = nil, styleName: String? = nil) {
-        // Snapshot @MainActor settings before crossing to sessionQueue.
+        let t0 = CFAbsoluteTimeGetCurrent()
+        Logger.camera.info("⏱ rec[0] MainActor begin")
+
+        // Respond to the tap immediately on MainActor — shutter button switches to "stop"
+        // and the timer starts right away. The actual encoder init happens asynchronously
+        // on writerSetupQueue so neither sessionQueue nor MainActor ever blocks.
+        recordingError = nil
+        isRecording = true
+        startRecordingTimer()
+        UIApplication.shared.isIdleTimerDisabled = true
+
+        Logger.camera.info("⏱ rec[1] MainActor done: \(String(format: "%.1f", (CFAbsoluteTimeGetCurrent()-t0)*1000))ms")
+
         let captureSnap = captureSettings
         let proResOK = isProResRecordingSupported
+        // previewImageSize is the portrait-rotated frame size delivered by captureOutput.
+        // Falls back to resolution-derived size if the camera hasn't warmed up yet.
+        let frameSize: CGSize = previewImageSize != .zero ? previewImageSize : {
+            switch captureSnap.videoSettings.resolution {
+            case .uhd4K: return CGSize(width: 2160, height: 3840)
+            default:     return CGSize(width: 1080, height: 1920)
+            }
+        }()
+
+        Logger.camera.info("⏱ rec[2] dispatching to sessionQueue: \(String(format: "%.1f", (CFAbsoluteTimeGetCurrent()-t0)*1000))ms (frameSize=\(Int(frameSize.width))×\(Int(frameSize.height)))")
+
         sessionQueue.async { [self] in
+            Logger.camera.info("⏱ rec[3] sessionQueue start: \(String(format: "%.0f", (CFAbsoluteTimeGetCurrent()-t0)*1000))ms (waited \(String(format: "%.0f", (CFAbsoluteTimeGetCurrent()-t0)*1000))ms for queue)")
+            guard !isWaitingToRecord && !isFinishingRecording && assetWriter == nil else {
+                Logger.camera.warning("⏱ rec[3] guard failed: isWaiting=\(self.isWaitingToRecord) isFinishing=\(self.isFinishingRecording) hasWriter=\(self.assetWriter != nil)")
+                return
+            }
             pendingRecordingLocation = location
             pendingRecordingStyleName = styleName
-            guard !isWaitingToRecord && !isFinishingRecording && assetWriter == nil else { return }
-            Task { @MainActor in self.recordingError = nil }
+            // Snapshot sessionQueue-only state before dispatching to writerSetupQueue.
+            // iso8601Formatter is a lazy var (not safe to access from writerSetupQueue).
+            let captureDate = iso8601Formatter.string(from: Date())
+            let snapshotLocation = pendingRecordingLocation
+            let snapshotStyleName = pendingRecordingStyleName
+            // Set gate BEFORE dispatching to writerSetupQueue so the audio guard
+            // sees isWaitingToRecord = true and blocks appends until startSession fires.
             isWaitingToRecord = true
-            processor.onProcessedFrame = { [weak self, captureSnap, proResOK] ciImage, time in
-                guard let self else { return }
-                if self.isWaitingToRecord {
-                    self.isWaitingToRecord = false
-                    self.setupAssetWriter(firstImage: ciImage, startTime: time,
-                                         captureSettings: captureSnap, proResOK: proResOK)
-                } else {
-                    self.appendVideoFrame(ciImage, time: time)
+
+            Logger.camera.info("⏱ rec[4] dispatching to writerSetupQueue: \(String(format: "%.0f", (CFAbsoluteTimeGetCurrent()-t0)*1000))ms")
+
+            writerSetupQueue.async { [self] in
+                Logger.camera.info("⏱ rec[5] writerSetupQueue start (buildWriterComponents): \(String(format: "%.0f", (CFAbsoluteTimeGetCurrent()-t0)*1000))ms")
+                let tBuild = CFAbsoluteTimeGetCurrent()
+
+                // startWriting() initialises the HEVC/ProRes encoder pipeline and can take
+                // 200ms–2s at high frame rates. Running it off sessionQueue lets captureOutput
+                // keep delivering preview frames during encoder init — no dropped frames.
+                guard let components = buildWriterComponents(
+                    frameSize: frameSize, captureSettings: captureSnap, proResOK: proResOK,
+                    location: snapshotLocation, styleName: snapshotStyleName, captureDate: captureDate
+                ) else {
+                    Logger.camera.error("⏱ rec[5] buildWriterComponents FAILED: \(String(format: "%.0f", (CFAbsoluteTimeGetCurrent()-t0)*1000))ms")
+                    sessionQueue.async { [self] in isWaitingToRecord = false }
+                    Task { @MainActor in
+                        self.isRecording = false
+                        self.stopRecordingTimer()
+                        self.recordingError = NSError(
+                            domain: "com.fexer", code: -1,
+                            userInfo: [NSLocalizedDescriptionKey: "Failed to initialize video writer"])
+                    }
+                    return
+                }
+
+                Logger.camera.info("⏱ rec[6] buildWriterComponents done: total=\(String(format: "%.0f", (CFAbsoluteTimeGetCurrent()-t0)*1000))ms build=\(String(format: "%.0f", (CFAbsoluteTimeGetCurrent()-tBuild)*1000))ms")
+
+                sessionQueue.async { [self] in
+                    Logger.camera.info("⏱ rec[7] writer install on sessionQueue: \(String(format: "%.0f", (CFAbsoluteTimeGetCurrent()-t0)*1000))ms")
+                    guard isWaitingToRecord else {
+                        // stopRecording() called while writer was building on writerSetupQueue.
+                        // cancelWriting is safe here — startSession was never called.
+                        components.writer.cancelWriting()
+                        Logger.camera.info("⏱ rec[7] cancelled (stopRecording won the race)")
+                        return
+                    }
+                    assetWriter = components.writer
+                    videoWriterInput = components.videoInput
+                    audioWriterInput = components.audioInput
+                    pixelBufferAdaptor = components.adaptor
+
+                    processor.onProcessedFrame = { [weak self] ciImage, time in
+                        guard let self else { return }
+                        if self.isWaitingToRecord {
+                            Logger.camera.info("⏱ rec[8] first video frame → startSession: \(String(format: "%.0f", (CFAbsoluteTimeGetCurrent()-t0)*1000))ms")
+                            self.isWaitingToRecord = false
+                            self.assetWriter?.startSession(atSourceTime: time)
+                            Logger.camera.info("⏱ rec[9] startSession done, recording live: \(String(format: "%.0f", (CFAbsoluteTimeGetCurrent()-t0)*1000))ms")
+                        }
+                        self.appendVideoFrame(ciImage, time: time)
+                    }
+                    // Audio delegate registered after assetWriter is installed and while
+                    // isWaitingToRecord is still true — the audio guard below blocks appends
+                    // until isWaitingToRecord is cleared by the first video frame.
+                    let tAudio = CFAbsoluteTimeGetCurrent()
+                    audioOutput.setSampleBufferDelegate(self, queue: sessionQueue)
+                    Logger.camera.info("⏱ rec[7b] setSampleBufferDelegate took: \(String(format: "%.1f", (CFAbsoluteTimeGetCurrent()-tAudio)*1000))ms, total: \(String(format: "%.0f", (CFAbsoluteTimeGetCurrent()-t0)*1000))ms")
                 }
             }
-            audioOutput.setSampleBufferDelegate(self, queue: sessionQueue)
         }
-        Task { @MainActor in UIApplication.shared.isIdleTimerDisabled = true }
     }
 
     func stopRecording() {
         sessionQueue.async { [self] in
+            let wasWaiting = isWaitingToRecord
             isWaitingToRecord = false
             processor.onProcessedFrame = nil
             audioOutput.setSampleBufferDelegate(nil, queue: nil)
-            guard let writer = assetWriter else { return }
-            isFinishingRecording = true
-            videoWriterInput?.markAsFinished()
-            audioWriterInput?.markAsFinished()
-            assetWriter = nil
-            videoWriterInput = nil
-            audioWriterInput = nil
-            pixelBufferAdaptor = nil
-            let outputURL = writer.outputURL
-            let savedLocation = pendingRecordingLocation
-            pendingRecordingLocation = nil
-            pendingRecordingStyleName = nil
-            writer.finishWriting {
-                defer { self.sessionQueue.async { self.isFinishingRecording = false } }
-                guard writer.status == .completed else {
-                    let err = writer.error
-                    Logger.camera.error("Video writing failed: \(err?.localizedDescription ?? "unknown")")
-                    Task { @MainActor in self.recordingError = err }
-                    return
-                }
-                performPhotoLibraryChange {
-                    PHPhotoLibrary.shared().performChanges({
-                        let request = PHAssetCreationRequest.forAsset()
-                        let options = PHAssetResourceCreationOptions()
-                        options.shouldMoveFile = true
-                        request.addResource(with: .video, fileURL: outputURL, options: options)
-                        request.location = savedLocation
-                    }, completionHandler: { _, error in
-                        if let error { Logger.camera.error("Video save failed: \(error.localizedDescription)") }
-                    })
-                }
-            }
             Task { @MainActor in
                 self.isRecording = false
                 self.recordingDuration = 0
                 self.stopRecordingTimer()
                 UIApplication.shared.isIdleTimerDisabled = false
+            }
+            guard let writer = assetWriter else {
+                // assetWriter is nil when stopRecording races with writerSetupQueue building the
+                // writer. isWaitingToRecord = false above signals the hop-back on sessionQueue
+                // to call cancelWriting() instead of installing the writer.
+                pendingRecordingLocation = nil
+                pendingRecordingStyleName = nil
+                return
+            }
+
+            if wasWaiting {
+                // Writer was installed but startSession was never called (no video frame arrived).
+                // cancelWriting is required here — finishWriting on a writer without an active
+                // session throws NSInternalInconsistencyException.
+                writer.cancelWriting()
+                assetWriter = nil
+                videoWriterInput = nil
+                audioWriterInput = nil
+                pixelBufferAdaptor = nil
+                pendingRecordingLocation = nil
+                pendingRecordingStyleName = nil
+            } else {
+                isFinishingRecording = true
+                videoWriterInput?.markAsFinished()
+                audioWriterInput?.markAsFinished()
+                assetWriter = nil
+                videoWriterInput = nil
+                audioWriterInput = nil
+                pixelBufferAdaptor = nil
+                let outputURL = writer.outputURL
+                let savedLocation = pendingRecordingLocation
+                pendingRecordingLocation = nil
+                pendingRecordingStyleName = nil
+                writer.finishWriting {
+                    defer { self.sessionQueue.async { self.isFinishingRecording = false } }
+                    guard writer.status == .completed else {
+                        let err = writer.error
+                        Logger.camera.error("Video writing failed: \(err?.localizedDescription ?? "unknown")")
+                        Task { @MainActor in self.recordingError = err }
+                        return
+                    }
+                    performPhotoLibraryChange {
+                        PHPhotoLibrary.shared().performChanges({
+                            let request = PHAssetCreationRequest.forAsset()
+                            let options = PHAssetResourceCreationOptions()
+                            options.shouldMoveFile = true
+                            request.addResource(with: .video, fileURL: outputURL, options: options)
+                            request.location = savedLocation
+                        }, completionHandler: { _, error in
+                            if let error { Logger.camera.error("Video save failed: \(error.localizedDescription)") }
+                        })
+                    }
+                }
             }
         }
     }
@@ -95,31 +198,38 @@ extension CameraManager {
         recordingTimer = nil
     }
 
-    func setupAssetWriter(firstImage: CIImage, startTime: CMTime,
-                          captureSettings: CaptureSettings, proResOK: Bool) {
-        let extent = firstImage.extent
-        let width = Int(extent.width)
-        let height = Int(extent.height)
+    private struct WriterComponents {
+        let writer: AVAssetWriter
+        let videoInput: AVAssetWriterInput
+        let audioInput: AVAssetWriterInput
+        let adaptor: AVAssetWriterInputPixelBufferAdaptor
+    }
+
+    // Runs on writerSetupQueue — must not access any nonisolated(unsafe) instance vars.
+    // All inputs are value-type snapshots taken on sessionQueue before dispatch.
+    private func buildWriterComponents(
+        frameSize: CGSize, captureSettings: CaptureSettings, proResOK: Bool,
+        location: CLLocation?, styleName: String?, captureDate: String
+    ) -> WriterComponents? {
+        let width = Int(frameSize.width)
+        let height = Int(frameSize.height)
         let settings = captureSettings.videoSettings
         let fps = settings.frameRate
-
         let codec = settings.codec
         let useProRes = codec == .proRes && proResOK
-        let fileExt  = useProRes ? "mov" : "mp4"
-        let fileType = useProRes ? AVFileType.mov : AVFileType.mp4
+        let fileType: AVFileType = useProRes ? .mov : .mp4
 
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
-            .appendingPathExtension(fileExt)
+            .appendingPathExtension(useProRes ? "mov" : "mp4")
 
         guard let writer = try? AVAssetWriter(url: url, fileType: fileType) else {
             Logger.camera.error("Failed to create AVAssetWriter")
-            return
+            return nil
         }
 
         // Video codec — ProRes skips compression properties (uses its own quality tiers)
-        let codecType: AVVideoCodecType = codec == .h264 ? .h264 :
-                                          useProRes ? .proRes422HQ : .hevc
+        let codecType: AVVideoCodecType = codec == .h264 ? .h264 : useProRes ? .proRes422HQ : .hevc
         var videoOutputSettings: [String: Any] = [
             AVVideoCodecKey: codecType,
             AVVideoWidthKey: width,
@@ -157,36 +267,40 @@ extension CameraManager {
 
         guard writer.canAdd(videoInput), writer.canAdd(audioInput) else {
             Logger.camera.error("Cannot add inputs to AVAssetWriter")
-            return
+            return nil
         }
         writer.add(videoInput)
         writer.add(audioInput)
         writer.metadata = makeVideoMetadata(
             settings: captureSettings,
-            location: pendingRecordingLocation,
-            styleName: pendingRecordingStyleName
+            location: location,
+            styleName: styleName,
+            captureDate: captureDate
         )
-        writer.startWriting()
-        writer.startSession(atSourceTime: startTime)
 
-        assetWriter = writer
-        videoWriterInput = videoInput
-        audioWriterInput = audioInput
-        pixelBufferAdaptor = adaptor
-
-        appendVideoFrame(firstImage, time: startTime)
-
-        Task { @MainActor in
-            self.isRecording = true
-            self.startRecordingTimer()
+        // Warm up the CIContext→CVPixelBuffer render path so Metal shader compilation
+        // doesn't happen on the first real appendVideoFrame call mid-recording.
+        // This path (render to pixelBuffer) is separate from the preview path
+        // (render to MTKView texture) so shaders may not be pre-compiled yet.
+        var warmPB: CVPixelBuffer?
+        if CVPixelBufferCreate(nil, 16, 16, kCVPixelFormatType_32BGRA, nil, &warmPB) == kCVReturnSuccess,
+           let warmPixelBuffer = warmPB {
+            let warmImg = CIImage(color: CIColor(red: 0, green: 0, blue: 0))
+                .cropped(to: CGRect(x: 0, y: 0, width: 16, height: 16))
+            CIContext.shared.render(warmImg, to: warmPixelBuffer)
         }
-        Logger.camera.info("Video recording started: \(width)×\(height) \(fps)fps \(codecType.rawValue)")
+
+        let tSW = CFAbsoluteTimeGetCurrent()
+        writer.startWriting()
+        Logger.camera.info("⏱ startWriting took: \(String(format: "%.0f", (CFAbsoluteTimeGetCurrent()-tSW)*1000))ms — \(width)×\(height) \(fps)fps \(codecType.rawValue)")
+        return WriterComponents(writer: writer, videoInput: videoInput, audioInput: audioInput, adaptor: adaptor)
     }
 
     func makeVideoMetadata(
         settings: CaptureSettings,
         location: CLLocation?,
-        styleName: String?
+        styleName: String?,
+        captureDate: String
     ) -> [AVMetadataItem] {
         var items: [AVMutableMetadataItem] = []
 
@@ -199,7 +313,7 @@ extension CameraManager {
         }
 
         items.append(item(identifier: .quickTimeMetadataCreationDate,
-                          value: iso8601Formatter.string(from: Date()) as NSString))
+                          value: captureDate as NSString))
         items.append(item(identifier: .quickTimeMetadataMake,  value: "Apple" as NSString))
         items.append(item(identifier: .quickTimeMetadataModel, value: deviceModel as NSString))
         items.append(item(identifier: .quickTimeMetadataSoftware, value: "fexer" as NSString))
@@ -253,6 +367,34 @@ extension CameraManager {
         adaptor.append(pixelBuffer, withPresentationTime: time)
     }
 
+    // MARK: - Encoder prewarm
+
+    /// Warms up the VideoToolbox HEVC encoder on the background prewarmQueue.
+    /// The first cold startWriting() call takes ~9s due to XPC daemon init; subsequent calls
+    /// take ~50ms. Calling this at session start gives the encoder plenty of time to warm before
+    /// the user taps record. prewarmQueue is separate from writerSetupQueue so actual recording
+    /// startup is never queued behind the prewarm.
+    func prewarmVideoEncoder() {
+        prewarmQueue.async {
+            let url = FileManager.default.temporaryDirectory
+                .appendingPathComponent("fexer_prewarm_\(UUID().uuidString).mp4")
+            guard let writer = try? AVAssetWriter(url: url, fileType: .mp4) else { return }
+            let settings: [String: Any] = [
+                AVVideoCodecKey: AVVideoCodecType.hevc,
+                AVVideoWidthKey: 1080,
+                AVVideoHeightKey: 1920
+            ]
+            let input = AVAssetWriterInput(mediaType: .video, outputSettings: settings)
+            guard writer.canAdd(input) else { return }
+            writer.add(input)
+            let t = CFAbsoluteTimeGetCurrent()
+            writer.startWriting()
+            Logger.camera.info("⏱ prewarm: HEVC encoder ready in \(String(format: "%.0f", (CFAbsoluteTimeGetCurrent()-t)*1000))ms — subsequent startWriting will be ~50ms")
+            writer.cancelWriting()
+            try? FileManager.default.removeItem(at: url)
+        }
+    }
+
     /// Checks if the current device supports ProRes recording.
     var isProResRecordingSupported: Bool {
         guard let device = currentDevice else { return false }
@@ -270,9 +412,12 @@ extension CameraManager: AVCaptureAudioDataOutputSampleBufferDelegate {
     nonisolated func captureOutput(_ output: AVCaptureOutput,
                                    didOutput sampleBuffer: CMSampleBuffer,
                                    from connection: AVCaptureConnection) {
-        // Write to asset when recording
+        // Write to asset when recording. !isWaitingToRecord guards against appending before
+        // startSession is called — audio fires immediately after setSampleBufferDelegate but
+        // the first video frame hasn't called startSession yet.
         if let input = audioWriterInput,
            input.isReadyForMoreMediaData,
+           !isWaitingToRecord,
            assetWriter?.status == .writing {
             input.append(sampleBuffer)
         }

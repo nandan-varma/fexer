@@ -59,6 +59,12 @@ import Photos
     let processor = CaptureProcessor()
     let session = AVCaptureSession()
     let sessionQueue = DispatchQueue(label: "com.fexer.session", qos: .userInteractive)
+    // Writer setup (AVAssetWriter creation + startWriting) runs here so sessionQueue
+    // (and captureOutput / the live preview) is never blocked during encoder init.
+    let writerSetupQueue = DispatchQueue(label: "com.fexer.writerSetup", qos: .userInitiated)
+    // Separate from writerSetupQueue so the one-time cold-start prewarm (~9s) never blocks
+    // actual recording startup. Uses .utility to avoid competing with foreground work.
+    let prewarmQueue = DispatchQueue(label: "com.fexer.prewarm", qos: .utility)
     let photoOutput = AVCapturePhotoOutput()
     let videoOutput = AVCaptureVideoDataOutput()
     let audioOutput = AVCaptureAudioDataOutput()
@@ -131,6 +137,10 @@ import Photos
             guard !session.isRunning else { return }
             self.configureSession()
             self.session.startRunning()
+            // Warm the HEVC encoder in background so first recording startWriting() is ~50ms
+            // instead of ~9s cold. prewarmQueue is separate from writerSetupQueue so this
+            // never blocks actual recording startup if the user taps record before it finishes.
+            self.prewarmVideoEncoder()
             Task { @MainActor in self.isSessionRunning = true }
             // Observe runtime errors for session recovery (correct notification name).
             self.sessionErrorObserver = NotificationCenter.default.addObserver(
