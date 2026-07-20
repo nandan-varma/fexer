@@ -1,5 +1,5 @@
-import SwiftUI
 import AVFoundation
+import SwiftUI
 
 extension CameraView {
 
@@ -119,10 +119,11 @@ extension CameraView {
             } else if activeMode == .video {
                 // Video shutter — tap to start/stop recording
                 let recording = cameraManager.isRecording
+                let writerReady = cameraManager.isVideoWriterReady
                 Button { captureAction() } label: {
                     ZStack {
                         Circle()
-                            .fill(Color.red)
+                            .fill(Color.red.opacity(writerReady || recording ? 1.0 : 0.4))
                             .frame(width: 62, height: 62)
                         if recording {
                             RoundedRectangle(cornerRadius: 5)
@@ -130,8 +131,14 @@ extension CameraView {
                                 .frame(width: 24, height: 24)
                                 .transition(.scale.combined(with: .opacity))
                         }
+                        if !writerReady && !recording {
+                            ProgressView()
+                                .tint(.white)
+                                .scaleEffect(1.2)
+                        }
                     }
                     .animation(.easeInOut(duration: 0.2), value: recording)
+                    .animation(.easeInOut(duration: 0.3), value: writerReady)
                 }
                 .buttonStyle(ShutterButtonStyle())
             } else {
@@ -199,5 +206,4 @@ extension CameraView {
             }
         }
     }
-
 }

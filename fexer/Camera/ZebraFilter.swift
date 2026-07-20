@@ -12,11 +12,11 @@ final class ZebraFilter: CIFilter {
     private lazy var underThresholdFilter = CIFilter(name: "CIColorThreshold")
     private lazy var invertFilter: CIFilter? = {
         let f = CIFilter(name: "CIColorMatrix")
-        f?.setValue(CIVector(x: -1, y:  0, z:  0, w: 0), forKey: "inputRVector")
-        f?.setValue(CIVector(x:  0, y: -1, z:  0, w: 0), forKey: "inputGVector")
-        f?.setValue(CIVector(x:  0, y:  0, z: -1, w: 0), forKey: "inputBVector")
-        f?.setValue(CIVector(x:  0, y:  0, z:  0, w: 0), forKey: "inputAVector")
-        f?.setValue(CIVector(x:  1, y:  1, z:  1, w: 1), forKey: "inputBiasVector")
+        f?.setValue(CIVector(x: -1, y: 0, z: 0, w: 0), forKey: "inputRVector")
+        f?.setValue(CIVector(x: 0, y: -1, z: 0, w: 0), forKey: "inputGVector")
+        f?.setValue(CIVector(x: 0, y: 0, z: -1, w: 0), forKey: "inputBVector")
+        f?.setValue(CIVector(x: 0, y: 0, z: 0, w: 0), forKey: "inputAVector")
+        f?.setValue(CIVector(x: 1, y: 1, z: 1, w: 1), forKey: "inputBiasVector")
         return f
     }()
     private lazy var stripesGenerator: CIFilter? = {
@@ -66,8 +66,8 @@ final class ZebraFilter: CIFilter {
         guard let underStripes = minCompositingB.outputImage else { return input }
 
         // Composite warning colors.
-        let red  = CIImage(color: CIColor(red: 1,   green: 0,   blue: 0  )).cropped(to: extent)
-        let blue = CIImage(color: CIColor(red: 0,   green: 0.4, blue: 1  )).cropped(to: extent)
+        let red  = CIImage(color: CIColor(red: 1, green: 0, blue: 0  )).cropped(to: extent)
+        let blue = CIImage(color: CIColor(red: 0, green: 0.4, blue: 1  )).cropped(to: extent)
 
         blendOverFilter.setValue(red, forKey: kCIInputImageKey)
         blendOverFilter.setValue(input, forKey: "inputBackgroundImage")

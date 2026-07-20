@@ -51,7 +51,8 @@ extension CameraView {
         do {
             try session.setCategory(.playback, mode: .default, options: [])
         } catch {
-            Logger.camera.error("Audio session setCategory failed: \(error.localizedDescription)")
+            // ponytail: AVCaptureSession owns the audio session in video mode — conflict is benign
+            Logger.camera.debug("Audio session setCategory skipped: \(error.localizedDescription)")
         }
         do {
             try session.setActive(true)

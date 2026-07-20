@@ -1,5 +1,5 @@
-import SwiftUI
 import AVFoundation
+import SwiftUI
 
 /// Left and right side-rail badges.
 /// ISO·SS·WB·Focus are fixed constants. Everything below is user-customizable via Settings.
@@ -212,8 +212,8 @@ private struct RailBadge: View {
     }
 
     private var badgeBackground: Color {
-        if isActive  { return Color.yellow.opacity(0.18) }
-        if isManual  { return Color.white.opacity(0.08) }
+        if isActive { return Color.yellow.opacity(0.18) }
+        if isManual { return Color.white.opacity(0.08) }
         return Color.black.opacity(0.35)
     }
 }

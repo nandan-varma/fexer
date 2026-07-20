@@ -1,11 +1,12 @@
+// swiftlint:disable file_length
 import AVFoundation
 import CoreImage
 import CoreLocation
+import Foundation
 import Observation
 import OSLog
-import Foundation
-import UIKit
 import Photos
+import UIKit
 
     /// Owns the AVCaptureSession and all camera hardware configuration.
     /// @Observable properties are read from MainActor; all session mutations
@@ -15,7 +16,7 @@ import Photos
     // MARK: - Published state (MainActor)
     var isSessionRunning = false
     var currentISO: Float = 200
-    var currentShutterSpeed: CMTime = CMTime(value: 1, timescale: 250)
+    var currentShutterSpeed = CMTime(value: 1, timescale: 250)
     var currentWhiteBalance: Float = 5500
     var currentLensPosition: Float = 0.5
     var currentWhiteBalanceTint: Float = 0
@@ -27,6 +28,8 @@ import Photos
 
     // Video recording state (MainActor)
     var isRecording = false
+    // True once the prebuilt writer is ready; false while it's still building (shows spinner).
+    var isVideoWriterReady = false
     var recordingDuration: TimeInterval = 0
 
     // Live Photo toggle (MainActor)
@@ -62,9 +65,6 @@ import Photos
     // Writer setup (AVAssetWriter creation + startWriting) runs here so sessionQueue
     // (and captureOutput / the live preview) is never blocked during encoder init.
     let writerSetupQueue = DispatchQueue(label: "com.fexer.writerSetup", qos: .userInitiated)
-    // Separate from writerSetupQueue so the one-time cold-start prewarm (~9s) never blocks
-    // actual recording startup. Uses .utility to avoid competing with foreground work.
-    let prewarmQueue = DispatchQueue(label: "com.fexer.prewarm", qos: .utility)
     let photoOutput = AVCapturePhotoOutput()
     let videoOutput = AVCaptureVideoDataOutput()
     let audioOutput = AVCaptureAudioDataOutput()
@@ -85,6 +85,15 @@ import Photos
     // True between stopRecording clearing the writer vars and finishWriting completing.
     // Gates startRecording so a new writer can't start while the old one is still flushing.
     @ObservationIgnored nonisolated(unsafe) var isFinishingRecording = false
+    // Pre-built writer stored between mode-switch and record tap. When settings match,
+    // startRecording installs it directly (0ms startWriting overhead). sessionQueue only.
+    @ObservationIgnored nonisolated(unsafe) var prebuiltWriterEntry: PrebuiltWriterEntry?
+    // True while schedulePrebuiltWriter is building on writerSetupQueue.
+    // startRecording sets pendingRecordOnPrebuiltComplete instead of queuing a second build.
+    @ObservationIgnored nonisolated(unsafe) var isPrebuiltBuilding = false
+    // Set by startRecording when it arrives while a prebuilt is still building.
+    // The prebuilt's sessionQueue hop-back calls this closure to install the writer.
+    @ObservationIgnored nonisolated(unsafe) var pendingRecordOnPrebuiltComplete: ((CameraManager.WriterComponents) -> Void)?
 
     // Saved before HDR format switch so disabling HDR can restore the original format.
     @ObservationIgnored nonisolated(unsafe) var preHDRFormat: AVCaptureDevice.Format?
@@ -97,7 +106,7 @@ import Photos
     @ObservationIgnored nonisolated(unsafe) var pendingBracketCompletions = 0
 
     // Non-nil when a recording failed mid-capture (e.g. disk full). Cleared on next recording start.
-    var recordingError: Error? = nil
+    var recordingError: Error?
 
     // Counter for throttling audio-level MainActor updates to ~10fps. sessionQueue only.
     @ObservationIgnored nonisolated(unsafe) var audioSampleCount: Int = 0
@@ -137,10 +146,6 @@ import Photos
             guard !session.isRunning else { return }
             self.configureSession()
             self.session.startRunning()
-            // Warm the HEVC encoder in background so first recording startWriting() is ~50ms
-            // instead of ~9s cold. prewarmQueue is separate from writerSetupQueue so this
-            // never blocks actual recording startup if the user taps record before it finishes.
-            self.prewarmVideoEncoder()
             Task { @MainActor in self.isSessionRunning = true }
             // Observe runtime errors for session recovery (correct notification name).
             self.sessionErrorObserver = NotificationCenter.default.addObserver(
@@ -403,7 +408,7 @@ extension CameraManager {
             .builtInTrueDepthCamera,
             .builtInWideAngleCamera,
             .builtInUltraWideCamera,
-            .builtInTelephotoCamera,
+            .builtInTelephotoCamera
         ]
         return AVCaptureDevice.DiscoverySession(deviceTypes: types, mediaType: .video, position: position).devices.first
     }
@@ -413,7 +418,7 @@ extension CameraManager {
         let types: [AVCaptureDevice.DeviceType] = [
             .builtInWideAngleCamera,
             .builtInUltraWideCamera,
-            .builtInTelephotoCamera,
+            .builtInTelephotoCamera
         ]
         return AVCaptureDevice.DiscoverySession(deviceTypes: types, mediaType: .video, position: position).devices.first
     }
@@ -487,12 +492,75 @@ extension CameraManager {
         }
     }
 
+    // MARK: - Portrait mode device switching
+
+    /// Switches to the best virtual back camera that supports depth data delivery.
+    /// Physical cameras return false for isDepthDataDeliverySupported on Pro models —
+    /// depth fusion (LiDAR + camera) is only exposed through virtual devices.
+    func switchToDepthCapableCamera() {
+        sessionQueue.async { [self] in
+            guard !photoOutput.isDepthDataDeliverySupported else { return }
+            guard currentDevice?.position == .back else { return }
+            let virtualTypes: [AVCaptureDevice.DeviceType] = [.builtInTripleCamera, .builtInDualWideCamera, .builtInDualCamera]
+            guard let virtual = virtualTypes.compactMap({ AVCaptureDevice.default($0, for: .video, position: .back) }).first,
+                  let newInput = try? AVCaptureDeviceInput(device: virtual) else { return }
+            Task { @MainActor in self.onVolumeGateWillBlock?() }
+            session.beginConfiguration()
+            for input in session.inputs.compactMap({ $0 as? AVCaptureDeviceInput }) where input.device.hasMediaType(.video) {
+                session.removeInput(input)
+            }
+            if session.canAddInput(newInput) { session.addInput(newInput) }
+            currentDevice = virtual
+            processor.isRotationReady = false
+            session.commitConfiguration()
+            Task { @MainActor in self.isDepthDataSupported = self.photoOutput.isDepthDataDeliverySupported }
+            cleanupObservers()
+            setupObservations(for: virtual)
+            sessionQueue.asyncAfter(deadline: .now() + 0.15) { [self] in
+                configureVideoRotation()
+                processor.isRotationReady = true
+                Task { @MainActor in self.onVolumeGateDidUnblock?() }
+            }
+        }
+    }
+
+    /// Restores the physical wide-angle back camera after portrait mode.
+    func restorePhysicalBackCamera() {
+        sessionQueue.async { [self] in
+            guard let current = currentDevice, !current.constituentDevices.isEmpty else { return }
+            let wide = backLenses.first(where: { $0.opticalFactor == 1.0 })?.device
+                ?? Self.physicalCamera(for: .back)
+            guard let wide, let newInput = try? AVCaptureDeviceInput(device: wide) else { return }
+            Task { @MainActor in self.onVolumeGateWillBlock?() }
+            session.beginConfiguration()
+            for input in session.inputs.compactMap({ $0 as? AVCaptureDeviceInput }) where input.device.hasMediaType(.video) {
+                session.removeInput(input)
+            }
+            if session.canAddInput(newInput) { session.addInput(newInput) }
+            currentDevice = wide
+            processor.isRotationReady = false
+            session.commitConfiguration()
+            Task { @MainActor in
+                self.isDepthDataSupported = self.photoOutput.isDepthDataDeliverySupported
+                self.supportsManualFocus = wide.isLockingFocusWithCustomLensPositionSupported
+                self.supportsCustomExposure = wide.isExposureModeSupported(.custom)
+            }
+            cleanupObservers()
+            setupObservations(for: wide)
+            sessionQueue.asyncAfter(deadline: .now() + 0.15) { [self] in
+                configureVideoRotation()
+                processor.isRotationReady = true
+                Task { @MainActor in self.onVolumeGateDidUnblock?() }
+            }
+        }
+    }
+
     // MARK: - Camera discovery
 
     func refreshDiscoveredCameras() {
         var types: [AVCaptureDevice.DeviceType] = [
             .builtInWideAngleCamera, .builtInUltraWideCamera, .builtInTelephotoCamera,
-            .builtInTrueDepthCamera, .builtInLiDARDepthCamera,
+            .builtInTrueDepthCamera, .builtInLiDARDepthCamera
         ]
         if #available(iOS 17, *) { types += [.external, .continuityCamera] }
         let cameras = AVCaptureDevice.DiscoverySession(

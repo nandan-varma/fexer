@@ -1,5 +1,5 @@
-import Foundation
 import CoreLocation
+import Foundation
 
 struct CapturedPhoto: Identifiable {
     let id: UUID

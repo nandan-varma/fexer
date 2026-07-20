@@ -19,7 +19,7 @@ nonisolated struct ExifField: RawRepresentable, Hashable {
     static let orientation = ExifField(rawValue: "Orientation")
 }
 
-final class ExifReader {
+enum ExifReader {
     nonisolated static func read(from data: Data) -> [ExifField: String] {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil),
               let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [String: Any]

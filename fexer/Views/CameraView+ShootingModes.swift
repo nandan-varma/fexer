@@ -322,7 +322,11 @@ extension CameraView {
                             cameraManager.setVideoStabilizationMode(mode)
                             HapticManager.selectionChanged()
                         } label: {
-                            Label(mode.rawValue, systemImage: stabilizationMode == mode ? "checkmark" : "")
+                            if stabilizationMode == mode {
+                                Label(mode.rawValue, systemImage: "checkmark")
+                            } else {
+                                Text(mode.rawValue)
+                            }
                         }
                     }
                 } label: {
@@ -349,7 +353,11 @@ extension CameraView {
                             cameraManager.setVideoColorSpace(cs)
                             HapticManager.selectionChanged()
                         } label: {
-                            Label(cs.rawValue, systemImage: videoColorSpace == cs ? "checkmark" : "")
+                            if videoColorSpace == cs {
+                                Label(cs.rawValue, systemImage: "checkmark")
+                            } else {
+                                Text(cs.rawValue)
+                            }
                         }
                     }
                 } label: {

@@ -1,5 +1,5 @@
-import UIKit
 import CoreImage
+import UIKit
 
 /// Generates style preview thumbnails from a bundled sample image.
 final class StylePreviewRenderer {

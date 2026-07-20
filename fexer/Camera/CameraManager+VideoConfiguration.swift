@@ -8,6 +8,9 @@ extension CameraManager {
     /// Reconfigures the capture session for video recording at the specified resolution and frame rate.
     /// Must NOT be called while recording is active.
     func configureForVideoMode(resolution: VideoResolution, fps: Int = 30) {
+        // Start building the prebuilt writer in parallel with session reconfiguration.
+        // By the time the user taps record, startWriting() will already be done.
+        schedulePrebuiltWriter()
         let tMode = CFAbsoluteTimeGetCurrent()
         Logger.camera.info("⏱ videoMode[0] dispatching to sessionQueue: \(resolution.rawValue) \(fps)fps")
         sessionQueue.async { [self] in
@@ -60,6 +63,7 @@ extension CameraManager {
 
     /// Restores the capture session preset to `.photo` (for still capture modes).
     func configureForPhotoMode() {
+        cancelPrebuiltWriter()  // discard any prebuilt — no longer in video mode
         sessionQueue.async { [self] in
             guard !isRecording, !isWaitingToRecord else { return }
             Task { @MainActor in self.onVolumeGateWillBlock?() }

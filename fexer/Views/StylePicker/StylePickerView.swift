@@ -159,8 +159,8 @@ private struct StyleIntensitySlider: View {
                 .tracking(1)
 
             GeometryReader { geo in
-                let w = geo.size.width
-                let pos = CGFloat(intensity) * w
+                let width = geo.size.width
+                let pos = CGFloat(intensity) * width
 
                 ZStack(alignment: .leading) {
                     Capsule()
@@ -179,16 +179,16 @@ private struct StyleIntensitySlider: View {
                 }
                 .frame(height: 3)
                 .frame(maxHeight: .infinity, alignment: .center)
-                .contentShape(Rectangle().size(CGSize(width: w, height: 24)))
+                .contentShape(Rectangle().size(CGSize(width: width, height: 24)))
                 .gesture(
                     DragGesture(minimumDistance: 2)
-                        .onChanged { g in
+                        .onChanged { gesture in
                             if !isDragging {
                                 isDragging = true
                                 dragStart = intensity
                                 HapticManager.light()
                             }
-                            let raw = dragStart + Float(g.translation.width / w)
+                            let raw = dragStart + Float(gesture.translation.width / width)
                             intensity = raw.fxClamped(to: 0.0...1.0)
                         }
                         .onEnded { _ in

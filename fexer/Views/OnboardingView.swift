@@ -1,6 +1,6 @@
-import SwiftUI
 import AVFoundation
 import Photos
+import SwiftUI
 
 // MARK: - Onboarding (first-run permissions)
 
@@ -117,10 +117,10 @@ private struct PermissionItem {
 }
 
 private let permissionItems: [PermissionItem] = [
-    .init(icon: "camera",               title: "Camera",     desc: "Capture photos and video",              check: { $0.cameraStatus == .authorized }),
-    .init(icon: "photo.on.rectangle",   title: "Photos",     desc: "Save captures to your library",         check: { $0.photoLibraryStatus == .authorized }),
-    .init(icon: "mic",                  title: "Microphone", desc: "Record audio with video",               check: { $0.microphoneStatus == .authorized }),
-    .init(icon: "location",             title: "Location",   desc: "Embed GPS coordinates in metadata",     check: { $0.locationStatus == .authorizedWhenInUse || $0.locationStatus == .authorizedAlways }),
+    .init(icon: "camera", title: "Camera", desc: "Capture photos and video", check: { $0.cameraStatus == .authorized }),
+    .init(icon: "photo.on.rectangle", title: "Photos", desc: "Save captures to your library", check: { $0.photoLibraryStatus == .authorized }),
+    .init(icon: "mic", title: "Microphone", desc: "Record audio with video", check: { $0.microphoneStatus == .authorized }),
+    .init(icon: "location", title: "Location", desc: "Embed GPS coordinates in metadata", check: { $0.locationStatus == .authorizedWhenInUse || $0.locationStatus == .authorizedAlways })
 ]
 
 private struct PermissionRowView: View {

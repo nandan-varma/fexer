@@ -1,7 +1,7 @@
-import Photos
 import AVFoundation
-import UniformTypeIdentifiers
 import OSLog
+import Photos
+import UniformTypeIdentifiers
 
 /// Perform a Photos library change with proper authorization handling.
 /// Requests authorization if needed; silently skips if denied.

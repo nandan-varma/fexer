@@ -1,10 +1,12 @@
-import SwiftUI
+// swiftlint:disable file_length
 import AVFoundation
 import CoreImage
 import ImageIO
-import Photos
 import OSLog
+import Photos
+import SwiftUI
 
+// swiftlint:disable:next type_body_length
 struct CameraView: View {
     @State var cameraManager: CameraManager
     @State var stylesManager: StylesManager
@@ -70,9 +72,9 @@ struct CameraView: View {
     @State var volumeObservation: NSKeyValueObservation?
     @State var volumeInterruptionToken: NSObjectProtocol?
     @State var volumeRouteChangeToken: NSObjectProtocol?
-    @State var aelToastText: String? = nil
+    @State var aelToastText: String?
     @State var aelToastTask: Task<Void, Never>?
-    @State var recordingStartDate: Date? = nil
+    @State var recordingStartDate: Date?
     @State var nightProcessingAngle: Double = 0
     @State var shutterFlashOpacity: Double = 0
     @State var cameraFlipOpacity: Double = 0
@@ -126,20 +128,20 @@ struct CameraView: View {
         let lifecycle = sheetWrapper
             .onAppear { onCameraViewAppear() }
             .onDisappear { onCameraViewDisappear() }
-            .onChange(of: stylesManager.activeStyle)    { syncProcessor() }
+            .onChange(of: stylesManager.activeStyle) { syncProcessor() }
             .onChange(of: stylesManager.styleIntensity) { syncProcessor() }
-            .onChange(of: stylesManager.adjustments)    { syncProcessor() }
-            .onChange(of: showFocusPeaking)             { syncFlags() }
-            .onChange(of: showZebra)                    { syncFlags() }
-            .onChange(of: showFalseColor)               { syncFlags() }
-            .onChange(of: showHistogram)                { syncFlags() }
-            .onChange(of: showWaveform)                 { syncFlags() }
-            .onChange(of: showVectorscope)              { syncFlags() }
-            .onChange(of: zebraHighThreshold)           { syncFlags() }
-            .onChange(of: zebraLowThreshold)            { syncFlags() }
+            .onChange(of: stylesManager.adjustments) { syncProcessor() }
+            .onChange(of: showFocusPeaking) { syncFlags() }
+            .onChange(of: showZebra) { syncFlags() }
+            .onChange(of: showFalseColor) { syncFlags() }
+            .onChange(of: showHistogram) { syncFlags() }
+            .onChange(of: showWaveform) { syncFlags() }
+            .onChange(of: showVectorscope) { syncFlags() }
+            .onChange(of: zebraHighThreshold) { syncFlags() }
+            .onChange(of: zebraLowThreshold) { syncFlags() }
         let features = lifecycle
-            .onChange(of: focusPeakingColor)            { syncFlags() }
-            .onChange(of: isCleanViewActive)            { syncFlags() }
+            .onChange(of: focusPeakingColor) { syncFlags() }
+            .onChange(of: isCleanViewActive) { syncFlags() }
         let captureBindings = features
             .onChange(of: cameraViewModel.shutterFlashTick) { triggerShutterFlash() }
             .onChange(of: cameraManager.currentDevice?.position) { _, _ in triggerCameraFlip() }
@@ -153,7 +155,7 @@ struct CameraView: View {
                     withAnimation(.easeOut(duration: 0.3)) { aelToastText = nil }
                 }
             }
-            .onChange(of: timelapseInterval)            { cameraViewModel.timelapseInterval = timelapseInterval }
+            .onChange(of: timelapseInterval) { cameraViewModel.timelapseInterval = timelapseInterval }
             .onChange(of: cameraManager.isRecording) { _, recording in
                 if recording { recordingBlink.toggle() }
             }
@@ -183,12 +185,19 @@ struct CameraView: View {
                 }
             }
             .onChange(of: cameraViewModel.activeMode) { _, newMode in
-                if newMode == .video {
-                    cameraManager.captureSettings.videoSettings.frameRate = videoFrameRate
-                    cameraManager.configureForVideoMode(resolution: videoResolution, fps: videoFrameRate)
-                } else {
+                if newMode != .video {
                     cameraManager.configureForPhotoMode()
                 }
+                // Video mode config is handled by .task(id:) below — deferred past animation
+            }
+            .task(id: cameraViewModel.activeMode) {
+                guard cameraViewModel.activeMode == .video else { return }
+                // Wait for the mode-switch animation (200ms easeInOut) to finish before
+                // session.commitConfiguration() competes with animation on the main thread.
+                try? await Task.sleep(for: .milliseconds(250))
+                guard !Task.isCancelled, cameraViewModel.activeMode == .video else { return }
+                cameraManager.captureSettings.videoSettings.frameRate = videoFrameRate
+                cameraManager.configureForVideoMode(resolution: videoResolution, fps: videoFrameRate)
             }
             .onChange(of: isOpticalZoomLocked) { _, v in
                 cameraManager.captureSettings.isOpticalZoomLocked = v
@@ -474,7 +483,6 @@ struct CameraView: View {
                 .allowsHitTesting(false)
                 .transition(.opacity)
         }
-
     }
 
     @ViewBuilder
@@ -506,7 +514,6 @@ struct CameraView: View {
                 .ignoresSafeArea(edges: .bottom)
             )
         }
-
     }
 
     @ViewBuilder

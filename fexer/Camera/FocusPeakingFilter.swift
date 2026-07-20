@@ -2,7 +2,7 @@ import CoreImage
 
 final class FocusPeakingFilter: CIFilter {
     var inputImage: CIImage?
-    var inputHighlightColor: CIColor = CIColor(red: 1, green: 0.2, blue: 0.2, alpha: 0.9)
+    var inputHighlightColor = CIColor(red: 1, green: 0.2, blue: 0.2, alpha: 0.9)
 
     // Tuning: CIEdges intensity controls how bright blurry edges appear.
     // At 4.0, only sharp/in-focus transitions produce output above the 0.5 mask threshold;

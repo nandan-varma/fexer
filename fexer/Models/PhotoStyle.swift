@@ -54,6 +54,6 @@ struct PhotoStyle: Identifiable, Hashable {
         PhotoStyle(id: UUID(), name: "Dreamy", category: .mood, lutFileName: "dreamy_soft.cube", baseIntensity: 0.8, description: "Soft, hazy, pastel tones"),
         PhotoStyle(id: UUID(), name: "Noir BW", category: .mood, lutFileName: "noir_bw.cube", baseIntensity: 1.0, description: "Deep shadows, graphic high contrast"),
         PhotoStyle(id: UUID(), name: "Warm Fade", category: .mood, lutFileName: "warm_fade.cube", baseIntensity: 0.85, description: "Warm lifted shadows, vintage feel"),
-        PhotoStyle(id: UUID(), name: "Cool Mist", category: .mood, lutFileName: "cool_mist.cube", baseIntensity: 0.8, description: "Desaturated cool tones, misty atmosphere"),
+        PhotoStyle(id: UUID(), name: "Cool Mist", category: .mood, lutFileName: "cool_mist.cube", baseIntensity: 0.8, description: "Desaturated cool tones, misty atmosphere")
     ]
 }

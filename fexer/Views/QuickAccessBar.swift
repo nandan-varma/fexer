@@ -1,5 +1,5 @@
-import SwiftUI
 import AVFoundation
+import SwiftUI
 
 struct QuickAccessBar: View {
     @Environment(AppState.self) private var appState
@@ -124,6 +124,7 @@ struct QuickAccessBar: View {
         }
     }
 
+    // swiftlint:disable:next cyclomatic_complexity
     private func isActive(_ item: QuickAccessItem) -> Bool {
         switch item {
         case .flash:           return cameraManager.flashMode != .off
@@ -187,6 +188,7 @@ struct QuickAccessBar: View {
         }
     }
 
+    // swiftlint:disable:next cyclomatic_complexity
     private func handleTap(_ item: QuickAccessItem) {
         switch item {
         case .flash:

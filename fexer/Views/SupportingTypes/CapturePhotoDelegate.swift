@@ -1,6 +1,6 @@
 import AVFoundation
-import Photos
 import OSLog
+import Photos
 
 final class CapturePhotoDelegate: NSObject, AVCapturePhotoCaptureDelegate {
     let id: UUID

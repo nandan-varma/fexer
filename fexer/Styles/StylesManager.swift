@@ -1,5 +1,5 @@
-import Foundation
 import CoreImage
+import Foundation
 import Observation
 
 struct StyleAdjustments: Equatable {
@@ -11,7 +11,7 @@ struct StyleAdjustments: Equatable {
 
 @Observable
 final class StylesManager {
-    var activeStyle: PhotoStyle? = nil
+    var activeStyle: PhotoStyle?
     var styleIntensity: Float = 0.85
     var adjustments = StyleAdjustments()
     var suggestedStyle: PhotoStyle?

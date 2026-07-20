@@ -1,6 +1,6 @@
+import Observation
 import Photos
 import SwiftUI
-import Observation
 
 @Observable
 final class GalleryViewModel: NSObject, PHPhotoLibraryChangeObserver {

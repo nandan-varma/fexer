@@ -61,7 +61,7 @@ extension CameraManager {
                     self.captureSettings.lensAperture = d.lensAperture
                 }
             },
-            device.observe(\.isAdjustingFocus, options: [.new, .old]) { [weak self] d, change in
+            device.observe(\.isAdjustingFocus, options: [.new, .old]) { [weak self] _, change in
                 guard let self else { return }
                 // Trap focus: fire shutter when camera finishes adjusting focus
                 let wasAdjusting = change.oldValue ?? true

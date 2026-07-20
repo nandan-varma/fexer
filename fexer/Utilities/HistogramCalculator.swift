@@ -16,8 +16,8 @@ nonisolated struct WaveformData {
 }
 
 // Vectorscope: 64×64 Cb-Cr density map (log-normalized).
-// Cb (B-Y) = horizontal axis — col 0 = left (Cb = -0.5), col S-1 = right (Cb = +0.5)
-// Cr (R-Y) = vertical axis  — row 0 = top  (Cr = +0.5), row S-1 = bottom (Cr = -0.5)
+// Cb (B-Y) = horizontal axis — col 0 = left (Cb = -0.5), col gridSize-1 = right (Cb = +0.5)
+// Cr (R-Y) = vertical axis  — row 0 = top  (Cr = +0.5), row gridSize-1 = bottom (Cr = -0.5)
 // density[row * size + col]
 nonisolated struct VectorscopeData {
     static let size = 64
@@ -31,7 +31,7 @@ nonisolated struct VectorscopeData {
     subscript(row: Int, col: Int) -> Float { density[row * VectorscopeData.size + col] }
 }
 
-struct HistogramCalculator {
+enum HistogramCalculator {
     nonisolated static func compute(from image: CIImage, context: CIContext) -> HistogramData {
         let count = 256
         guard let filter = CIFilter(name: "CIAreaHistogram") else {
@@ -75,22 +75,22 @@ struct HistogramCalculator {
         }
 
         return HistogramData(
-            red:   red.map   { $0 / maxVal },
+            red: red.map { $0 / maxVal },
             green: green.map { $0 / maxVal },
-            blue:  blue.map  { $0 / maxVal },
-            luma:  luma.map  { $0 / maxVal }
+            blue: blue.map { $0 / maxVal },
+            luma: luma.map { $0 / maxVal }
         )
     }
 
     // Renders the image to a 64×128 sample, then builds a per-column luma density map.
     // Each column of the display corresponds to the same horizontal slice of the camera frame.
     nonisolated static func computeWaveform(from image: CIImage, context: CIContext) -> WaveformData {
-        let W = WaveformData.cols
-        let H = WaveformData.rows
+        let cols = WaveformData.cols
+        let rows = WaveformData.rows
 
         let scale = CGAffineTransform(
-            scaleX: CGFloat(W) / image.extent.width,
-            y: CGFloat(H) / image.extent.height
+            scaleX: CGFloat(cols) / image.extent.width,
+            y: CGFloat(rows) / image.extent.height
         )
         let scaled = image.transformed(by: scale)
 
@@ -103,29 +103,29 @@ struct HistogramCalculator {
         let bytes = CFDataGetBytePtr(cfData)!
         let bytesPerRow = cgImage.bytesPerRow
 
-        var density = [Float](repeating: 0, count: W * H)
+        var density = [Float](repeating: 0, count: cols * rows)
 
-        for y in 0..<H {
-            for x in 0..<W {
+        for y in 0..<rows {
+            for x in 0..<cols {
                 let off = y * bytesPerRow + x * 4
                 let r = Float(bytes[off    ]) / 255.0
                 let g = Float(bytes[off + 1]) / 255.0
                 let b = Float(bytes[off + 2]) / 255.0
                 // Rec. 709 luma
                 let luma = 0.2126 * r + 0.7152 * g + 0.0722 * b
-                // bin 0 = 0% IRE (bottom), H-1 = 100% IRE (top)
-                let bin = max(0, min(H - 1, Int(luma * Float(H - 1))))
-                density[x * H + bin] += 1
+                // bin 0 = 0% IRE (bottom), rows-1 = 100% IRE (top)
+                let bin = max(0, min(rows - 1, Int(luma * Float(rows - 1))))
+                density[x * rows + bin] += 1
             }
         }
 
         // Normalize each column independently so thin bright lines read as full intensity
-        for x in 0..<W {
-            let base = x * H
+        for x in 0..<cols {
+            let base = x * rows
             var maxVal: Float = 0
-            for r in 0..<H { if density[base + r] > maxVal { maxVal = density[base + r] } }
+            for r in 0..<rows where density[base + r] > maxVal { maxVal = density[base + r] }
             if maxVal > 0 {
-                for r in 0..<H { density[base + r] /= maxVal }
+                for r in 0..<rows { density[base + r] /= maxVal }
             }
         }
 
@@ -135,11 +135,11 @@ struct HistogramCalculator {
     // Renders the image to a 64×64 sample, computes Rec.709 Cb/Cr per pixel,
     // and accumulates a 2D density map. Log-normalized to reveal faint chroma detail.
     nonisolated static func computeVectorscope(from image: CIImage, context: CIContext) -> VectorscopeData {
-        let S = VectorscopeData.size
+        let gridSize = VectorscopeData.size
 
         let scale = CGAffineTransform(
-            scaleX: CGFloat(S) / image.extent.width,
-            y: CGFloat(S) / image.extent.height
+            scaleX: CGFloat(gridSize) / image.extent.width,
+            y: CGFloat(gridSize) / image.extent.height
         )
         let scaled = image.transformed(by: scale)
 
@@ -152,10 +152,10 @@ struct HistogramCalculator {
         let bytes = CFDataGetBytePtr(cfData)!
         let bytesPerRow = cgImage.bytesPerRow
 
-        var counts = [Float](repeating: 0, count: S * S)
+        var counts = [Float](repeating: 0, count: gridSize * gridSize)
 
-        for y in 0..<S {
-            for x in 0..<S {
+        for y in 0..<gridSize {
+            for x in 0..<gridSize {
                 let off = y * bytesPerRow + x * 4
                 let r = Float(bytes[off    ]) / 255.0
                 let g = Float(bytes[off + 1]) / 255.0
@@ -167,15 +167,15 @@ struct HistogramCalculator {
                 let cr = (r - luma) / 1.5748
 
                 // Map to grid: col 0 = Cb -0.5 (left), row 0 = Cr +0.5 (top)
-                let col = max(0, min(S - 1, Int((cb + 0.5) * Float(S - 1))))
-                let row = max(0, min(S - 1, Int((0.5 - cr) * Float(S - 1))))
-                counts[row * S + col] += 1
+                let col = max(0, min(gridSize - 1, Int((cb + 0.5) * Float(gridSize - 1))))
+                let row = max(0, min(gridSize - 1, Int((0.5 - cr) * Float(gridSize - 1))))
+                counts[row * gridSize + col] += 1
             }
         }
 
         // Log-normalize: boosts faint chroma without clipping bright neutrals
         var maxVal: Float = 0
-        for v in counts { if v > maxVal { maxVal = v } }
+        for v in counts where v > maxVal { maxVal = v }
         if maxVal > 0 {
             let logMax = log(1 + maxVal)
             for i in 0..<counts.count {

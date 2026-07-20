@@ -18,6 +18,7 @@ enum StyleTransforms {
 
     // MARK: - Per-style parameter tables
 
+    // swiftlint:disable:next cyclomatic_complexity
     static func params(for style: PhotoStyle) -> StyleParams {
         switch style.name {
         // ── Film ─────────────────────────────────────────────────────────────────

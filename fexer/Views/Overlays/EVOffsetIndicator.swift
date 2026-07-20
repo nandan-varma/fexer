@@ -57,8 +57,8 @@ struct EVOffsetIndicator: View {
     ZStack {
         Color.black
         VStack(spacing: 16) {
-            EVOffsetIndicator(offset: 0.0,  isAELocked: false)
-            EVOffsetIndicator(offset: 1.3,  isAELocked: false)
+            EVOffsetIndicator(offset: 0.0, isAELocked: false)
+            EVOffsetIndicator(offset: 1.3, isAELocked: false)
             EVOffsetIndicator(offset: -2.1, isAELocked: true)
         }
     }

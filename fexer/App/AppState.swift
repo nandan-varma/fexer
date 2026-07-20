@@ -1,5 +1,5 @@
-import SwiftUI
 import Observation
+import SwiftUI
 
 enum AppScreen {
     case camera, gallery, settings
@@ -14,7 +14,7 @@ final class AppState {
     var leftRailItems: [SideRailItem] = AppState.loadRailItems(key: "leftRailItems", default: [.flash])
     var rightRailItems: [SideRailItem] = AppState.loadRailItems(key: "rightRailItems", default: [.metering])
     let permissionsManager = PermissionsManager()
-    var pendingShootingMode: ShootingMode? = nil
+    var pendingShootingMode: ShootingMode?
 
     private static func loadQuickAccessItems() -> [QuickAccessItem] {
         if let saved = UserDefaults.standard.array(forKey: "quickAccessItems") as? [String] {

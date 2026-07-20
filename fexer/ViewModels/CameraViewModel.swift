@@ -1,19 +1,14 @@
-import SwiftUI
 import AVFoundation
 import Observation
 import OSLog
+import SwiftUI
 
 struct HistogramData {
-    var red:   [Float] = []
+    var red: [Float] = []
     var green: [Float] = []
-    var blue:  [Float] = []
-    var luma:  [Float] = []
-
-    nonisolated init(red: [Float] = [], green: [Float] = [], blue: [Float] = [], luma: [Float] = []) {
-        self.red = red; self.green = green; self.blue = blue; self.luma = luma
-    }
+    var blue: [Float] = []
+    var luma: [Float] = []
 }
-
 
 @Observable
 final class CameraViewModel {
@@ -22,7 +17,7 @@ final class CameraViewModel {
 
     // UI state
     enum RailParam: Equatable { case iso, shutter, wb, focus }
-    var activeRailParam: RailParam? = nil
+    var activeRailParam: RailParam?
     var activeModeIndex = 0
     var shutterFlashTick: Int = 0
     var isZooming: Bool = false
@@ -245,6 +240,7 @@ final class CameraViewModel {
 
     // MARK: - Overlay Sync
 
+    // swiftlint:disable function_parameter_count
     /// Stores consolidated FrameFlags on the processor (single lock acquisition).
     private func flagsFrom(
         focusPeaking: Bool, zebra: Bool, falseColor: Bool, histogram: Bool,
@@ -262,6 +258,7 @@ final class CameraViewModel {
         f.zebraLow = zebraLowThreshold
         return f
     }
+    // swiftlint:enable function_parameter_count
 
     /// Caller passes AppStorage flags so this class doesn't need to own them.
     func syncOverlaysToProcessor(
@@ -309,10 +306,10 @@ final class CameraViewModel {
 
     static func ciColor(forPeakingColorName name: String) -> CIColor {
         switch name {
-        case "green":  return CIColor(red: 0.2, green: 1,   blue: 0.2, alpha: 0.9)
-        case "white":  return CIColor(red: 1,   green: 1,   blue: 1,   alpha: 0.9)
-        case "yellow": return CIColor(red: 1,   green: 0.9, blue: 0,   alpha: 0.9)
-        default:       return CIColor(red: 1,   green: 0.2, blue: 0.2, alpha: 0.9)
+        case "green":  return CIColor(red: 0.2, green: 1, blue: 0.2, alpha: 0.9)
+        case "white":  return CIColor(red: 1, green: 1, blue: 1, alpha: 0.9)
+        case "yellow": return CIColor(red: 1, green: 0.9, blue: 0, alpha: 0.9)
+        default:       return CIColor(red: 1, green: 0.2, blue: 0.2, alpha: 0.9)
         }
     }
 
@@ -392,6 +389,7 @@ final class CameraViewModel {
 
     // MARK: - Mode Selection
 
+    // swiftlint:disable cyclomatic_complexity function_body_length
     /// Call with the raw value string from `@AppStorage("cropRatio")` so the
     /// view model can update crop ratio without importing AppStorage itself.
     func selectMode(index: Int, cropRatioRaw: Binding<String>, selfTimerDelay: Binding<Int>) {
@@ -441,6 +439,7 @@ final class CameraViewModel {
             cancelTimer()
         case .portrait:
             cameraManager.setDepthDataEnabled(false)
+            cameraManager.restorePhysicalBackCamera()
         case .video:
             cameraManager.stopRecording()
         default:
@@ -458,7 +457,9 @@ final class CameraViewModel {
             break // default behavior
 
         case .portrait:
-            // Enable depth data delivery — Photos.app and compatible apps use this for portrait effects
+            // Switch to virtual camera first — physical cameras return false for
+            // isDepthDataDeliverySupported on Pro models (depth fusion needs virtual device).
+            cameraManager.switchToDepthCapableCamera()
             cameraManager.setDepthDataEnabled(true)
 
         case .selfTimer:
@@ -518,4 +519,5 @@ final class CameraViewModel {
             Logger.camera.info("Anamorphic mode: 2.39:1 crop + 2× desqueeze enabled")
         }
     }
+    // swiftlint:enable cyclomatic_complexity function_body_length
 }

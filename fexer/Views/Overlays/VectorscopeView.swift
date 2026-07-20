@@ -44,20 +44,20 @@ struct VectorscopeView: View {
 
                 // Density heatmap — render each cell within the circle
                 if !data.isEmpty {
-                    let S = VectorscopeData.size
-                    let cellW = radius * 2 / CGFloat(S)
-                    let cellH = radius * 2 / CGFloat(S)
+                    let gridSize = VectorscopeData.size
+                    let cellW = radius * 2 / CGFloat(gridSize)
+                    let cellH = radius * 2 / CGFloat(gridSize)
                     let startX = cx - radius
                     let startY = cy - radius
 
-                    for row in 0..<S {
-                        for col in 0..<S {
+                    for row in 0..<gridSize {
+                        for col in 0..<gridSize {
                             let density = data[row, col]
                             guard density > 0.02 else { continue }
 
                             // Normalized position: 0…1 within the diameter
-                            let cbNorm = (CGFloat(col) / CGFloat(S - 1)) - 0.5  // -0.5 … +0.5
-                            let crNorm = 0.5 - (CGFloat(row) / CGFloat(S - 1))  // +0.5 … -0.5
+                            let cbNorm = (CGFloat(col) / CGFloat(gridSize - 1)) - 0.5  // -0.5 … +0.5
+                            let crNorm = 0.5 - (CGFloat(row) / CGFloat(gridSize - 1))  // +0.5 … -0.5
 
                             // Skip pixels outside the unit circle
                             let dist = sqrt(cbNorm * cbNorm + crNorm * crNorm)
@@ -82,12 +82,12 @@ struct VectorscopeView: View {
                 // Color target boxes at standard 75% saturation positions
                 // Angles in the Cb-Cr plane (Cb = X, Cr = Y, standard colorimetry)
                 let targets: [(String, Double, Color)] = [
-                    ("R",  103.0, .red),
-                    ("Mg",  61.0, .purple),
-                    ("B",   -17.0, .blue),
+                    ("R", 103.0, .red),
+                    ("Mg", 61.0, .purple),
+                    ("B", -17.0, .blue),
                     ("Cy", -77.0, .cyan),
-                    ("G",  -137.0, .green),
-                    ("Yw",  163.0, .yellow)
+                    ("G", -137.0, .green),
+                    ("Yw", 163.0, .yellow)
                 ]
                 for (label, angleDeg, color) in targets {
                     let angle = angleDeg * .pi / 180

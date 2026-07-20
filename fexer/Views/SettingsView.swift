@@ -1,3 +1,4 @@
+// swiftlint:disable file_length
 import AVFoundation
 import SwiftUI
 
@@ -261,7 +262,6 @@ private struct VideoSection: View {
                 Label("Color Space", systemImage: "circle.hexagongrid.fill")
             }
             .pickerStyle(.menu)
-
         } header: {
             Text("Video")
         } footer: {

@@ -1,8 +1,8 @@
-import Foundation
 import AVFoundation
+import Foundation
 
 struct CapturePreset: Codable, Identifiable, Hashable {
-    var id: UUID = UUID()
+    var id = UUID()
     var name: String
     var isoValue: Float
     var shutterSpeedSeconds: Double   // stored as seconds; convert to CMTime on apply

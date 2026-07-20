@@ -22,24 +22,24 @@ struct EditState: Equatable {
     var vignette: Float    = 0      // CIVignette inputIntensity, 0...1
 
     // HSL per-color mixer (8 hue bands)
-    var hslRed:     HSLBand = HSLBand()
-    var hslOrange:  HSLBand = HSLBand()
-    var hslYellow:  HSLBand = HSLBand()
-    var hslGreen:   HSLBand = HSLBand()
-    var hslAqua:    HSLBand = HSLBand()
-    var hslBlue:    HSLBand = HSLBand()
-    var hslPurple:  HSLBand = HSLBand()
-    var hslMagenta: HSLBand = HSLBand()
+    var hslRed = HSLBand()
+    var hslOrange = HSLBand()
+    var hslYellow = HSLBand()
+    var hslGreen = HSLBand()
+    var hslAqua = HSLBand()
+    var hslBlue = HSLBand()
+    var hslPurple = HSLBand()
+    var hslMagenta = HSLBand()
 
     // Per-channel tone curves: 5 control points each, x in 0…1, y in 0…1
     // Default is identity: [(0,0),(0.25,0.25),(0.5,0.5),(0.75,0.75),(1,1)]
     var curveR: [SIMD2<Float>] = EditState.identityCurve
     var curveG: [SIMD2<Float>] = EditState.identityCurve
     var curveB: [SIMD2<Float>] = EditState.identityCurve
-    var curveMaster: [SIMD2<Float>] = EditState.identityCurve
+    var curvePrimary: [SIMD2<Float>] = EditState.identityCurve
 
     // Custom imported LUT (file URL as bookmark data)
-    var importedLUTBookmark: Data? = nil
+    var importedLUTBookmark: Data?
 
     // Crop / rotate
     var cropRect: CGRect?           // Normalized 0...1 crop rectangle; nil = full image
@@ -67,7 +67,7 @@ struct EditState: Equatable {
 
     nonisolated var hasCurveAdjustments: Bool {
         curveR != EditState.identityCurve || curveG != EditState.identityCurve
-            || curveB != EditState.identityCurve || curveMaster != EditState.identityCurve
+            || curveB != EditState.identityCurve || curvePrimary != EditState.identityCurve
     }
 
     nonisolated static let identityCurve: [SIMD2<Float>] = [
@@ -75,9 +75,9 @@ struct EditState: Equatable {
     ]
 
     nonisolated var allHSLBands: [(String, WritableKeyPath<EditState, HSLBand>)] {
-        [("Red",     \.hslRed),     ("Orange",  \.hslOrange),
-         ("Yellow",  \.hslYellow),  ("Green",   \.hslGreen),
-         ("Aqua",    \.hslAqua),    ("Blue",    \.hslBlue),
-         ("Purple",  \.hslPurple),  ("Magenta", \.hslMagenta)]
+        [("Red", \.hslRed), ("Orange", \.hslOrange),
+         ("Yellow", \.hslYellow), ("Green", \.hslGreen),
+         ("Aqua", \.hslAqua), ("Blue", \.hslBlue),
+         ("Purple", \.hslPurple), ("Magenta", \.hslMagenta)]
     }
 }

@@ -1,9 +1,11 @@
-import SwiftUI
+// swiftlint:disable file_length
 import CoreImage
 import CoreImage.CIFilterBuiltins
-import Photos
 import OSLog
+import Photos
+import SwiftUI
 
+// swiftlint:disable:next type_body_length
 struct EditView: View {
     let photo: CapturedPhoto
     var onCancel: (() -> Void)?
@@ -24,9 +26,9 @@ struct EditView: View {
     @GestureState private var liveCropDrag: CGSize = .zero
     @GestureState private var liveCropScale: CGFloat = 1
     @State private var selectedHSLBand: Int = 0
-    @State private var selectedCurveChannel: CurveChannel = .master
+    @State private var selectedCurveChannel: CurveChannel = .primary
     @State private var showLUTImporter = false
-    @State private var draggedCurveIndex: Int? = nil
+    @State private var draggedCurveIndex: Int?
 
     private let ciContext: CIContext = .shared
 
@@ -538,6 +540,7 @@ struct EditView: View {
         }
     }
 
+    // swiftlint:disable:next cyclomatic_complexity function_body_length
     nonisolated static func applyEdits(
         to input: CIImage,
         state: EditState,
@@ -590,8 +593,8 @@ struct EditView: View {
         }
 
         // Master tone curve (equal adjustment to all channels)
-        if state.curveMaster != EditState.identityCurve {
-            let pts = state.curveMaster
+        if state.curvePrimary != EditState.identityCurve {
+            let pts = state.curvePrimary
             let f = CIFilter.toneCurve()
             f.inputImage = image
             f.point0 = CGPoint(x: CGFloat(pts[0].x), y: CGFloat(pts[0].y))
@@ -762,15 +765,21 @@ struct EditView: View {
 
             let kp = state.allHSLBands[selectedHSLBand].1
             VStack(spacing: 8) {
-                hslSliderRow("Hue", range: -180...180, format: "%+.0f°",
+                hslSliderRow(
+                    "Hue", range: -180...180, format: "%+.0f°",
                     get: { Double(state[keyPath: kp].hue) },
-                    set: { v in var b = state[keyPath: kp]; b.hue = Float(v); state[keyPath: kp] = b; renderPreview() })
-                hslSliderRow("Saturation", range: -1...1, format: "%+.2f",
+                    set: { v in var b = state[keyPath: kp]; b.hue = Float(v); state[keyPath: kp] = b; renderPreview() }
+                )
+                hslSliderRow(
+                    "Saturation", range: -1...1, format: "%+.2f",
                     get: { Double(state[keyPath: kp].saturation) },
-                    set: { v in var b = state[keyPath: kp]; b.saturation = Float(v); state[keyPath: kp] = b; renderPreview() })
-                hslSliderRow("Luminance", range: -1...1, format: "%+.2f",
+                    set: { v in var b = state[keyPath: kp]; b.saturation = Float(v); state[keyPath: kp] = b; renderPreview() }
+                )
+                hslSliderRow(
+                    "Luminance", range: -1...1, format: "%+.2f",
                     get: { Double(state[keyPath: kp].luminance) },
-                    set: { v in var b = state[keyPath: kp]; b.luminance = Float(v); state[keyPath: kp] = b; renderPreview() })
+                    set: { v in var b = state[keyPath: kp]; b.luminance = Float(v); state[keyPath: kp] = b; renderPreview() }
+                )
             }
             .padding(.horizontal, 18)
         }
@@ -938,11 +947,9 @@ struct EditView: View {
         guard s.count >= 2 else { return x }
         if x <= s[0].x { return s[0].y }
         if x >= s[s.count - 1].x { return s[s.count - 1].y }
-        for i in 1..<s.count {
-            if x <= s[i].x {
-                let t = (x - s[i-1].x) / max(s[i].x - s[i-1].x, 0.001)
-                return s[i-1].y + t * (s[i].y - s[i-1].y)
-            }
+        for i in 1..<s.count where x <= s[i].x {
+            let t = (x - s[i-1].x) / max(s[i].x - s[i-1].x, 0.001)
+            return s[i-1].y + t * (s[i].y - s[i-1].y)
         }
         return x
     }
@@ -954,9 +961,13 @@ struct EditView: View {
         guard d > 0.001 else { return (0, 0, l) }
         let s = l > 0.5 ? d / (2 - mx - mn) : d / (mx + mn)
         var h: Float
-        if mx == r       { h = ((g - b) / d).truncatingRemainder(dividingBy: 6) / 6 }
-        else if mx == g  { h = ((b - r) / d + 2) / 6 }
-        else             { h = ((r - g) / d + 4) / 6 }
+        if mx == r {
+            h = ((g - b) / d).truncatingRemainder(dividingBy: 6) / 6
+        } else if mx == g {
+            h = ((b - r) / d + 2) / 6
+        } else {
+            h = ((r - g) / d + 4) / 6
+        }
         if h < 0 { h += 1 }
         return (h, s, l)
     }
@@ -974,7 +985,7 @@ struct EditView: View {
         var t = t
         if t < 0 { t += 1 }; if t > 1 { t -= 1 }
         if t < 1.0/6 { return p + (q - p) * 6 * t }
-        if t < 0.5   { return q }
+        if t < 0.5 { return q }
         if t < 2.0/3 { return p + (q - p) * (2.0/3 - t) * 6 }
         return p
     }
@@ -1096,7 +1107,7 @@ private enum EditorMode: String, CaseIterable {
 }
 
 private enum CurveChannel: String, CaseIterable, Identifiable {
-    case master = "Master"
+    case primary = "Master"
     case red    = "Red"
     case green  = "Green"
     case blue   = "Blue"
@@ -1105,7 +1116,7 @@ private enum CurveChannel: String, CaseIterable, Identifiable {
 
     var keyPath: WritableKeyPath<EditState, [SIMD2<Float>]> {
         switch self {
-        case .master: \.curveMaster
+        case .primary: \.curvePrimary
         case .red:    \.curveR
         case .green:  \.curveG
         case .blue:   \.curveB
@@ -1114,7 +1125,7 @@ private enum CurveChannel: String, CaseIterable, Identifiable {
 
     var color: Color {
         switch self {
-        case .master: .white
+        case .primary: .white
         case .red:    .red
         case .green:  .green
         case .blue:   .blue

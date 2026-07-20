@@ -1,9 +1,9 @@
 import AVFoundation
-import Photos
 import CoreLocation
 import CoreMotion
 import Observation
 import OSLog
+import Photos
 
 @Observable
 final class PermissionsManager: NSObject {

@@ -11,7 +11,7 @@ struct ApertureLogoView: View {
             stops: [
                 .init(color: .white.opacity(0.06), location: 0),
                 .init(color: Color(white: 0.88).opacity(0.88), location: 0.28),
-                .init(color: Color(white: 0.73).opacity(0.72), location: 1),
+                .init(color: Color(white: 0.73).opacity(0.72), location: 1)
             ],
             startPoint: .top,
             endPoint: .bottom

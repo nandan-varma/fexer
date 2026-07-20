@@ -37,7 +37,7 @@ struct BrightnessEVIndicator: View {
     }
 
     private var accentColor: Color {
-        if ev > 0.15  { return .yellow }
+        if ev > 0.15 { return .yellow }
         if ev < -0.15 { return Color(red: 0.3, green: 0.9, blue: 1.0) }
         return .white
     }

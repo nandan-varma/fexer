@@ -1,5 +1,5 @@
-import SwiftUI
 import MediaPlayer
+import SwiftUI
 
 /// Adds a zero-size MPVolumeView to the UIKit hierarchy so the system knows
 /// the app is managing volume display itself, suppressing the built-in HUD.

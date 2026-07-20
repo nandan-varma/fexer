@@ -1,6 +1,6 @@
-import SwiftUI
-import Photos
 import AVKit
+import Photos
+import SwiftUI
 
 struct GalleryView: View {
     @Environment(AppState.self) var appState

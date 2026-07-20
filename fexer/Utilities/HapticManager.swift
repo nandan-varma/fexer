@@ -1,5 +1,5 @@
-import UIKit
 import CoreHaptics
+import UIKit
 
 /// Thin wrapper around UIFeedbackGenerator that lazy-creates each generator
 /// only on first use. All public methods are guarded by an availability

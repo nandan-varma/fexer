@@ -37,7 +37,7 @@ enum VideoColorSpace: String, CaseIterable, Identifiable {
 
 struct CaptureSettings: Equatable {
     var isoValue: Float = 200
-    var shutterSpeed: CMTime = CMTime(value: 1, timescale: 250)
+    var shutterSpeed = CMTime(value: 1, timescale: 250)
     var whiteBalance: Float = 5500
     var whiteBalanceTint: Float = 0        // -150 (green) … +150 (magenta)
     var focusDistance: Float = 0.5

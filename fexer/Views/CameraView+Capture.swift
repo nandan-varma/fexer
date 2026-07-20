@@ -1,10 +1,10 @@
-import SwiftUI
 import AVFoundation
 import CoreImage
 import CoreLocation
-import Photos
-import UIKit
 import OSLog
+import Photos
+import SwiftUI
+import UIKit
 
 extension CameraView {
 

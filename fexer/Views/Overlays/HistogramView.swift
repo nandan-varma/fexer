@@ -47,10 +47,10 @@ struct HistogramView: View {
 
                 switch mode {
                 case .rgbl:
-                    drawChannel(context: context, size: size, values: data.luma,  color: .white.opacity(0.4))
-                    drawChannel(context: context, size: size, values: data.red,   color: .red.opacity(0.55))
+                    drawChannel(context: context, size: size, values: data.luma, color: .white.opacity(0.4))
+                    drawChannel(context: context, size: size, values: data.red, color: .red.opacity(0.55))
                     drawChannel(context: context, size: size, values: data.green, color: .green.opacity(0.55))
-                    drawChannel(context: context, size: size, values: data.blue,  color: .blue.opacity(0.55))
+                    drawChannel(context: context, size: size, values: data.blue, color: .blue.opacity(0.55))
                 case .luma:
                     drawChannel(context: context, size: size, values: data.luma, color: .white.opacity(0.8))
                 case .parade:

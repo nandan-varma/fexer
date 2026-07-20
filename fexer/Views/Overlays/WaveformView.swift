@@ -18,10 +18,10 @@ struct WaveformView: View {
 
                 let w = size.width
                 let h = size.height
-                let W = WaveformData.cols
-                let H = WaveformData.rows
-                let cellW = w / CGFloat(W)
-                let cellH = h / CGFloat(H)
+                let cols = WaveformData.cols
+                let rows = WaveformData.rows
+                let cellW = w / CGFloat(cols)
+                let cellH = h / CGFloat(rows)
 
                 // IRE gridlines at 0%, 20%, 40%, 60%, 80%, 100%
                 for pct in stride(from: 0.0, through: 1.0, by: 0.2) {
@@ -46,15 +46,15 @@ struct WaveformView: View {
                 context.stroke(lowLine, with: .color(Color(red: 0, green: 0.4, blue: 1).opacity(0.55)), lineWidth: 0.75)
 
                 // Density map — draw each lit cell as a colored rectangle
-                for col in 0..<W {
-                    for bin in 0..<H {
+                for col in 0..<cols {
+                    for bin in 0..<rows {
                         let density = data[col, bin]
                         guard density > 0.01 else { continue }
 
                         let x = CGFloat(col) * cellW
-                        // bin 0 = 0% IRE (bottom) → y = h; bin H-1 = 100% (top) → y = 0
+                        // bin 0 = 0% IRE (bottom) → y = h; bin rows-1 = 100% (top) → y = 0
                         let y = h - CGFloat(bin + 1) * cellH
-                        let lumaPct = Float(bin) / Float(H - 1)
+                        let lumaPct = Float(bin) / Float(rows - 1)
 
                         let color: Color
                         if lumaPct >= highThreshold {

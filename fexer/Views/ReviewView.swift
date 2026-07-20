@@ -1,6 +1,6 @@
-import SwiftUI
-import Photos
 import OSLog
+import Photos
+import SwiftUI
 
 struct ReviewView: View {
     let photo: CapturedPhoto
@@ -235,6 +235,7 @@ struct ReviewView: View {
             return
         }
         let assets = PHAsset.fetchAssets(withLocalIdentifiers: [id], options: nil)
+        // PHFetchResult has no `isEmpty` — swiftlint:disable:next empty_count
         guard assets.count > 0 else {
             Logger.camera.error("deletePhoto: no asset found for identifier \(id)")
             HapticManager.error()

@@ -1,7 +1,7 @@
 import AVFoundation
-import SwiftUI
-import MetalKit
 import CoreImage
+import MetalKit
+import SwiftUI
 
 /// MTKView-based camera preview that renders the CI filter pipeline output
 /// at continuous 60fps. Handles tap-to-focus, pinch-to-zoom, and brightness swipe.
@@ -84,7 +84,7 @@ struct CameraPreview: UIViewRepresentable {
         private var cachedBlackBG: CIImage?
         private var cachedBlackBGSize: CGSize = .zero
 
-        private lazy var ciContext: CIContext = CIContext.shared
+        private lazy var ciContext = CIContext.shared
 
         private lazy var commandQueue: MTLCommandQueue? = mtlDevice?.makeCommandQueue()
 

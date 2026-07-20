@@ -1,5 +1,5 @@
-import SwiftUI
 import CoreMotion
+import SwiftUI
 
 private let sharedMotionManager: CMMotionManager = {
     let manager = CMMotionManager()

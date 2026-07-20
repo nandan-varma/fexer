@@ -1,5 +1,5 @@
-import SwiftUI
 import AVFoundation
+import SwiftUI
 
 final class AppDelegate: NSObject, UIApplicationDelegate {
     func application(
@@ -27,7 +27,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
                 localizedSubtitle: nil,
                 icon: UIApplicationShortcutIcon(systemImageName: "square.stack.3d.up"),
                 userInfo: nil
-            ),
+            )
         ]
         return true
     }
@@ -58,7 +58,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
 }
 
 @main
-struct fexerApp: App {
+struct FexerApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @State private var appState = AppState.shared
 

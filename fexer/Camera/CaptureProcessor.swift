@@ -153,7 +153,7 @@ final class CaptureProcessor: NSObject {
     private var reportedSize: CGSize = .zero
     private let histogramQueue = DispatchQueue(label: "com.fexer.histogram", qos: .utility)
     private let longExpBlendQueue = DispatchQueue(label: "com.fexer.longexp", qos: .userInitiated)
-    private let ciContext: CIContext = CIContext.shared
+    private let ciContext = CIContext.shared
 
     func setLatestImage(_ image: CIImage) {
         imageLock.withLock { $0 = image }
@@ -165,6 +165,7 @@ final class CaptureProcessor: NSObject {
 }
 
 extension CaptureProcessor: AVCaptureVideoDataOutputSampleBufferDelegate {
+    // swiftlint:disable:next cyclomatic_complexity
     func captureOutput(_ output: AVCaptureOutput,
                        didOutput sampleBuffer: CMSampleBuffer,
                        from connection: AVCaptureConnection) {
@@ -291,7 +292,7 @@ extension CaptureProcessor: AVCaptureVideoDataOutputSampleBufferDelegate {
         var result = frames[0]
         for frame in frames.dropFirst() {
             maxFilter.setValue(result, forKey: kCIInputBackgroundImageKey)
-            maxFilter.setValue(frame,  forKey: kCIInputImageKey)
+            maxFilter.setValue(frame, forKey: kCIInputImageKey)
             if let out = maxFilter.outputImage { result = out }
         }
         return result

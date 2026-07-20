@@ -1,8 +1,8 @@
-import Vision
 import AVFoundation
 import Observation
-import OSLog
 import os
+import OSLog
+import Vision
 
 /// Classifies scenes from camera frames to suggest photographic styles.
 /// Runs inference at ~2fps; debounces suggestions to avoid flickering.
