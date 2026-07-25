@@ -3,45 +3,68 @@ import "../styles/global.css";
 
 interface Props {
   title: string;
+  description?: string;
 }
 
-const { title } = Astro.props;
+const {
+  title,
+  description = "A professional manual camera for iPhone — real-time film LUTs, RAW capture, waveform & vectorscope, and non-destructive editing. No data collected.",
+} = Astro.props;
+
+const pageTitle = title === "Fexer" ? title : `${title} — Fexer`;
+const canonicalURL = new URL(Astro.url.pathname, Astro.site);
 ---
 
-<html lang="en" class="dark:bg-neutral-950 bg-white">
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="generator" content={Astro.generator} />
-    <title>{title} — Fexer</title>
+    <title>{pageTitle}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonicalURL} />
+
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content={pageTitle} />
+    <meta property="og:description" content={description} />
+    <meta property="og:image" content={new URL("/og-icon.png", Astro.site)} />
+    <meta property="og:url" content={canonicalURL} />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content={pageTitle} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content={new URL("/og-icon.png", Astro.site)} />
   </head>
   <body
-    class="min-h-screen bg-white text-neutral-900 antialiased dark:bg-neutral-950 dark:text-neutral-100"
+    class="min-h-screen bg-white text-neutral-900 antialiased selection:bg-amber-200 selection:text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100 dark:selection:bg-amber-500/30"
   >
-    <div class="mx-auto flex min-h-screen max-w-2xl flex-col px-6 py-16">
-      <header class="mb-12 flex items-center gap-3">
-        <a href="/" class="text-lg font-semibold tracking-tight">Fexer</a>
-        <span class="text-sm text-neutral-400 dark:text-neutral-600"
-          >Pro Camera</span
-        >
+    <div class="mx-auto flex min-h-screen max-w-3xl flex-col px-6 py-10 sm:py-14">
+      <header class="mb-4 flex items-center gap-3">
+        <a href="/" class="flex items-center gap-2.5">
+          <img
+            src="/app-icon.png"
+            alt=""
+            width="32"
+            height="32"
+            class="h-8 w-8 rounded-[8.5px] shadow-sm ring-1 ring-black/5"
+          />
+          <span class="text-lg font-semibold tracking-tight">Fexer</span>
+        </a>
       </header>
       <main class="flex-1">
         <slot />
       </main>
       <footer
-        class="mt-16 flex flex-wrap gap-x-6 gap-y-2 border-t border-neutral-200 pt-6 text-sm text-neutral-500 dark:border-neutral-800 dark:text-neutral-500"
+        class="mt-20 flex flex-wrap items-center gap-x-6 gap-y-2 border-t border-neutral-200 pt-6 text-sm text-neutral-500 dark:border-neutral-800 dark:text-neutral-500"
       >
-        <a href="/" class="hover:text-neutral-900 dark:hover:text-neutral-100"
-          >Home</a
-        >
-        <a
-          href="/privacy"
-          class="hover:text-neutral-900 dark:hover:text-neutral-100"
+        <span>&copy; 2026 Nandan Varma</span>
+        <a href="/privacy" class="hover:text-neutral-900 dark:hover:text-neutral-100"
           >Privacy</a
         >
-        <a
-          href="/support"
-          class="hover:text-neutral-900 dark:hover:text-neutral-100"
+        <a href="/support" class="hover:text-neutral-900 dark:hover:text-neutral-100"
           >Support</a
         >
       </footer>

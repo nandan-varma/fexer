@@ -1,27 +1,109 @@
 ---
 import Layout from "../layouts/Layout.astro";
+
+const appStoreUrl = "https://apps.apple.com/app/id6794734410";
+
+const screenshots = [
+  { src: "/screenshots/1.webp", alt: "Fexer manual camera controls — ISO, shutter, white balance and metering rails" },
+  { src: "/screenshots/2.webp", alt: "Fexer real-time film LUT color grading with live before/after adjustments" },
+  { src: "/screenshots/3.webp", alt: "Fexer settings — RAW capture, HDR, bracketing and shutter customization" },
+];
+
+const features = [
+  {
+    title: "Manual controls",
+    body: "ISO, shutter speed, and focus with an auto toggle on each. White balance in Kelvin plus tint, AE lock, and four metering modes.",
+  },
+  {
+    title: "21 film LUTs",
+    body: "Film, Genre, and Mood grades applied live in the viewfinder and baked into every capture — Portra 400, Tri-X, Velvia, and more.",
+  },
+  {
+    title: "RAW & ProRes",
+    body: "RAW / RAW+JPEG photos. Video up to 4K in HEVC, H.264, or ProRes, with GPS metadata.",
+  },
+  {
+    title: "Cinema viewfinder tools",
+    body: "Histogram, waveform monitor, vectorscope, focus peaking, zebra stripes, false color, and an electronic level.",
+  },
+  {
+    title: "Long exposure, burst & timelapse",
+    body: "Multi-frame long exposure up to 60 frames, 10-shot burst, configurable self-timer, and timelapse.",
+  },
+  {
+    title: "Non-destructive editing",
+    body: "Exposure, contrast, shadows, highlights, saturation, warmth, crop and rotation — your original capture is never touched.",
+  },
+];
 ---
 
-<Layout title="Home">
-  <h1 class="text-3xl font-semibold tracking-tight sm:text-4xl">
-    A professional camera, built for your pocket.
-  </h1>
-  <p class="mt-4 text-neutral-600 dark:text-neutral-400">
-    Manual controls, real-time color grading, and cinematic shooting modes
-    for iPhone. Built with SwiftUI, AVFoundation, and Core Image.
-  </p>
-  <div class="mt-8 flex gap-4">
-    <a
-      href="/privacy"
-      class="rounded-full bg-neutral-900 px-5 py-2.5 text-sm font-medium text-white dark:bg-white dark:text-neutral-900"
-    >
-      Privacy Policy
-    </a>
-    <a
-      href="/support"
-      class="rounded-full border border-neutral-300 px-5 py-2.5 text-sm font-medium dark:border-neutral-700"
-    >
-      Support
-    </a>
-  </div>
+<Layout title="Fexer">
+  <section class="pt-6 pb-4 sm:pt-10">
+    <h1 class="text-4xl font-semibold tracking-tight sm:text-5xl">
+      A professional camera,<br />built for your pocket.
+    </h1>
+    <p class="mt-5 max-w-lg text-lg leading-relaxed text-neutral-600 dark:text-neutral-400">
+      Manual controls, real-time film color grading, and cinematic shooting
+      modes for iPhone — with the analysis tools of a dedicated camera, live
+      in your viewfinder.
+    </p>
+    <div class="mt-8 flex flex-wrap items-center gap-4">
+      <a
+        href={appStoreUrl}
+        class="inline-flex items-center gap-2 rounded-full bg-neutral-900 px-5 py-2.5 text-sm font-medium text-white transition-opacity hover:opacity-90 dark:bg-white dark:text-neutral-900"
+      >
+        Download on the App Store
+      </a>
+      <span class="text-sm text-neutral-500 dark:text-neutral-500"
+        >iOS 17+ &middot; Physical device required</span
+      >
+    </div>
+  </section>
+
+  <section class="mt-14 sm:mt-16">
+    <div class="grid grid-cols-3 gap-3 sm:gap-4">
+      {
+        screenshots.map((shot) => (
+          <img
+            src={shot.src}
+            alt={shot.alt}
+            loading="lazy"
+            class="w-full rounded-2xl border border-neutral-200 shadow-sm dark:border-neutral-800"
+          />
+        ))
+      }
+    </div>
+  </section>
+
+  <section class="mt-16 sm:mt-20">
+    <h2 class="text-sm font-medium tracking-wide text-neutral-500 uppercase dark:text-neutral-500">
+      Everything a shot needs
+    </h2>
+    <div class="mt-6 grid gap-x-8 gap-y-8 sm:grid-cols-2">
+      {
+        features.map((f) => (
+          <div>
+            <h3 class="font-medium text-neutral-900 dark:text-neutral-100">{f.title}</h3>
+            <p class="mt-1.5 text-sm leading-relaxed text-neutral-600 dark:text-neutral-400">
+              {f.body}
+            </p>
+          </div>
+        ))
+      }
+    </div>
+  </section>
+
+  <section class="mt-16 rounded-2xl border border-neutral-200 p-6 sm:mt-20 sm:p-8 dark:border-neutral-800">
+    <h2 class="font-medium text-neutral-900 dark:text-neutral-100">
+      Private by construction
+    </h2>
+    <p class="mt-2 max-w-xl text-sm leading-relaxed text-neutral-600 dark:text-neutral-400">
+      Fexer has no accounts, no analytics, no ads, and makes no network
+      requests. Every photo, video, and edit stays on your device unless you
+      choose to share it.{" "}
+      <a href="/privacy" class="underline underline-offset-2 hover:text-neutral-900 dark:hover:text-neutral-100"
+        >Read the privacy policy</a
+      >.
+    </p>
+  </section>
 </Layout>
