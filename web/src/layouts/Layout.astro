@@ -1,0 +1,50 @@
+---
+import "../styles/global.css";
+
+interface Props {
+  title: string;
+}
+
+const { title } = Astro.props;
+---
+
+<html lang="en" class="dark:bg-neutral-950 bg-white">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="generator" content={Astro.generator} />
+    <title>{title} — Fexer</title>
+  </head>
+  <body
+    class="min-h-screen bg-white text-neutral-900 antialiased dark:bg-neutral-950 dark:text-neutral-100"
+  >
+    <div class="mx-auto flex min-h-screen max-w-2xl flex-col px-6 py-16">
+      <header class="mb-12 flex items-center gap-3">
+        <a href="/" class="text-lg font-semibold tracking-tight">Fexer</a>
+        <span class="text-sm text-neutral-400 dark:text-neutral-600"
+          >Pro Camera</span
+        >
+      </header>
+      <main class="flex-1">
+        <slot />
+      </main>
+      <footer
+        class="mt-16 flex flex-wrap gap-x-6 gap-y-2 border-t border-neutral-200 pt-6 text-sm text-neutral-500 dark:border-neutral-800 dark:text-neutral-500"
+      >
+        <a href="/" class="hover:text-neutral-900 dark:hover:text-neutral-100"
+          >Home</a
+        >
+        <a
+          href="/privacy"
+          class="hover:text-neutral-900 dark:hover:text-neutral-100"
+          >Privacy</a
+        >
+        <a
+          href="/support"
+          class="hover:text-neutral-900 dark:hover:text-neutral-100"
+          >Support</a
+        >
+      </footer>
+    </div>
+  </body>
+</html>

@@ -1,0 +1,80 @@
+---
+import Layout from "../layouts/Layout.astro";
+
+const lastUpdated = "July 25, 2026";
+---
+
+<Layout title="Privacy Policy">
+  <h1 class="text-2xl font-semibold tracking-tight">Privacy Policy</h1>
+  <p class="mt-2 text-sm text-neutral-500 dark:text-neutral-500">
+    Last updated: {lastUpdated}
+  </p>
+
+  <div
+    class="prose prose-neutral mt-8 max-w-none dark:prose-invert prose-p:leading-relaxed prose-headings:font-semibold"
+  >
+    <p>
+      Fexer is a camera app. It does not collect, store, or transmit any
+      personal data to the developer or to any third party. Everything Fexer
+      does happens on your device.
+    </p>
+
+    <h2>What Fexer accesses, and why</h2>
+    <ul>
+      <li>
+        <strong>Camera</strong> — to let you take photos and videos. Frames
+        are processed on-device and never leave your phone except when you
+        explicitly save or share them.
+      </li>
+      <li>
+        <strong>Microphone</strong> — to record audio when you capture video.
+      </li>
+      <li>
+        <strong>Photo Library</strong> — to save the photos and videos you
+        capture, and to let you view them again inside the app.
+      </li>
+      <li>
+        <strong>Location (When In Use)</strong> — optional. If granted, Fexer
+        embeds GPS coordinates into a photo or video's own metadata, the same
+        way the built-in Camera app does. Location data is never sent
+        anywhere; it only ever exists inside the file on your device.
+      </li>
+      <li>
+        <strong>Motion &amp; Orientation</strong> — used locally to power the
+        electronic level / horizon indicator in the viewfinder.
+      </li>
+    </ul>
+
+    <h2>No accounts, no analytics, no ads</h2>
+    <p>
+      Fexer has no user accounts, no analytics or crash-reporting SDKs, no
+      advertising, and makes no network requests. There is nothing for the
+      developer to see, because nothing is collected.
+    </p>
+
+    <h2>Third parties</h2>
+    <p>
+      Fexer does not share data with third parties, because it does not
+      collect any data to share.
+    </p>
+
+    <h2>Children's privacy</h2>
+    <p>
+      Because Fexer collects no data of any kind, it does not knowingly
+      collect data from children or anyone else.
+    </p>
+
+    <h2>Changes to this policy</h2>
+    <p>
+      If this policy ever changes, the update will be posted on this page
+      with a revised "last updated" date.
+    </p>
+
+    <h2>Contact</h2>
+    <p>
+      Questions about this policy: <a href="mailto:nandanvarma.me@gmail.com"
+        >nandanvarma.me@gmail.com</a
+      >.
+    </p>
+  </div>
+</Layout>
