@@ -29,7 +29,6 @@ struct CameraView: View {
     @AppStorage("showZebra")            var showZebra             = false
     @AppStorage("showLevelIndicator")   var showLevelIndicator    = false
     @AppStorage("showStylePicker")      var showStylePicker       = false
-    @AppStorage("showShootingModes")    var showShootingModes     = true
     @AppStorage("showGallery")          var showGallery           = true
     @AppStorage("cropRatio")            var cropRatioRaw          = CropRatio.full.rawValue
     @AppStorage("showFalseColor")       var showFalseColor        = false
@@ -495,7 +494,7 @@ struct CameraView: View {
                                    onAdjust: { syncProcessor() })
                         .padding(.bottom, 6)
                 }
-                if showShootingModes {
+                if FeatureFlags.shootingModesEnabled {
                     shootingModePicker
                         .padding(.bottom, 8)
                 }
@@ -559,6 +558,7 @@ struct CameraView: View {
     private var swipeUpGesture: some Gesture {
         DragGesture(minimumDistance: 40)
             .onEnded { g in
+                guard FeatureFlags.shootingModesEnabled else { return }
                 guard abs(g.translation.width) > abs(g.translation.height) else { return }
                 guard cameraViewModel.activeRailParam == nil else { return }
                 let direction = g.translation.width < 0 ? 1 : -1

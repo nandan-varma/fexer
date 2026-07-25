@@ -21,9 +21,8 @@ final class StylesManager {
 
     let allStyles: [StyleCategory: [PhotoStyle]] = Dictionary(grouping: PhotoStyle.catalog, by: \.category)
 
-    var isSmartStylesEnabled: Bool = false {
-        didSet { sceneClassifier.isEnabled = isSmartStylesEnabled }
-    }
+    /// Feature-flagged off until the scene classifier is ready to ship — not user-configurable.
+    var isSmartStylesEnabled: Bool { FeatureFlags.smartStylesEnabled }
 
     // MARK: - LUT Filter Configuration
 

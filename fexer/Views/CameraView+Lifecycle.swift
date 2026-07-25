@@ -65,6 +65,7 @@ extension CameraView {
         guard let mode = appState.pendingShootingMode,
               let index = ShootingMode.allCases.firstIndex(of: mode) else { return }
         appState.pendingShootingMode = nil
+        guard FeatureFlags.shootingModesEnabled else { return }
         cameraViewModel.selectMode(index: index, cropRatioRaw: $cropRatioRaw, selfTimerDelay: $selfTimerDelay)
     }
 

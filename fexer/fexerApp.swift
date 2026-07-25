@@ -6,29 +6,35 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
-        application.shortcutItems = [
-            UIApplicationShortcutItem(
-                type: "com.nandanvarma.fexer.mode.video",
-                localizedTitle: "Record Video",
-                localizedSubtitle: nil,
-                icon: UIApplicationShortcutIcon(systemImageName: "video.fill"),
-                userInfo: nil
-            ),
-            UIApplicationShortcutItem(
-                type: "com.nandanvarma.fexer.mode.longExposure",
-                localizedTitle: "Long Exposure",
-                localizedSubtitle: nil,
-                icon: UIApplicationShortcutIcon(systemImageName: "timelapse"),
-                userInfo: nil
-            ),
-            UIApplicationShortcutItem(
-                type: "com.nandanvarma.fexer.mode.burst",
-                localizedTitle: "Burst",
-                localizedSubtitle: nil,
-                icon: UIApplicationShortcutIcon(systemImageName: "square.stack.3d.up"),
-                userInfo: nil
-            )
-        ]
+        // Shooting modes beyond Photo are feature-flagged off by default (not yet ready to ship);
+        // don't advertise Quick Actions for modes the user can't reach in-app.
+        if FeatureFlags.shootingModesEnabled {
+            application.shortcutItems = [
+                UIApplicationShortcutItem(
+                    type: "com.nandanvarma.fexer.mode.video",
+                    localizedTitle: "Record Video",
+                    localizedSubtitle: nil,
+                    icon: UIApplicationShortcutIcon(systemImageName: "video.fill"),
+                    userInfo: nil
+                ),
+                UIApplicationShortcutItem(
+                    type: "com.nandanvarma.fexer.mode.longExposure",
+                    localizedTitle: "Long Exposure",
+                    localizedSubtitle: nil,
+                    icon: UIApplicationShortcutIcon(systemImageName: "timelapse"),
+                    userInfo: nil
+                ),
+                UIApplicationShortcutItem(
+                    type: "com.nandanvarma.fexer.mode.burst",
+                    localizedTitle: "Burst",
+                    localizedSubtitle: nil,
+                    icon: UIApplicationShortcutIcon(systemImageName: "square.stack.3d.up"),
+                    userInfo: nil
+                )
+            ]
+        } else {
+            application.shortcutItems = []
+        }
         return true
     }
 
@@ -37,6 +43,10 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         performActionFor shortcutItem: UIApplicationShortcutItem,
         completionHandler: @escaping (Bool) -> Void
     ) {
+        guard FeatureFlags.shootingModesEnabled else {
+            completionHandler(false)
+            return
+        }
         let mode: ShootingMode
         switch shortcutItem.type {
         case "com.nandanvarma.fexer.mode.video":        mode = .video

@@ -435,13 +435,6 @@ private struct StylesSection: View {
 
     var body: some View {
         Section("Styles") {
-            Toggle(isOn: Binding(
-                get: { stylesManager.isSmartStylesEnabled },
-                set: { stylesManager.isSmartStylesEnabled = $0 }
-            )) {
-                Label("Smart Styles (AI)", systemImage: "sparkle")
-            }
-
             Toggle(isOn: $showStylePicker) {
                 Label("Show Style Picker", systemImage: "wand.and.stars")
             }
@@ -460,14 +453,10 @@ private struct StylesSection: View {
 // MARK: - Interface
 
 private struct InterfaceSection: View {
-    @AppStorage("showShootingModes") private var showShootingModes = true
-    @AppStorage("showGallery")       private var showGallery       = true
+    @AppStorage("showGallery") private var showGallery = true
 
     var body: some View {
         Section("Interface") {
-            Toggle(isOn: $showShootingModes) {
-                Label("Shooting Modes", systemImage: "list.bullet.below.rectangle")
-            }
             Toggle(isOn: $showGallery) {
                 Label("Gallery Button", systemImage: "photo.stack")
             }

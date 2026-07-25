@@ -148,8 +148,6 @@ class StylesManagerTests: XCTestCase {
     }
     
     func testProcessFrameWithoutSmartStyles() {
-        stylesManager.isSmartStylesEnabled = false
-
         var pixelBuffer: CVPixelBuffer?
         let attrs: [String: Any] = [
             kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,

@@ -1,5 +1,14 @@
 import Foundation
 
+/// Internal build-time switches for functionality that isn't ready to ship yet.
+/// Not user-facing — do not expose these behind a Settings toggle.
+enum FeatureFlags {
+    /// Shooting modes beyond Photo (Video, Portrait, Long Exposure, Night, Burst, Timer, Timelapse, Anamorphic).
+    static let shootingModesEnabled = false
+    /// Scene-classifier-driven style suggestions ("Smart Styles (AI)").
+    static let smartStylesEnabled = false
+}
+
 enum ShootingMode: String, CaseIterable, Identifiable {
     case photo = "Photo"
     case video = "Video"
