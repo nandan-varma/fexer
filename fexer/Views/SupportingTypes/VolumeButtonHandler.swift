@@ -18,7 +18,7 @@ final class VolumeGate: @unchecked Sendable {
     init() { notReadyUntil = Date().addingTimeInterval(2.0) }
 
     func extend() {
-        lock.withLock { notReadyUntil = Date().addingTimeInterval(0.5) }
+        lock.withLock { notReadyUntil = max(notReadyUntil, Date().addingTimeInterval(0.5)) }
     }
 
     /// Blocks the gate via counter (not time-based). Each `block()` must be matched by one `unblock()`.
