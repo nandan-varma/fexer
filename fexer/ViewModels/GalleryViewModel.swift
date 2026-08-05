@@ -6,14 +6,14 @@ import SwiftUI
 final class GalleryViewModel: NSObject, PHPhotoLibraryChangeObserver {
     var photos: [PHAsset] = []
     var isLoading = false
+    var authorizationStatus: PHAuthorizationStatus = PHPhotoLibrary.authorizationStatus(for: .readWrite)
 
     private var fetchResult: PHFetchResult<PHAsset>?
     private let imageManager = PHCachingImageManager()
 
     override init() {
         super.init()
-        let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
-        if status == .authorized || status == .limited {
+        if authorizationStatus == .authorized || authorizationStatus == .limited {
             PHPhotoLibrary.shared().register(self)
             fetchPhotos()
         }
@@ -96,12 +96,15 @@ final class GalleryViewModel: NSObject, PHPhotoLibraryChangeObserver {
 
     func authorizeIfNeeded() {
         let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+        authorizationStatus = status
         if status == .notDetermined {
             PHPhotoLibrary.requestAuthorization(for: .readWrite) { [weak self] newStatus in
-                if newStatus == .authorized || newStatus == .limited {
-                    Task { @MainActor in
-                        PHPhotoLibrary.shared().register(self!)
-                        self?.fetchPhotos()
+                Task { @MainActor in
+                    guard let self else { return }
+                    self.authorizationStatus = newStatus
+                    if newStatus == .authorized || newStatus == .limited {
+                        PHPhotoLibrary.shared().register(self)
+                        self.fetchPhotos()
                     }
                 }
             }

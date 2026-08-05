@@ -69,7 +69,7 @@ struct OnboardingView: View {
                             if isRequesting {
                                 ProgressView().progressViewStyle(.circular).tint(.black)
                             } else {
-                                Text("Allow Access & Open Camera")
+                                Text("Continue")
                                     .font(.system(size: 16, weight: .semibold))
                                     .foregroundStyle(.black)
                             }

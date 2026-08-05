@@ -15,16 +15,23 @@ struct GalleryView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                LazyVGrid(columns: columns, spacing: 2) {
-                    ForEach(galleryViewModel.photos, id: \.localIdentifier) { asset in
-                        AssetThumbnailView(asset: asset, viewModel: galleryViewModel)
-                            .aspectRatio(1, contentMode: .fill)
-                            .clipped()
-                            .onTapGesture { selectedAsset = asset }
+            Group {
+                if galleryViewModel.authorizationStatus == .denied || galleryViewModel.authorizationStatus == .restricted {
+                    PhotoLibraryAccessDeniedView()
+                } else {
+                    ScrollView {
+                        LazyVGrid(columns: columns, spacing: 2) {
+                            ForEach(galleryViewModel.photos, id: \.localIdentifier) { asset in
+                                AssetThumbnailView(asset: asset, viewModel: galleryViewModel)
+                                    .aspectRatio(1, contentMode: .fill)
+                                    .clipped()
+                                    .onTapGesture { selectedAsset = asset }
+                            }
+                        }
                     }
                 }
             }
+            .onAppear { galleryViewModel.authorizeIfNeeded() }
             .navigationTitle("Library")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -48,6 +55,45 @@ struct GalleryView: View {
         .sheet(item: $selectedAsset) { asset in
             GalleryDetailView(asset: asset, viewModel: galleryViewModel)
         }
+    }
+}
+
+private struct PhotoLibraryAccessDeniedView: View {
+    var body: some View {
+        VStack(spacing: 24) {
+            Image(systemName: "photo.badge.exclamationmark")
+                .font(.system(size: 60, weight: .thin))
+                .foregroundStyle(.white.opacity(0.45))
+
+            VStack(spacing: 8) {
+                Text("Photo Library Access Denied")
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(.white)
+
+                Text("fexer needs access to your photo library to show your captures here.\nEnable it in Settings to continue.")
+                    .font(.system(size: 15))
+                    .foregroundStyle(.white.opacity(0.48))
+                    .multilineTextAlignment(.center)
+                    .lineSpacing(2)
+            }
+
+            Button {
+                if let url = URL(string: UIApplication.openSettingsURLString) {
+                    UIApplication.shared.open(url)
+                }
+            } label: {
+                Text("Open Settings")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(.black)
+                    .padding(.horizontal, 36)
+                    .padding(.vertical, 14)
+                    .background(Color.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            }
+        }
+        .padding(.horizontal, 40)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.black)
     }
 }
 
