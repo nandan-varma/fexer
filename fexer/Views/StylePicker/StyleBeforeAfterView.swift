@@ -104,23 +104,23 @@ struct StyleBeforeAfterView: View {
             .allowsHitTesting(false)
     }
 
+    private func sideLabel(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 10, weight: .bold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 8).padding(.vertical, 4)
+            .background(.black.opacity(0.5), in: Capsule())
+    }
+
     @ViewBuilder
     private func beforeAfterLabels(splitX: CGFloat, width: CGFloat) -> some View {
         HStack {
-            Text("BEFORE")
-                .font(.system(size: 10, weight: .bold))
-                .foregroundStyle(.white)
-                .padding(.horizontal, 8).padding(.vertical, 4)
-                .background(.black.opacity(0.5), in: Capsule())
+            sideLabel("BEFORE")
                 .padding(.leading, 16)
                 .opacity(splitX > 80 ? 1 : 0)
                 .animation(.easeInOut(duration: 0.15), value: splitX > 80)
             Spacer()
-            Text("AFTER")
-                .font(.system(size: 10, weight: .bold))
-                .foregroundStyle(.white)
-                .padding(.horizontal, 8).padding(.vertical, 4)
-                .background(.black.opacity(0.5), in: Capsule())
+            sideLabel("AFTER")
                 .padding(.trailing, 16)
                 .opacity(splitX < width - 80 ? 1 : 0)
                 .animation(.easeInOut(duration: 0.15), value: splitX < width - 80)

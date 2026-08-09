@@ -171,11 +171,7 @@ private struct StyleIntensitySlider: View {
                         .fill(Color.yellow.opacity(isDragging ? 1.0 : 0.8))
                         .frame(width: pos, height: 3)
 
-                    Circle()
-                        .fill(isDragging ? Color.yellow : .white)
-                        .frame(width: isDragging ? 9 : 6, height: isDragging ? 9 : 6)
-                        .offset(x: pos - (isDragging ? 4.5 : 3))
-                        .animation(.easeInOut(duration: 0.12), value: isDragging)
+                    SliderThumb(pos: pos, isDragging: isDragging)
                 }
                 .frame(height: 3)
                 .frame(maxHeight: .infinity, alignment: .center)

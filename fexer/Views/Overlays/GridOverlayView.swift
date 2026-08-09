@@ -21,36 +21,53 @@ struct GridOverlayView: View {
         .allowsHitTesting(false)
     }
 
+    /// Strokes vertical segments (`at` = x, spanned from/to y) and horizontal segments
+    /// (`at` = y, spanned from/to x) with the shared grid style.
+    private func strokeGrid(context: GraphicsContext, color: Color,
+                            verticals: [(at: CGFloat, from: CGFloat, to: CGFloat)],
+                            horizontals: [(at: CGFloat, from: CGFloat, to: CGFloat)]) {
+        var path = Path()
+        for v in verticals {
+            path.move(to: CGPoint(x: v.at, y: v.from))
+            path.addLine(to: CGPoint(x: v.at, y: v.to))
+        }
+        for h in horizontals {
+            path.move(to: CGPoint(x: h.from, y: h.at))
+            path.addLine(to: CGPoint(x: h.to, y: h.at))
+        }
+        context.stroke(path, with: .color(color), lineWidth: 0.5)
+    }
+
+    private func gridLines(count: Int, width: CGFloat, height: CGFloat)
+        -> (verticals: [(at: CGFloat, from: CGFloat, to: CGFloat)],
+            horizontals: [(at: CGFloat, from: CGFloat, to: CGFloat)]) {
+        let verticals: [(at: CGFloat, from: CGFloat, to: CGFloat)] = (1...count).map {
+            (at: width * CGFloat($0) / CGFloat(count + 1), from: 0, to: height)
+        }
+        let horizontals: [(at: CGFloat, from: CGFloat, to: CGFloat)] = (1...count).map {
+            (at: height * CGFloat($0) / CGFloat(count + 1), from: 0, to: width)
+        }
+        return (verticals, horizontals)
+    }
+
     private func thirdsGrid() -> some View {
         Canvas { context, size in
-            let color = Color.white.opacity(0.35)
-            var path = Path()
-            for i in 1...2 {
-                let x = size.width * CGFloat(i) / 3
-                let y = size.height * CGFloat(i) / 3
-                path.move(to: CGPoint(x: x, y: 0));            path.addLine(to: CGPoint(x: x, y: size.height))
-                path.move(to: CGPoint(x: 0, y: y));            path.addLine(to: CGPoint(x: size.width, y: y))
-            }
-            context.stroke(path, with: .color(color), lineWidth: 0.5)
+            let lines = gridLines(count: 2, width: size.width, height: size.height)
+            strokeGrid(context: context, color: .white.opacity(0.35),
+                       verticals: lines.verticals, horizontals: lines.horizontals)
         }
     }
 
     private func phiGrid() -> some View {
         Canvas { context, size in
             let phi: CGFloat = 1.61803398875
-            let color = Color.white.opacity(0.35)
             let x1 = size.width / (phi + 1)
             let x2 = size.width - x1
             let y1 = size.height / (phi + 1)
             let y2 = size.height - y1
-            var path = Path()
-            for x in [x1, x2] {
-                path.move(to: CGPoint(x: x, y: 0)); path.addLine(to: CGPoint(x: x, y: size.height))
-            }
-            for y in [y1, y2] {
-                path.move(to: CGPoint(x: 0, y: y)); path.addLine(to: CGPoint(x: size.width, y: y))
-            }
-            context.stroke(path, with: .color(color), lineWidth: 0.5)
+            strokeGrid(context: context, color: .white.opacity(0.35),
+                       verticals: [(at: x1, from: 0, to: size.height), (at: x2, from: 0, to: size.height)],
+                       horizontals: [(at: y1, from: 0, to: size.width), (at: y2, from: 0, to: size.width)])
         }
     }
 
@@ -60,14 +77,12 @@ struct GridOverlayView: View {
             let side = min(size.width, size.height)
             let ox = (size.width - side) / 2
             let oy = (size.height - side) / 2
-            var path = Path(CGRect(x: ox, y: oy, width: side, height: side))
-            for i in 1...2 {
-                let x = ox + side * CGFloat(i) / 3
-                let y = oy + side * CGFloat(i) / 3
-                path.move(to: CGPoint(x: x, y: oy));       path.addLine(to: CGPoint(x: x, y: oy + side))
-                path.move(to: CGPoint(x: ox, y: y));       path.addLine(to: CGPoint(x: ox + side, y: y))
-            }
-            context.stroke(path, with: .color(color), lineWidth: 0.5)
+            context.stroke(Path(CGRect(x: ox, y: oy, width: side, height: side)),
+                           with: .color(color), lineWidth: 0.5)
+            let lines = gridLines(count: 2, width: side, height: side)
+            strokeGrid(context: context, color: color,
+                       verticals: lines.verticals.map { (at: $0.at + ox, from: oy, to: oy + side) },
+                       horizontals: lines.horizontals.map { (at: $0.at + oy, from: ox, to: ox + side) })
         }
     }
 

@@ -1,6 +1,7 @@
 import Foundation
 
-struct StyleParams {
+/// Pure per-style parameter table, read from the nonisolated LUT generation path.
+nonisolated struct StyleParams {
     var saturation: Float32 = 1.0     // 0=B&W, 1=normal, >1=vivid
     var contrast: Float32 = 1.0       // pivot at 0.5 in sRGB
     var exposure: Float32 = 0         // stops
@@ -19,7 +20,7 @@ enum StyleTransforms {
     // MARK: - Per-style parameter tables
 
     // swiftlint:disable:next cyclomatic_complexity
-    static func params(for style: PhotoStyle) -> StyleParams {
+    nonisolated static func params(for style: PhotoStyle) -> StyleParams {
         switch style.name {
         // ── Film ─────────────────────────────────────────────────────────────────
         case "Portra 400":
@@ -109,7 +110,7 @@ enum StyleTransforms {
 
     // MARK: - Transform
 
-    static func apply(_ p: StyleParams, r: Float32, g: Float32, b: Float32) -> (Float32, Float32, Float32) {
+    nonisolated static func apply(_ p: StyleParams, r: Float32, g: Float32, b: Float32) -> (Float32, Float32, Float32) {
         var r = r, g = g, b = b
 
         // 1. Exposure (stops)

@@ -123,7 +123,9 @@ import UIKit
 
     var captureSettings = CaptureSettings()
 
-    @ObservationIgnored lazy var iso8601Formatter = ISO8601DateFormatter()
+    // Read on sessionQueue when a recording starts. ISO8601DateFormatter is thread-safe;
+    // a nonisolated let avoids a lazy-init race off the MainActor.
+    @ObservationIgnored nonisolated(unsafe) let iso8601Formatter = ISO8601DateFormatter()
 
     // Called on MainActor before/after every session beginConfiguration/commitConfiguration pair.
     // CameraView wires these to volumeGate.block() / volumeGate.unblock() so that spurious

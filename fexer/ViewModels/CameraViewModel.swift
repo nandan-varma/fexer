@@ -3,7 +3,8 @@ import Observation
 import OSLog
 import SwiftUI
 
-struct HistogramData {
+// Pure data container, constructed off-main in HistogramCalculator.compute — nonisolated like WaveformData/VectorscopeData.
+nonisolated struct HistogramData {
     var red: [Float] = []
     var green: [Float] = []
     var blue: [Float] = []
@@ -240,26 +241,6 @@ final class CameraViewModel {
 
     // MARK: - Overlay Sync
 
-    // swiftlint:disable function_parameter_count
-    /// Stores consolidated FrameFlags on the processor (single lock acquisition).
-    private func flagsFrom(
-        focusPeaking: Bool, zebra: Bool, falseColor: Bool, histogram: Bool,
-        waveform: Bool, vectorscope: Bool, peakingColorName: String,
-        zebraHighThreshold: Float, zebraLowThreshold: Float
-    ) -> CaptureProcessor.FrameFlags {
-        var f = CaptureProcessor.FrameFlags()
-        f.peaking = focusPeaking
-        f.zebra = zebra
-        f.falseColor = falseColor
-        f.histogram = histogram
-        f.waveform = waveform
-        f.vectorscope = vectorscope
-        f.zebraHigh = zebraHighThreshold
-        f.zebraLow = zebraLowThreshold
-        return f
-    }
-    // swiftlint:enable function_parameter_count
-
     /// Caller passes AppStorage flags so this class doesn't need to own them.
     func syncOverlaysToProcessor(
         focusPeaking: Bool = false,
@@ -272,15 +253,13 @@ final class CameraViewModel {
         zebraHighThreshold: Float = 0.95,
         zebraLowThreshold: Float = 0.02
     ) {
-        cameraManager.processor.frameFlags = flagsFrom(
+        syncFlagsToProcessor(
             focusPeaking: focusPeaking, zebra: zebra, falseColor: falseColor,
             histogram: histogram, waveform: waveform, vectorscope: vectorscope,
             peakingColorName: peakingColorName,
             zebraHighThreshold: zebraHighThreshold, zebraLowThreshold: zebraLowThreshold
         )
-        cameraManager.processor.peakingColor = Self.ciColor(forPeakingColorName: peakingColorName)
-        let filter = stylesManager.activeLUTFilter()
-        cameraManager.processor.lutFilter = filter
+        cameraManager.processor.lutFilter = stylesManager.activeLUTFilter()
     }
 
     /// Only updates flags, does NOT touch the LUT filter (cheaper path for overlay toggles).
@@ -295,12 +274,16 @@ final class CameraViewModel {
         zebraHighThreshold: Float = 0.95,
         zebraLowThreshold: Float = 0.02
     ) {
-        cameraManager.processor.frameFlags = flagsFrom(
-            focusPeaking: focusPeaking, zebra: zebra, falseColor: falseColor,
-            histogram: histogram, waveform: waveform, vectorscope: vectorscope,
-            peakingColorName: peakingColorName,
-            zebraHighThreshold: zebraHighThreshold, zebraLowThreshold: zebraLowThreshold
-        )
+        var f = CaptureProcessor.FrameFlags()
+        f.peaking = focusPeaking
+        f.zebra = zebra
+        f.falseColor = falseColor
+        f.histogram = histogram
+        f.waveform = waveform
+        f.vectorscope = vectorscope
+        f.zebraHigh = zebraHighThreshold
+        f.zebraLow = zebraLowThreshold
+        cameraManager.processor.frameFlags = f
         cameraManager.processor.peakingColor = Self.ciColor(forPeakingColorName: peakingColorName)
     }
 
@@ -387,9 +370,24 @@ final class CameraViewModel {
         Logger.camera.info("Timelapse stopped: \(self.timelapseCount) frames")
     }
 
+    /// Restores exposure state saved on entering long-exposure / night mode.
+    private func restoreSavedExposure() {
+        guard let saved = savedExposure else { return }
+        if saved.autoISO && saved.autoShutter {
+            cameraManager.setAutoExposure()
+            cameraManager.captureSettings.isAutoISO = true
+            cameraManager.captureSettings.isAutoShutter = true
+        } else {
+            cameraManager.setManualExposure(iso: saved.iso, duration: saved.shutter)
+            cameraManager.captureSettings.isAutoISO = saved.autoISO
+            cameraManager.captureSettings.isAutoShutter = saved.autoShutter
+        }
+        savedExposure = nil
+    }
+
     // MARK: - Mode Selection
 
-    // swiftlint:disable cyclomatic_complexity function_body_length
+    // swiftlint:disable cyclomatic_complexity
     /// Call with the raw value string from `@AppStorage("cropRatio")` so the
     /// view model can update crop ratio without importing AppStorage itself.
     func selectMode(index: Int, cropRatioRaw: Binding<String>, selfTimerDelay: Binding<Int>) {
@@ -409,31 +407,9 @@ final class CameraViewModel {
             cameraManager.processor.setAnamorphic(false)
         case .longExposure:
             cameraManager.cancelLongExposureCapture()
-            if let saved = savedExposure {
-                if saved.autoISO && saved.autoShutter {
-                    cameraManager.setAutoExposure()
-                    cameraManager.captureSettings.isAutoISO = true
-                    cameraManager.captureSettings.isAutoShutter = true
-                } else {
-                    cameraManager.setManualExposure(iso: saved.iso, duration: saved.shutter)
-                    cameraManager.captureSettings.isAutoISO = saved.autoISO
-                    cameraManager.captureSettings.isAutoShutter = saved.autoShutter
-                }
-                savedExposure = nil
-            }
+            restoreSavedExposure()
         case .night:
-            if let saved = savedExposure {
-                if saved.autoISO && saved.autoShutter {
-                    cameraManager.setAutoExposure()
-                    cameraManager.captureSettings.isAutoISO = true
-                    cameraManager.captureSettings.isAutoShutter = true
-                } else {
-                    cameraManager.setManualExposure(iso: saved.iso, duration: saved.shutter)
-                    cameraManager.captureSettings.isAutoISO = saved.autoISO
-                    cameraManager.captureSettings.isAutoShutter = saved.autoShutter
-                }
-                savedExposure = nil
-            }
+            restoreSavedExposure()
             cameraManager.setNightModeEnabled(false)
         case .selfTimer:
             cancelTimer()
@@ -519,5 +495,5 @@ final class CameraViewModel {
             Logger.camera.info("Anamorphic mode: 2.39:1 crop + 2× desqueeze enabled")
         }
     }
-    // swiftlint:enable cyclomatic_complexity function_body_length
+    // swiftlint:enable cyclomatic_complexity
 }

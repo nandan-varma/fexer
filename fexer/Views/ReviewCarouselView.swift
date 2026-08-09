@@ -54,13 +54,7 @@ struct ReviewCarouselView: View {
             }
             VStack {
                 HStack {
-                    Button(action: { onDismiss?() }) {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(.white)
-                            .frame(width: 36, height: 36)
-                            .background(.black.opacity(0.5), in: Circle())
-                    }
+                    CircleIconButton(systemName: "xmark", weight: .semibold) { onDismiss?() }
                     Spacer()
                 }
                 .padding(.horizontal, 20)
@@ -103,26 +97,11 @@ struct LibraryPhotoPageView: View {
             VStack {
                 // Top bar
                 HStack {
-                    Button(action: { onDismiss?() }) {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(.white)
-                            .frame(width: 36, height: 36)
-                            .background(.black.opacity(0.5), in: Circle())
-                    }
+                    CircleIconButton(systemName: "xmark", weight: .semibold) { onDismiss?() }
 
                     Spacer()
 
-                    Button { showDeleteConfirmation = true } label: {
-                        Image(systemName: "trash")
-                            .font(.system(size: 18))
-                            .foregroundStyle(.white)
-                            .frame(width: 36, height: 36)
-                            .background(.black.opacity(0.5), in: Circle())
-                    }
-                    .confirmationDialog("Delete this photo?", isPresented: $showDeleteConfirmation, titleVisibility: .visible) {
-                        Button("Delete Photo", role: .destructive) { deletePhoto() }
-                    }
+                    ReviewDeleteButton(showConfirmation: $showDeleteConfirmation, onDelete: deletePhoto)
                 }
                 .padding(.horizontal, 20)
                 .padding(.top, 12)
@@ -133,13 +112,7 @@ struct LibraryPhotoPageView: View {
                 HStack(spacing: 28) {
                     Spacer()
 
-                    if let data = shareData {
-                        ShareLink(item: data, preview: SharePreview("Photo")) {
-                            Image(systemName: "square.and.arrow.up")
-                                .font(.system(size: 20))
-                                .foregroundStyle(.white)
-                        }
-                    }
+                    SharePhotoLink(data: shareData)
 
                     if let openGallery = onOpenFullGallery {
                         Button(action: openGallery) {
@@ -153,18 +126,7 @@ struct LibraryPhotoPageView: View {
                 .padding(.bottom, 40)
             }
         }
-        .onTapGesture(count: 2) {
-            let target: CGFloat = magnification > 1.5 ? 1.0 : 2.0
-            withAnimation(.spring()) { magnification = target }
-            lastMagnification = target
-        }
-        .gesture(
-            DragGesture(minimumDistance: 20)
-                .onEnded { g in
-                    let isVertical = abs(g.translation.height) > abs(g.translation.width)
-                    if isVertical && g.translation.height > 80 { onDismiss?() }
-                }
-        )
+        .reviewGestures(magnification: $magnification, lastMagnification: $lastMagnification, onDismiss: onDismiss)
         .onAppear { loadImage() }
         .onDisappear { requestID.map { galleryViewModel.cancelRequest($0) } }
     }

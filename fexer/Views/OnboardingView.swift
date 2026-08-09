@@ -162,38 +162,11 @@ struct CameraAccessDeniedView: View {
         ZStack {
             Color.black.ignoresSafeArea()
 
-            VStack(spacing: 24) {
-                Image(systemName: "camera.slash")
-                    .font(.system(size: 60, weight: .thin))
-                    .foregroundStyle(.white.opacity(0.45))
-
-                VStack(spacing: 8) {
-                    Text("Camera Access Denied")
-                        .font(.system(size: 20, weight: .semibold))
-                        .foregroundStyle(.white)
-
-                    Text("fexer requires camera access.\nEnable it in Settings to continue.")
-                        .font(.system(size: 15))
-                        .foregroundStyle(.white.opacity(0.48))
-                        .multilineTextAlignment(.center)
-                        .lineSpacing(2)
-                }
-
-                Button {
-                    if let url = URL(string: UIApplication.openSettingsURLString) {
-                        UIApplication.shared.open(url)
-                    }
-                } label: {
-                    Text("Open Settings")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(.black)
-                        .padding(.horizontal, 36)
-                        .padding(.vertical, 14)
-                        .background(Color.white)
-                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                }
-            }
-            .padding(.horizontal, 40)
+            AccessDeniedView(
+                icon: "camera.slash",
+                title: "Camera Access Denied",
+                message: "fexer requires camera access.\nEnable it in Settings to continue."
+            )
         }
         .preferredColorScheme(.dark)
     }

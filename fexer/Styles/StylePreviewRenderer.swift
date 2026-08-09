@@ -20,7 +20,39 @@ final class StylePreviewRenderer {
     }
 
     nonisolated func originalImage(size: CGSize, completion: @escaping (UIImage?) -> Void) {
-        let keyStr = "__original__-\(Int(size.width))x\(Int(size.height))"
+        renderCached(key: "__original__-\(Int(size.width))x\(Int(size.height))",
+                     size: size, process: { $0 }, completion: completion)
+    }
+
+    nonisolated func thumbnail(for style: PhotoStyle,
+                                size: CGSize = CGSize(width: 120, height: 90),
+                                completion: @escaping (UIImage?) -> Void) {
+        renderCached(key: "\(style.id)-\(Int(size.width))x\(Int(size.height))",
+                     size: size, process: { Self.applyingStyleLUT(style, to: $0) }, completion: completion)
+    }
+
+    /// Applies the style's LUT, returning `base` unchanged when the LUT can't be built
+    /// (missing colorspace / filter failure) so the caller still gets a thumbnail.
+    nonisolated private static func applyingStyleLUT(_ style: PhotoStyle, to base: CIImage) -> CIImage {
+        guard let sRGB = CGColorSpace(name: CGColorSpace.sRGB),
+              let (data, dim) = LUTLoader.shared.effectiveLUT(for: style),
+              let lutFilter = CIFilter(name: "CIColorCubeWithColorSpace",
+                                       parameters: [
+                                           "inputImage": base,
+                                           "inputCubeDimension": dim,
+                                           "inputCubeData": data,
+                                           "inputColorSpace": sRGB
+                                       ]),
+              let output = lutFilter.outputImage
+        else { return base }
+        return output
+    }
+
+    /// Cache-read → process + aspect-fill scale + center-crop on renderQueue → cache-write
+    /// → completion on main. Shared by originalImage and thumbnail.
+    nonisolated private func renderCached(key keyStr: String, size: CGSize,
+                                          process: @escaping (CIImage) -> CIImage,
+                                          completion: @escaping (UIImage?) -> Void) {
         let key = keyStr as NSString
         if let cached = cache.object(forKey: key) { DispatchQueue.main.async { completion(cached) }; return }
 
@@ -29,8 +61,9 @@ final class StylePreviewRenderer {
 
         renderQueue.async { [self] in
             let cacheKey = keyStr as NSString
-            let scale = max(size.width / base.extent.width, size.height / base.extent.height)
-            let scaled = base.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+            let processed = process(base)
+            let scale = max(size.width / processed.extent.width, size.height / processed.extent.height)
+            let scaled = processed.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
             let ox = (scaled.extent.width  - size.width)  / 2
             let oy = (scaled.extent.height - size.height) / 2
             let cropRect = CGRect(x: scaled.extent.minX + ox, y: scaled.extent.minY + oy,
@@ -41,49 +74,6 @@ final class StylePreviewRenderer {
             let image = UIImage(cgImage: cgImage)
             self.cache.setObject(image, forKey: cacheKey)
             DispatchQueue.main.async { completion(image) }
-        }
-    }
-
-    nonisolated func thumbnail(for style: PhotoStyle,
-                                size: CGSize = CGSize(width: 120, height: 90),
-                                completion: @escaping (UIImage?) -> Void) {
-        let keyStr = "\(style.id)-\(Int(size.width))x\(Int(size.height))"
-        let key = keyStr as NSString
-        if let cached = cache.object(forKey: key) { DispatchQueue.main.async { completion(cached) }; return }
-
-        let base = sampleImage
-        guard base.extent.width > 0 && base.extent.height > 0 else { completion(nil); return }
-
-        renderQueue.async { [self] in
-            let cacheKey = keyStr as NSString
-            var processed = base
-
-            guard let sRGB = CGColorSpace(name: CGColorSpace.sRGB) else { return }
-            if let (data, dim) = LUTLoader.shared.effectiveLUT(for: style),
-               let lutFilter = CIFilter(name: "CIColorCubeWithColorSpace",
-                                          parameters: [
-                                              "inputImage": base,
-                                              "inputCubeDimension": dim,
-                                              "inputCubeData": data,
-                                              "inputColorSpace": sRGB
-                                          ]),
-               let output = lutFilter.outputImage {
-                processed = output
-            }
-
-            let scale = max(size.width / processed.extent.width, size.height / processed.extent.height)
-            let scaled = processed.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
-            let ox = (scaled.extent.width  - size.width)  / 2
-            let oy = (scaled.extent.height - size.height) / 2
-            let cropRect = CGRect(x: scaled.extent.minX + ox, y: scaled.extent.minY + oy,
-                                  width: size.width, height: size.height)
-
-            guard let cgImage = self.ciContext.createCGImage(scaled, from: cropRect) else {
-                completion(nil); return
-            }
-            let thumb = UIImage(cgImage: cgImage)
-            self.cache.setObject(thumb, forKey: cacheKey)
-            DispatchQueue.main.async { completion(thumb) }
         }
     }
 }

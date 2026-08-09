@@ -1,23 +1,27 @@
 import Foundation
 import OSLog
 
+/// Thread-safe (NSCache + immutable entries) — all members are nonisolated so the
+/// thumbnail renderer can call them from its background renderQueue.
 final class LUTLoader {
-    static let shared = LUTLoader()
+    nonisolated static let shared = LUTLoader()
 
     private final class LUTEntry: NSObject {
-        let data: NSData
-        let dimension: Int
-        init(_ data: NSData, _ dimension: Int) { self.data = data; self.dimension = dimension }
+        // nonisolated(unsafe): NSData is immutable + thread-safe in practice.
+        nonisolated(unsafe) let data: NSData
+        nonisolated let dimension: Int
+        nonisolated init(_ data: NSData, _ dimension: Int) { self.data = data; self.dimension = dimension }
     }
 
-    private let cache = NSCache<NSString, LUTEntry>()
+    // nonisolated(unsafe): NSCache is thread-safe. Same pattern as StylePreviewRenderer.cache.
+    nonisolated(unsafe) private let cache = NSCache<NSString, LUTEntry>()
 
-    private init() {
+    nonisolated private init() {
         cache.countLimit = 10
     }
 
     /// Returns RGBA Float32 data suitable for CIColorCubeWithColorSpace, plus cube dimension.
-    func load(filename: String) -> (data: NSData, dimension: Int)? {
+    nonisolated func load(filename: String) -> (data: NSData, dimension: Int)? {
         let key = filename as NSString
         if let entry = cache.object(forKey: key) {
             return (entry.data, entry.dimension)
@@ -46,7 +50,7 @@ final class LUTLoader {
 
     /// Generates LUT data from a mathematical (r,g,b)→(r,g,b) transform.
     /// Cached by name+dimension so generation only happens once per style.
-    func generateProcedural(name: String,
+    nonisolated func generateProcedural(name: String,
                              dimension: Int = 17,
                              transform: (Float32, Float32, Float32) -> (Float32, Float32, Float32)) -> (NSData, Int) {
         let cacheKey = "__proc_\(name)_\(dimension)" as NSString
@@ -83,7 +87,7 @@ final class LUTLoader {
 
     /// Loads a .cube file if available; otherwise generates LUT data procedurally.
     /// This is the single entry point both the live pipeline and thumbnail renderer should use.
-    func effectiveLUT(for style: PhotoStyle) -> (NSData, Int)? {
+    nonisolated func effectiveLUT(for style: PhotoStyle) -> (NSData, Int)? {
         if let fileName = style.lutFileName, let loaded = load(filename: fileName) {
             return loaded
         }

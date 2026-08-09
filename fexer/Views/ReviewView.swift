@@ -95,13 +95,7 @@ struct ReviewView: View {
             // Controls
             VStack {
                 HStack {
-                    Button(action: { onDismiss?() }) {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(.white)
-                            .frame(width: 36, height: 36)
-                            .background(.black.opacity(0.5), in: Circle())
-                    }
+                    CircleIconButton(systemName: "xmark", weight: .semibold) { onDismiss?() }
 
                     Spacer()
 
@@ -116,18 +110,7 @@ struct ReviewView: View {
                     }
 
                     if photo.assetLocalIdentifier != nil {
-                        Button {
-                            showDeleteConfirmation = true
-                        } label: {
-                            Image(systemName: "trash")
-                                .font(.system(size: 18))
-                                .foregroundStyle(.white)
-                                .frame(width: 36, height: 36)
-                                .background(.black.opacity(0.5), in: Circle())
-                        }
-                        .confirmationDialog("Delete this photo?", isPresented: $showDeleteConfirmation, titleVisibility: .visible) {
-                            Button("Delete Photo", role: .destructive) { deletePhoto() }
-                        }
+                        ReviewDeleteButton(showConfirmation: $showDeleteConfirmation, onDelete: deletePhoto)
                     }
 
                     Button {
@@ -157,30 +140,13 @@ struct ReviewView: View {
                     Spacer()
 
                     // Share
-                    if let data = editedPhoto?.jpegData ?? photo.jpegData {
-                        ShareLink(item: data, preview: SharePreview("Photo")) {
-                            Image(systemName: "square.and.arrow.up")
-                                .font(.system(size: 20))
-                                .foregroundStyle(.white)
-                        }
-                    }
+                    SharePhotoLink(data: editedPhoto?.jpegData ?? photo.jpegData)
                 }
                 .padding(.horizontal, 24)
                 .padding(.bottom, 40)
             }
         }
-        .gesture(
-            DragGesture(minimumDistance: 20)
-                .onEnded { g in
-                    let isVertical = abs(g.translation.height) > abs(g.translation.width)
-                    if isVertical && g.translation.height > 80 { onDismiss?() }
-                }
-        )
-        .onTapGesture(count: 2) {
-            let target: CGFloat = magnification > 1.5 ? 1.0 : 2.0
-            withAnimation(.spring()) { magnification = target }
-            lastMagnification = target
-        }
+        .reviewGestures(magnification: $magnification, lastMagnification: $lastMagnification, onDismiss: onDismiss)
     }
 
     private var magnificationGesture: some Gesture {

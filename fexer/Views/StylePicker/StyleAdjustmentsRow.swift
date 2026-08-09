@@ -76,11 +76,7 @@ private struct AdjustmentDial: View {
 
                     // Thumb
                     if !disabled {
-                        Circle()
-                            .fill(isDragging ? Color.yellow : .white)
-                            .frame(width: isDragging ? 9 : 6, height: isDragging ? 9 : 6)
-                            .offset(x: pos - (isDragging ? 4.5 : 3))
-                            .animation(.easeInOut(duration: 0.12), value: isDragging)
+                        SliderThumb(pos: pos, isDragging: isDragging)
                     }
                 }
                 .frame(height: 3)

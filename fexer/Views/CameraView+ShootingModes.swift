@@ -200,18 +200,7 @@ extension CameraView {
         case .photo:
             if cameraManager.isHDRFormatSupported {
                 HStack(spacing: 8) {
-                    Button {
-                        isHDREnabled.toggle()
-                        cameraManager.setHDREnabled(isHDREnabled)
-                        HapticManager.light()
-                    } label: {
-                        Text("HDR")
-                            .font(.system(size: 9, weight: .semibold, design: .monospaced))
-                            .foregroundStyle(isHDREnabled ? .black : .white.opacity(0.6))
-                            .padding(.horizontal, 8).padding(.vertical, 4)
-                            .background(isHDREnabled ? Color.yellow : .white.opacity(0.1), in: Capsule())
-                    }
-                    .buttonStyle(.plain)
+                    hdrToggleButton
                     Spacer()
                 }
                 .padding(.horizontal, 16)
@@ -372,26 +361,32 @@ extension CameraView {
 
                 // HDR toggle (when device supports HDR formats)
                 if cameraManager.isHDRFormatSupported {
-                    Button {
-                        isHDREnabled.toggle()
-                        cameraManager.setHDREnabled(isHDREnabled)
-                        if cameraViewModel.activeMode == .video {
-                            cameraManager.configureVideoFrameRate(videoFrameRate)
-                        }
-                        HapticManager.light()
-                    } label: {
-                        Text("HDR")
-                            .font(.system(size: 9, weight: .semibold, design: .monospaced))
-                            .foregroundStyle(isHDREnabled ? .black : .white.opacity(0.6))
-                            .padding(.horizontal, 8).padding(.vertical, 4)
-                            .background(isHDREnabled ? Color.yellow : .white.opacity(0.1), in: Capsule())
-                    }
-                    .buttonStyle(.plain)
+                    hdrToggleButton
                 }
 
                 Spacer()
             }
         }
         .padding(.horizontal, 16)
+    }
+
+    /// HDR format toggle shared by the photo advisory row and the video controls row.
+    /// Re-applies the frame rate in video mode so the format switch takes effect.
+    private var hdrToggleButton: some View {
+        Button {
+            isHDREnabled.toggle()
+            cameraManager.setHDREnabled(isHDREnabled)
+            if cameraViewModel.activeMode == .video {
+                cameraManager.configureVideoFrameRate(videoFrameRate)
+            }
+            HapticManager.light()
+        } label: {
+            Text("HDR")
+                .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                .foregroundStyle(isHDREnabled ? .black : .white.opacity(0.6))
+                .padding(.horizontal, 8).padding(.vertical, 4)
+                .background(isHDREnabled ? Color.yellow : .white.opacity(0.1), in: Capsule())
+        }
+        .buttonStyle(.plain)
     }
 }

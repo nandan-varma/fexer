@@ -60,38 +60,11 @@ struct GalleryView: View {
 
 private struct PhotoLibraryAccessDeniedView: View {
     var body: some View {
-        VStack(spacing: 24) {
-            Image(systemName: "photo.badge.exclamationmark")
-                .font(.system(size: 60, weight: .thin))
-                .foregroundStyle(.white.opacity(0.45))
-
-            VStack(spacing: 8) {
-                Text("Photo Library Access Denied")
-                    .font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(.white)
-
-                Text("fexer needs access to your photo library to show your captures here.\nEnable it in Settings to continue.")
-                    .font(.system(size: 15))
-                    .foregroundStyle(.white.opacity(0.48))
-                    .multilineTextAlignment(.center)
-                    .lineSpacing(2)
-            }
-
-            Button {
-                if let url = URL(string: UIApplication.openSettingsURLString) {
-                    UIApplication.shared.open(url)
-                }
-            } label: {
-                Text("Open Settings")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(.black)
-                    .padding(.horizontal, 36)
-                    .padding(.vertical, 14)
-                    .background(Color.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            }
-        }
-        .padding(.horizontal, 40)
+        AccessDeniedView(
+            icon: "photo.badge.exclamationmark",
+            title: "Photo Library Access Denied",
+            message: "fexer needs access to your photo library to show your captures here.\nEnable it in Settings to continue."
+        )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.black)
     }
@@ -192,23 +165,9 @@ private struct GalleryDetailView: View {
 
             VStack {
                 HStack {
-                    Button { dismiss() } label: {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(.white)
-                            .frame(width: 36, height: 36)
-                            .background(.black.opacity(0.5), in: Circle())
-                    }
+                    CircleIconButton(systemName: "xmark", weight: .semibold) { dismiss() }
                     Spacer()
-                    Button {
-                        showDeleteConfirm = true
-                    } label: {
-                        Image(systemName: "trash")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(.white)
-                            .frame(width: 36, height: 36)
-                            .background(.black.opacity(0.5), in: Circle())
-                    }
+                    CircleIconButton(systemName: "trash", weight: .semibold) { showDeleteConfirm = true }
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 12)

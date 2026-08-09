@@ -593,31 +593,28 @@ struct CameraView: View {
     }
 
     func syncProcessor() {
-        cameraViewModel.syncOverlaysToProcessor(
-            focusPeaking: showFocusPeaking && !isCleanViewActive,
-            zebra: showZebra && !isCleanViewActive,
-            falseColor: showFalseColor && !isCleanViewActive,
-            histogram: showHistogram,
-            waveform: showWaveform && !isCleanViewActive,
-            vectorscope: showVectorscope && !isCleanViewActive,
-            peakingColorName: focusPeakingColor,
-            zebraHighThreshold: Float(zebraHighThreshold / 100),
-            zebraLowThreshold: Float(zebraLowThreshold / 100)
-        )
+        syncOverlays(cameraViewModel.syncOverlaysToProcessor)
     }
 
     /// Flags-only sync: does NOT recreate the LUT filter — used for overlay toggles.
     func syncFlags() {
-        cameraViewModel.syncFlagsToProcessor(
-            focusPeaking: showFocusPeaking && !isCleanViewActive,
-            zebra: showZebra && !isCleanViewActive,
-            falseColor: showFalseColor && !isCleanViewActive,
-            histogram: showHistogram,
-            waveform: showWaveform && !isCleanViewActive,
-            vectorscope: showVectorscope && !isCleanViewActive,
-            peakingColorName: focusPeakingColor,
-            zebraHighThreshold: Float(zebraHighThreshold / 100),
-            zebraLowThreshold: Float(zebraLowThreshold / 100)
+        syncOverlays(cameraViewModel.syncFlagsToProcessor)
+    }
+
+    /// Single argument list for both processor sync paths (clean-view gating lives here).
+    private func syncOverlays(
+        _ apply: (Bool, Bool, Bool, Bool, Bool, Bool, String, Float, Float) -> Void
+    ) {
+        apply(
+            showFocusPeaking && !isCleanViewActive,
+            showZebra && !isCleanViewActive,
+            showFalseColor && !isCleanViewActive,
+            showHistogram,
+            showWaveform && !isCleanViewActive,
+            showVectorscope && !isCleanViewActive,
+            focusPeakingColor,
+            Float(zebraHighThreshold / 100),
+            Float(zebraLowThreshold / 100)
         )
     }
 }

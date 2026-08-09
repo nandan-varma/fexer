@@ -82,35 +82,62 @@ enum HistogramCalculator {
         )
     }
 
-    // Renders the image to a 64×128 sample, then builds a per-column luma density map.
-    // Each column of the display corresponds to the same horizontal slice of the camera frame.
-    nonisolated static func computeWaveform(from image: CIImage, context: CIContext) -> WaveformData {
-        let cols = WaveformData.cols
-        let rows = WaveformData.rows
+    /// CGImage-backed RGBA8 pixel sample. The CGImage is retained so `bytes` stays valid.
+    /// nonisolated: read from the nonisolated waveform/vectorscope compute functions.
+    nonisolated private struct RGBA8Sample {
+        let image: CGImage
+        let bytes: UnsafePointer<UInt8>
+        let bytesPerRow: Int
+        // Explicit nonisolated init — the implicit memberwise init stays MainActor-isolated.
+        nonisolated init(image: CGImage, bytes: UnsafePointer<UInt8>, bytesPerRow: Int) {
+            self.image = image
+            self.bytes = bytes
+            self.bytesPerRow = bytesPerRow
+        }
+    }
 
+    /// Scales `image` to width×height and renders it to RGBA8 pixels. Shared by waveform/vectorscope.
+    nonisolated private static func renderRGBA8(_ image: CIImage, width: Int, height: Int,
+                                                context: CIContext) -> RGBA8Sample? {
         let scale = CGAffineTransform(
-            scaleX: CGFloat(cols) / image.extent.width,
-            y: CGFloat(rows) / image.extent.height
+            scaleX: CGFloat(width) / image.extent.width,
+            y: CGFloat(height) / image.extent.height
         )
         let scaled = image.transformed(by: scale)
 
         guard let sRGB = CGColorSpace(name: CGColorSpace.sRGB),
               let cgImage = context.createCGImage(scaled, from: scaled.extent,
                                                   format: .RGBA8, colorSpace: sRGB),
-              let cfData = cgImage.dataProvider?.data
-        else { return WaveformData() }
+              let cfData = cgImage.dataProvider?.data,
+              let bytes = CFDataGetBytePtr(cfData)
+        else { return nil }
 
-        let bytes = CFDataGetBytePtr(cfData)!
-        let bytesPerRow = cgImage.bytesPerRow
+        return RGBA8Sample(image: cgImage, bytes: bytes, bytesPerRow: cgImage.bytesPerRow)
+    }
+
+    /// Reads one RGBA8 pixel as normalized RGB floats.
+    nonisolated private static func rgb(_ bytes: UnsafePointer<UInt8>, at off: Int)
+        -> (r: Float, g: Float, b: Float) {
+        (Float(bytes[off]) / 255.0, Float(bytes[off + 1]) / 255.0, Float(bytes[off + 2]) / 255.0)
+    }
+
+    // Renders the image to a 64×128 sample, then builds a per-column luma density map.
+    // Each column of the display corresponds to the same horizontal slice of the camera frame.
+    nonisolated static func computeWaveform(from image: CIImage, context: CIContext) -> WaveformData {
+        let cols = WaveformData.cols
+        let rows = WaveformData.rows
+
+        guard let sample = renderRGBA8(image, width: cols, height: rows, context: context)
+        else { return WaveformData() }
+        let bytes = sample.bytes
+        let bytesPerRow = sample.bytesPerRow
 
         var density = [Float](repeating: 0, count: cols * rows)
 
         for y in 0..<rows {
             for x in 0..<cols {
                 let off = y * bytesPerRow + x * 4
-                let r = Float(bytes[off    ]) / 255.0
-                let g = Float(bytes[off + 1]) / 255.0
-                let b = Float(bytes[off + 2]) / 255.0
+                let (r, g, b) = Self.rgb(bytes, at: off)
                 // Rec. 709 luma
                 let luma = 0.2126 * r + 0.7152 * g + 0.0722 * b
                 // bin 0 = 0% IRE (bottom), rows-1 = 100% IRE (top)
@@ -137,29 +164,17 @@ enum HistogramCalculator {
     nonisolated static func computeVectorscope(from image: CIImage, context: CIContext) -> VectorscopeData {
         let gridSize = VectorscopeData.size
 
-        let scale = CGAffineTransform(
-            scaleX: CGFloat(gridSize) / image.extent.width,
-            y: CGFloat(gridSize) / image.extent.height
-        )
-        let scaled = image.transformed(by: scale)
-
-        guard let sRGB = CGColorSpace(name: CGColorSpace.sRGB),
-              let cgImage = context.createCGImage(scaled, from: scaled.extent,
-                                                  format: .RGBA8, colorSpace: sRGB),
-              let cfData = cgImage.dataProvider?.data
+        guard let sample = renderRGBA8(image, width: gridSize, height: gridSize, context: context)
         else { return VectorscopeData() }
-
-        let bytes = CFDataGetBytePtr(cfData)!
-        let bytesPerRow = cgImage.bytesPerRow
+        let bytes = sample.bytes
+        let bytesPerRow = sample.bytesPerRow
 
         var counts = [Float](repeating: 0, count: gridSize * gridSize)
 
         for y in 0..<gridSize {
             for x in 0..<gridSize {
                 let off = y * bytesPerRow + x * 4
-                let r = Float(bytes[off    ]) / 255.0
-                let g = Float(bytes[off + 1]) / 255.0
-                let b = Float(bytes[off + 2]) / 255.0
+                let (r, g, b) = Self.rgb(bytes, at: off)
 
                 // Rec. 709 Cb/Cr: range -0.5 … +0.5
                 let luma = 0.2126 * r + 0.7152 * g + 0.0722 * b

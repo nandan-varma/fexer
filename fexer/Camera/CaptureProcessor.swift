@@ -111,7 +111,8 @@ final class CaptureProcessor: NSObject {
 
     // beginLongExposureCapture is called from MainActor; captureOutput reads these on sessionQueue.
     // OSAllocatedUnfairLock prevents the data race without requiring a sessionQueue dispatch.
-    private struct LongExpConfig { var duration: Double = 4.0; var completion: ((CIImage) -> Void)? }
+    // nonisolated: the struct is touched from both sides of the lock (Sendable closures).
+    nonisolated private struct LongExpConfig { var duration: Double = 4.0; var completion: ((CIImage) -> Void)? }
     private let longExpConfigLock = OSAllocatedUnfairLock(initialState: LongExpConfig())
 
     var longExpDuration: Double {
