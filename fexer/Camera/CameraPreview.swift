@@ -3,15 +3,34 @@ import CoreImage
 import MetalKit
 import SwiftUI
 
+/// Callbacks forwarded from `CameraPreview` to its `Coordinator` (tap-to-focus,
+/// double-tap, pinch-zoom, brightness-swipe). One struct keeps the two declaration
+/// sites (representable + coordinator) from drifting apart.
+struct PreviewCallbacks {
+    var onTapToFocus: ((CGPoint, CGPoint) -> Void)?
+    var onDoubleTap: (() -> Void)?
+    var onPinchZoom: ((CGFloat, CGFloat) -> Void)?
+    var onSwipeBrightness: ((CGFloat) -> Void)?
+}
+
 /// MTKView-based camera preview that renders the CI filter pipeline output
 /// at continuous 60fps. Handles tap-to-focus, pinch-to-zoom, and brightness swipe.
 struct CameraPreview: UIViewRepresentable {
     let cameraManager: CameraManager
     var cropRatio: CropRatio = .full
-    var onTapToFocus: ((CGPoint, CGPoint) -> Void)?
-    var onDoubleTap: (() -> Void)?
-    var onPinchZoom: ((CGFloat, CGFloat) -> Void)?
-    var onSwipeBrightness: ((CGFloat) -> Void)?
+    var callbacks = PreviewCallbacks()
+
+    init(cameraManager: CameraManager,
+         cropRatio: CropRatio = .full,
+         onTapToFocus: ((CGPoint, CGPoint) -> Void)? = nil,
+         onDoubleTap: (() -> Void)? = nil,
+         onPinchZoom: ((CGFloat, CGFloat) -> Void)? = nil,
+         onSwipeBrightness: ((CGFloat) -> Void)? = nil) {
+        self.cameraManager = cameraManager
+        self.cropRatio = cropRatio
+        self.callbacks = PreviewCallbacks(onTapToFocus: onTapToFocus, onDoubleTap: onDoubleTap,
+                                          onPinchZoom: onPinchZoom, onSwipeBrightness: onSwipeBrightness)
+    }
 
     func makeUIView(context: Context) -> MTKView {
         let view = MTKView(frame: .zero, device: MTLCreateSystemDefaultDevice())
@@ -31,10 +50,7 @@ struct CameraPreview: UIViewRepresentable {
         // when the view is covered (e.g. by the splash screen).
         uiView.isPaused = false
         context.coordinator.cropRatio = cropRatio
-        context.coordinator.onTapToFocus = onTapToFocus
-        context.coordinator.onDoubleTap = onDoubleTap
-        context.coordinator.onPinchZoom = onPinchZoom
-        context.coordinator.onSwipeBrightness = onSwipeBrightness
+        context.coordinator.callbacks = callbacks
         context.coordinator.setupGesturesIfNeeded(on: uiView)
     }
 
@@ -45,10 +61,7 @@ struct CameraPreview: UIViewRepresentable {
     final class Coordinator: NSObject, MTKViewDelegate {
         let cameraManager: CameraManager
         var cropRatio: CropRatio = .full
-        var onTapToFocus: ((CGPoint, CGPoint) -> Void)?
-        var onDoubleTap: (() -> Void)?
-        var onPinchZoom: ((CGFloat, CGFloat) -> Void)?
-        var onSwipeBrightness: ((CGFloat) -> Void)?
+        var callbacks = PreviewCallbacks()
 
         private var lastPinchScale: CGFloat = 1.0
         private var panIsVerticalRight = false
@@ -149,7 +162,7 @@ struct CameraPreview: UIViewRepresentable {
         }
 
         @objc func handleDoubleTap(_ gesture: UITapGestureRecognizer) {
-            onDoubleTap?()
+            callbacks.onDoubleTap?()
         }
 
         @objc func handleTap(_ gesture: UITapGestureRecognizer) {
@@ -175,7 +188,7 @@ struct CameraPreview: UIViewRepresentable {
             let avY: CGFloat = isFront ? point.x / size.width : 1 - point.x / size.width
             let avPoint = CGPoint(x: avX, y: avY)
             // Pass the raw view-space point so the caller never has to invert the transform.
-            onTapToFocus?(avPoint, point)
+            callbacks.onTapToFocus?(avPoint, point)
         }
 
         /// Height of each letterbox bar in the view's points coordinate system.
@@ -188,7 +201,7 @@ struct CameraPreview: UIViewRepresentable {
         @objc func handlePinch(_ gesture: UIPinchGestureRecognizer) {
             if gesture.state == .began { lastPinchScale = cameraManager.currentZoomFactor }
             let newZoom = lastPinchScale * gesture.scale
-            onPinchZoom?(newZoom, gesture.velocity)
+            callbacks.onPinchZoom?(newZoom, gesture.velocity)
         }
 
         @objc func handlePan(_ gesture: UIPanGestureRecognizer) {
@@ -207,7 +220,7 @@ struct CameraPreview: UIViewRepresentable {
 
             if panIsVerticalRight && gesture.state == .changed {
                 let delta = -translation.y / view.bounds.height * 6.0
-                onSwipeBrightness?(delta)
+                callbacks.onSwipeBrightness?(delta)
                 gesture.setTranslation(.zero, in: view)
             }
         }

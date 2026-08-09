@@ -235,13 +235,20 @@ class CameraViewModelTests: XCTestCase {
         XCTAssertEqual(cameraViewModel.accumulatedExposureBias, 0)
     }
     
+    /// Shared selectMode bindings (crop + timer) for the mode-selection tests.
+    private func modeSelectionBindings() -> (crop: Binding<String>, timer: Binding<Int>) {
+        var crop = CropRatio.full.rawValue
+        var timer = 0
+        return (
+            Binding(get: { crop }, set: { crop = $0 }),
+            Binding(get: { timer }, set: { timer = $0 })
+        )
+    }
+
     func testCameraViewModelModeSelection() {
         XCTAssertEqual(cameraViewModel.activeMode, ShootingMode.photo)
 
-        var crop = CropRatio.full.rawValue
-        var timer = 0
-        let cropBinding = Binding(get: { crop }, set: { crop = $0 })
-        let timerBinding = Binding(get: { timer }, set: { timer = $0 })
+        let (cropBinding, timerBinding) = modeSelectionBindings()
 
         cameraViewModel.selectMode(index: 1, cropRatioRaw: cropBinding, selfTimerDelay: timerBinding)
         XCTAssertEqual(cameraViewModel.activeMode, ShootingMode.video)
@@ -251,10 +258,7 @@ class CameraViewModelTests: XCTestCase {
     }
 
     func testCameraViewModelSelectModeInvalidIndex() {
-        var crop = CropRatio.full.rawValue
-        var timer = 0
-        let cropBinding = Binding(get: { crop }, set: { crop = $0 })
-        let timerBinding = Binding(get: { timer }, set: { timer = $0 })
+        let (cropBinding, timerBinding) = modeSelectionBindings()
 
         cameraViewModel.selectMode(index: -1, cropRatioRaw: cropBinding, selfTimerDelay: timerBinding)
         XCTAssertEqual(cameraViewModel.activeMode, ShootingMode.photo)
@@ -264,7 +268,7 @@ class CameraViewModelTests: XCTestCase {
     }
     
     func testCameraViewModelSyncOverlaysToProcessor() {
-        cameraViewModel.syncOverlaysToProcessor(focusPeaking: true, zebra: true, falseColor: true)
+        cameraViewModel.syncOverlaysToProcessor(CameraViewModel.OverlayFlags(focusPeaking: true, zebra: true, falseColor: true))
         
         let flags = cameraManager.processor.frameFlags
         XCTAssertTrue(flags.peaking)

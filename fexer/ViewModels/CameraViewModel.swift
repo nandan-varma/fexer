@@ -241,50 +241,39 @@ final class CameraViewModel {
 
     // MARK: - Overlay Sync
 
+    /// Consolidated overlay flags synced to the processor. One struct so the two sync
+    /// paths (with/without LUT refresh) share a single parameter list.
+    struct OverlayFlags {
+        var focusPeaking = false
+        var zebra = false
+        var falseColor = false
+        var histogram = false
+        var waveform = false
+        var vectorscope = false
+        var peakingColorName = "red"
+        var zebraHighThreshold: Float = 0.95
+        var zebraLowThreshold: Float = 0.02
+    }
+
     /// Caller passes AppStorage flags so this class doesn't need to own them.
-    func syncOverlaysToProcessor(
-        focusPeaking: Bool = false,
-        zebra: Bool = false,
-        falseColor: Bool = false,
-        histogram: Bool = false,
-        waveform: Bool = false,
-        vectorscope: Bool = false,
-        peakingColorName: String = "red",
-        zebraHighThreshold: Float = 0.95,
-        zebraLowThreshold: Float = 0.02
-    ) {
-        syncFlagsToProcessor(
-            focusPeaking: focusPeaking, zebra: zebra, falseColor: falseColor,
-            histogram: histogram, waveform: waveform, vectorscope: vectorscope,
-            peakingColorName: peakingColorName,
-            zebraHighThreshold: zebraHighThreshold, zebraLowThreshold: zebraLowThreshold
-        )
+    func syncOverlaysToProcessor(_ flags: OverlayFlags) {
+        syncFlagsToProcessor(flags)
         cameraManager.processor.lutFilter = stylesManager.activeLUTFilter()
     }
 
     /// Only updates flags, does NOT touch the LUT filter (cheaper path for overlay toggles).
-    func syncFlagsToProcessor(
-        focusPeaking: Bool = false,
-        zebra: Bool = false,
-        falseColor: Bool = false,
-        histogram: Bool = false,
-        waveform: Bool = false,
-        vectorscope: Bool = false,
-        peakingColorName: String = "red",
-        zebraHighThreshold: Float = 0.95,
-        zebraLowThreshold: Float = 0.02
-    ) {
+    func syncFlagsToProcessor(_ flags: OverlayFlags) {
         var f = CaptureProcessor.FrameFlags()
-        f.peaking = focusPeaking
-        f.zebra = zebra
-        f.falseColor = falseColor
-        f.histogram = histogram
-        f.waveform = waveform
-        f.vectorscope = vectorscope
-        f.zebraHigh = zebraHighThreshold
-        f.zebraLow = zebraLowThreshold
+        f.peaking = flags.focusPeaking
+        f.zebra = flags.zebra
+        f.falseColor = flags.falseColor
+        f.histogram = flags.histogram
+        f.waveform = flags.waveform
+        f.vectorscope = flags.vectorscope
+        f.zebraHigh = flags.zebraHighThreshold
+        f.zebraLow = flags.zebraLowThreshold
         cameraManager.processor.frameFlags = f
-        cameraManager.processor.peakingColor = Self.ciColor(forPeakingColorName: peakingColorName)
+        cameraManager.processor.peakingColor = Self.ciColor(forPeakingColorName: flags.peakingColorName)
     }
 
     static func ciColor(forPeakingColorName name: String) -> CIColor {

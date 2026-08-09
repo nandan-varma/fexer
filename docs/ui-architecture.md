@@ -23,18 +23,22 @@ is in [docs/project-overview.md](project-overview.md).
 `.onChange` modifiers at the bottom of `mainContent`.
 
 **Adding a new persisted setting:** declare it in `CameraView`, mirror it in `SettingsView`
-using the **same key string**, and add an `.onChange` handler to apply it.
+using the **same key string**, and add an `.onChange` handler to apply it. Keys consumed by a
+single view may live in that view instead (`histogramMode` in `HistogramView`,
+`styleIntensity` in `StylePickerView`) — no `SettingsView` mirror needed unless a settings
+surface exists.
 
-Current keys (40, verified from `CameraView.swift`):
+Current keys (42, verified from `CameraView.swift` + the overlay/style views):
 
-- **Overlays**: `showHistogram`, `showGrid`, `gridType`, `showFocusPeaking`, `showZebra`,
-  `showLevelIndicator`, `showFalseColor`, `showWaveform`, `showVectorscope`, `showEVIndicator`,
-  `isCleanViewActive`
+- **Overlays**: `showHistogram`, `histogramMode`, `showGrid`, `gridType`, `showFocusPeaking`,
+  `showZebra`, `showLevelIndicator`, `showFalseColor`, `showWaveform`, `showVectorscope`,
+  `showEVIndicator`, `isCleanViewActive`
 - **Capture**: `isBracketingEnabled`, `bracketEVStep`, `isWBBracketEnabled`, `wbBracketKStep`,
   `selfTimerDelay`, `selfTimerRepeat`, `burstCount`, `isProRAWEnabled`, `defaultCaptureFormat`
   (default `"HEIF"`), `focusPeakingColor`, `isHDREnabled`, `isTrapFocusEnabled`,
   `isOpticalZoomLocked`
 - **Video**: `videoFrameRate`, `videoResolution`, `videoColorSpace`, `stabilizationMode`
+- **Style**: `styleIntensity` (StylePickerView)
 - **Location / media flow**: `isLocationEnabled`, `torchLevel`, `showReviewAfterShot`,
   `showGallery`, `showStylePicker`
 - **Other**: `cropRatio`, `timelapseInterval`, `longExposureDuration`, `volumeButtonBehavior`,
@@ -42,12 +46,14 @@ Current keys (40, verified from `CameraView.swift`):
 
 ### Processor flag sync — two entry points
 
-- `syncOverlaysToProcessor(...)` — full sync: flags + peaking color + **LUT filter**. Call
-  after changing anything that affects the LUT (style change, false color toggle).
-- `syncFlagsToProcessor(...)` — flags + peaking color only, **no LUT**. Cheaper path for
-  overlay toggles (grid, histogram, waveform, …) and rapid value scrubs (zebra thresholds).
+- `syncOverlaysToProcessor(_ flags: OverlayFlags)` — full sync: flags + peaking color +
+  **LUT filter**. Call after changing anything that affects the LUT (style change, false
+  color toggle).
+- `syncFlagsToProcessor(_ flags: OverlayFlags)` — flags + peaking color only, **no LUT**.
+  Cheaper path for overlay toggles (grid, histogram, waveform, …) and rapid value scrubs
+  (zebra thresholds).
 
-Both take the AppStorage values as parameters — `CameraViewModel` does not own the keys.
+Both take a `CameraViewModel.OverlayFlags` struct — `CameraViewModel` does not own the keys.
 
 ## QuickAccessBar (top icon bar, 50 pt)
 
