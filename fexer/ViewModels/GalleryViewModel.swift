@@ -9,6 +9,10 @@ final class GalleryViewModel: NSObject, PHPhotoLibraryChangeObserver {
     var authorizationStatus: PHAuthorizationStatus = PHPhotoLibrary.authorizationStatus(for: .readWrite)
 
     private var fetchResult: PHFetchResult<PHAsset>?
+    /// Bumped on every fetch and every change notification; lets an in-flight fetch
+    /// detect that its snapshot went stale (see fetchPhotos) instead of overwriting
+    /// newer photos with an old result.
+    private var fetchGeneration = 0
     private let imageManager = PHCachingImageManager()
 
     override init() {
@@ -25,6 +29,8 @@ final class GalleryViewModel: NSObject, PHPhotoLibraryChangeObserver {
 
     func fetchPhotos() {
         isLoading = true
+        fetchGeneration += 1
+        let generation = fetchGeneration
         let options = PHFetchOptions()
         options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
         options.predicate = NSPredicate(
@@ -50,8 +56,15 @@ final class GalleryViewModel: NSObject, PHPhotoLibraryChangeObserver {
                 for i in 0..<result.count { a.append(result.object(at: i)) }
                 return a
             }.value
-            self?.photos = assets
-            self?.isLoading = false
+            guard let self else { return }
+            guard self.fetchGeneration == generation else {
+                // Stale snapshot — a change notification landed while the copy was in
+                // flight and already published newer photos.
+                self.isLoading = false
+                return
+            }
+            self.photos = assets
+            self.isLoading = false
         }
     }
 
@@ -135,6 +148,7 @@ extension GalleryViewModel {
             guard let result = fetchResult,
                   let changes = changeInstance.changeDetails(for: result)
             else { return }
+            fetchGeneration += 1
             self.fetchResult = changes.fetchResultAfterChanges
             var updated: [PHAsset] = []
             changes.fetchResultAfterChanges.enumerateObjects { asset, _, _ in updated.append(asset) }

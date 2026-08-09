@@ -247,30 +247,32 @@ extension CameraView {
                         await MainActor.run { onThumbGenerated(thumb) }
                     }
 
-                    guard shouldShowReview else {
-                        saveToPhotoLibrary(data: processedData, photo: photo,
-                                           location: captureLocation, livePhotoMovieURL: movieBox.url)
-                        return
-                    }
-
-                    // For review captures: save first to get the asset identifier for delete support
+                    // Save first to get the asset identifier for delete support. Awaiting
+                    // here is safe: this task is detached from the AVFoundation callback
+                    // thread, and didFinishCaptureFor (which clears isCapturing) is a
+                    // separate callback that fires independently.
                     let assetID: String? = await withCheckedContinuation { cont in
                         saveToPhotoLibrary(data: processedData, photo: photo,
                                            location: captureLocation, livePhotoMovieURL: movieBox.url) { id in
                             cont.resume(returning: id)
                         }
                     }
-                    await MainActor.run {
-                        let captured = CapturedPhoto(
-                            jpegData: processedData,
-                            captureSettings: captureSettings,
-                            appliedStyle: activeStyle,
-                            styleIntensity: styleIntensity,
-                            location: captureLocation,
-                            exifMetadata: photo.metadata,
-                            assetLocalIdentifier: assetID
-                        )
-                        onShowReview(captured)
+                    // The gallery thumbnail must open this capture's review even when
+                    // auto-review is off. RAW DNG frames are not displayable as jpegData
+                    // and bracket side frames keep the EV-0 frame as the review target.
+                    if shouldShowReview || (!photo.isRawPhoto && photo.bracketSettings == nil) {
+                        await MainActor.run {
+                            let captured = CapturedPhoto(
+                                jpegData: processedData,
+                                captureSettings: captureSettings,
+                                appliedStyle: activeStyle,
+                                styleIntensity: styleIntensity,
+                                location: captureLocation,
+                                exifMetadata: photo.metadata,
+                                assetLocalIdentifier: assetID
+                            )
+                            onShowReview(captured)
+                        }
                     }
                 }
             },

@@ -9,7 +9,8 @@ extension CameraView {
         HStack(alignment: .center) {
             if showGallery {
                 Button {
-                    capturedPhoto = nil
+                    // capturedPhoto (last capture) is the carousel's first page; recent
+                    // library photos follow once the library is loaded.
                     withAnimation(.easeInOut(duration: 0.3)) { showReview = true }
                 } label: {
                     RoundedRectangle(cornerRadius: 10, style: .continuous)

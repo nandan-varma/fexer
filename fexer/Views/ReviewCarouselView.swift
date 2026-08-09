@@ -19,26 +19,33 @@ struct ReviewCarouselView: View {
     private var hasContent: Bool { initialPhoto != nil || !libraryAssets.isEmpty }
 
     var body: some View {
-        if hasContent {
-            TabView {
-                if let photo = initialPhoto {
-                    ReviewView(photo: photo, onDismiss: onDismiss)
+        Group {
+            if hasContent {
+                TabView {
+                    if let photo = initialPhoto {
+                        ReviewView(photo: photo, onDismiss: onDismiss)
+                    }
+                    ForEach(libraryAssets, id: \.localIdentifier) { asset in
+                        LibraryPhotoPageView(
+                            asset: asset,
+                            galleryViewModel: galleryViewModel,
+                            onDismiss: onDismiss,
+                            onOpenFullGallery: onOpenFullGallery
+                        )
+                    }
                 }
-                ForEach(libraryAssets, id: \.localIdentifier) { asset in
-                    LibraryPhotoPageView(
-                        asset: asset,
-                        galleryViewModel: galleryViewModel,
-                        onDismiss: onDismiss,
-                        onOpenFullGallery: onOpenFullGallery
-                    )
-                }
+                .tabViewStyle(.page(indexDisplayMode: .never))
+                .background(Color.black)
+                .ignoresSafeArea()
+            } else {
+                emptyState
             }
-            .tabViewStyle(.page(indexDisplayMode: .never))
-            .background(Color.black)
-            .ignoresSafeArea()
-        } else {
-            emptyState
         }
+        // The camera screen never calls this otherwise — without it the library
+        // section stays empty (and the carousel shows "No Photos Yet" after a capture
+        // when auto-review is off). Safe to call repeatedly: it only prompts when
+        // authorization is .notDetermined.
+        .onAppear { galleryViewModel.authorizeIfNeeded() }
     }
 
     private var emptyState: some View {
