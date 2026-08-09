@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "app-store-review": {
+      "source": "dpearson2699/swift-ios-skills",
+      "sourceType": "github",
+      "skillPath": "skills/app-store-review/SKILL.md",
+      "computedHash": "564f895241f3c3a38f9962395ddca451a1ecb42912a643f8c01482d2173110f6"
+    }
+  }
+}
