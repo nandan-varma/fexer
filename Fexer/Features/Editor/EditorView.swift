@@ -84,7 +84,7 @@ struct EditorView: View {
                     }
                 }
             }
-            ValueSlider(title: adjustment.rawValue, value: Binding(get: { model.recipe[keyPath: adjustment.keyPath] }, set: { model.recipe[keyPath: adjustment.keyPath] = $0 }), range: adjustment.range, onEditingChanged: model.gesture)
+            HapticScrubber(title: adjustment.rawValue, value: Binding(get: { model.recipe[keyPath: adjustment.keyPath] }, set: { model.recipe[keyPath: adjustment.keyPath] = $0 }), range: adjustment.range, onEditingChanged: model.gesture)
             Button("Reset \(adjustment.rawValue.lowercased())") { model.change { $0[keyPath: adjustment.keyPath] = 0 } }.font(.caption)
         }
     }
@@ -96,18 +96,18 @@ struct EditorView: View {
                 Button { model.change { $0.quarterTurns += 1 } } label: { Label("Rotate", systemImage: "rotate.left") }.labelStyle(.iconOnly).frame(width: 44, height: 44)
                 Button { model.change { $0.flipped.toggle() } } label: { Label("Flip", systemImage: "arrow.left.and.right.righttriangle.left.righttriangle.right") }.labelStyle(.iconOnly).frame(width: 44, height: 44)
             }
-            ValueSlider(title: "Straighten", value: $model.recipe.straighten, range: -45...45, display: String(format: "%.1f°", model.recipe.straighten), onEditingChanged: model.gesture)
-            ValueSlider(title: "Crop zoom", value: $model.recipe.cropZoom, range: 1...6, display: String(format: "%.1f×", model.recipe.cropZoom), onEditingChanged: model.gesture)
-            ValueSlider(title: "Horizontal position", value: $model.recipe.cropX, range: 0...1, onEditingChanged: model.gesture)
-            ValueSlider(title: "Vertical position", value: $model.recipe.cropY, range: 0...1, onEditingChanged: model.gesture)
+            HapticScrubber(title: "Straighten", value: $model.recipe.straighten, range: -45...45, display: String(format: "%.1f°", model.recipe.straighten), onEditingChanged: model.gesture)
+            HapticScrubber(title: "Crop zoom", value: $model.recipe.cropZoom, range: 1...6, display: String(format: "%.1f×", model.recipe.cropZoom), onEditingChanged: model.gesture)
+            HapticScrubber(title: "Horizontal position", value: $model.recipe.cropX, range: 0...1, onEditingChanged: model.gesture)
+            HapticScrubber(title: "Vertical position", value: $model.recipe.cropY, range: 0...1, onEditingChanged: model.gesture)
         }
     }
     private var colorTools: some View {
         VStack(spacing: 16) {
             Picker("Color range", selection: $color) { ForEach(Array(["Red", "Orange", "Yellow", "Green", "Aqua", "Blue", "Purple", "Magenta"].enumerated()), id: \.offset) { index, name in Text(name).tag(index) } }
-            ValueSlider(title: "Hue", value: $model.recipe.colors[color].hue, range: -60...60, onEditingChanged: model.gesture)
-            ValueSlider(title: "Saturation", value: $model.recipe.colors[color].saturation, range: -1...1, onEditingChanged: model.gesture)
-            ValueSlider(title: "Luminance", value: $model.recipe.colors[color].luminance, range: -1...1, onEditingChanged: model.gesture)
+            HapticScrubber(title: "Hue", value: $model.recipe.colors[color].hue, range: -60...60, onEditingChanged: model.gesture)
+            HapticScrubber(title: "Saturation", value: $model.recipe.colors[color].saturation, range: -1...1, onEditingChanged: model.gesture)
+            HapticScrubber(title: "Luminance", value: $model.recipe.colors[color].luminance, range: -1...1, onEditingChanged: model.gesture)
             if model.recipe.importedCube != nil {
                 Button("Remove imported LUT") { model.change { $0.importedCube = nil } }
             } else { Button("Import .cube LUT") { importing = true } }
@@ -125,7 +125,7 @@ struct EditorView: View {
                 context.stroke(path, with: .color(Theme.accent), lineWidth: 2)
             }.frame(height: 75).background(.white.opacity(0.04))
             ForEach(0..<5) { index in
-                ValueSlider(title: ["Blacks", "Shadows", "Midtones", "Highlights", "Whites"][index], value: $model.recipe.curves[channel][index], range: 0...1, onEditingChanged: model.gesture)
+                HapticScrubber(title: ["Blacks", "Shadows", "Midtones", "Highlights", "Whites"][index], value: $model.recipe.curves[channel][index], range: 0...1, onEditingChanged: model.gesture)
             }
             Button("Reset channel") { model.change { $0.curves[channel] = [0, 0.25, 0.5, 0.75, 1] } }
         }

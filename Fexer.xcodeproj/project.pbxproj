@@ -16,7 +16,6 @@
 		19589BDCD5437D685318C048 /* PreferencesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28FE024C21C8B0D5AB53C3D0 /* PreferencesTests.swift */; };
 		1B699AC24F1D6C072C9FF8AD /* agfa_vista_200.cube in Resources */ = {isa = PBXBuildFile; fileRef = C17EF08051640DE45D4D969D /* agfa_vista_200.cube */; };
 		1BE24C2C72939C8DF3FD1060 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 523A524256B3910959976EEF /* SettingsView.swift */; };
-		26A8F8780E3EECE97B1498F6 /* ManualControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = 55B8103F53675ACA595700E4 /* ManualControls.swift */; };
 		280C15D2444398CCF93EDF0E /* landscape_vivid.cube in Resources */ = {isa = PBXBuildFile; fileRef = FDE03B71302DFC1C0046FE3C /* landscape_vivid.cube */; };
 		29300CC179D5652F5CC88E4D /* street_punch.cube in Resources */ = {isa = PBXBuildFile; fileRef = 982FAB6936E0506F234278B5 /* street_punch.cube */; };
 		2E1ED1070E7953AD4EE08B4A /* ColorMathTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CCC6883E51BAF82499A8217 /* ColorMathTests.swift */; };
@@ -68,6 +67,7 @@
 		DF1C8D8F113D964317372CCB /* fuji_provia_100.cube in Resources */ = {isa = PBXBuildFile; fileRef = 466C81BB2528771E5DF29C3D /* fuji_provia_100.cube */; };
 		E6F5BC81DE9B40FE34527209 /* faded_matte.cube in Resources */ = {isa = PBXBuildFile; fileRef = C70ABFEFBC727799B8CFD0BD /* faded_matte.cube */; };
 		ED774F616B9D7235FEE9844D /* CropGeometry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FB6665BF2EB0C4FF1A1635C /* CropGeometry.swift */; };
+		F233B4EB2355D879AA537518 /* HapticScrubber.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF42F6288B987950CF65DBF5 /* HapticScrubber.swift */; };
 		F551D311FAB1AC5C2C37C3A4 /* FexerApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B57E047A3B33802931A2013 /* FexerApp.swift */; };
 		F9030F0A1D5A3E6ABE5D6D55 /* cinematic_teal_orange.cube in Resources */ = {isa = PBXBuildFile; fileRef = 99DD7466DD52B413933B6DA6 /* cinematic_teal_orange.cube */; };
 		FAB1570DA288820331C52B16 /* LibraryItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7FA5F9E38D2BF7D7BE8BB54 /* LibraryItem.swift */; };
@@ -120,7 +120,6 @@
 		523A524256B3910959976EEF /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		53D62B5CB19496F11254281D /* kodak_gold_200.cube */ = {isa = PBXFileReference; path = kodak_gold_200.cube; sourceTree = "<group>"; };
 		5451B793B3F8CB23853CF015 /* Fexer.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Fexer.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		55B8103F53675ACA595700E4 /* ManualControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManualControls.swift; sourceTree = "<group>"; };
 		59146D7909077C10339D53B9 /* LevelService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LevelService.swift; sourceTree = "<group>"; };
 		5DD0F590371507268610961F /* ImageRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageRenderer.swift; sourceTree = "<group>"; };
 		60220AADC015CF6A5F3A5DB9 /* kodak_portra_400.cube */ = {isa = PBXFileReference; path = kodak_portra_400.cube; sourceTree = "<group>"; };
@@ -157,6 +156,7 @@
 		D7FA5F9E38D2BF7D7BE8BB54 /* LibraryItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryItem.swift; sourceTree = "<group>"; };
 		DC49097C4F707C1EF65AAE51 /* CameraView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraView.swift; sourceTree = "<group>"; };
 		DC6ACF54771B52D0CFF3ECD7 /* CubeLUT.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CubeLUT.swift; sourceTree = "<group>"; };
+		DF42F6288B987950CF65DBF5 /* HapticScrubber.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HapticScrubber.swift; sourceTree = "<group>"; };
 		E6E507F70F881787D4F23C62 /* LocationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocationService.swift; sourceTree = "<group>"; };
 		EE42B874C224CBF4106F9C2F /* CameraModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraModel.swift; sourceTree = "<group>"; };
 		F524E2FE5D6B92178FB4E3A9 /* ilford_hp5_bw.cube */ = {isa = PBXFileReference; path = ilford_hp5_bw.cube; sourceTree = "<group>"; };
@@ -217,6 +217,7 @@
 		3B395310638A79BAC6B97D5C /* Design */ = {
 			isa = PBXGroup;
 			children = (
+				DF42F6288B987950CF65DBF5 /* HapticScrubber.swift */,
 				C6F546944E20BAF6FBEB7481 /* Theme.swift */,
 			);
 			path = Design;
@@ -263,7 +264,6 @@
 			children = (
 				EE42B874C224CBF4106F9C2F /* CameraModel.swift */,
 				DC49097C4F707C1EF65AAE51 /* CameraView.swift */,
-				55B8103F53675ACA595700E4 /* ManualControls.swift */,
 			);
 			path = Camera;
 			sourceTree = "<group>";
@@ -548,6 +548,7 @@
 				0136DFCA5CF0A4A1F40A3F57 /* EditorView.swift in Sources */,
 				F551D311FAB1AC5C2C37C3A4 /* FexerApp.swift in Sources */,
 				B88F73319B66C8EE1F208A03 /* FrameProcessor.swift in Sources */,
+				F233B4EB2355D879AA537518 /* HapticScrubber.swift in Sources */,
 				18457031C960B4D222920DA0 /* ImagePipeline.swift in Sources */,
 				441F61F9B38F733EA59EAC8B /* ImageRenderer.swift in Sources */,
 				B033F5CBAB70AE413E9B0F25 /* LevelService.swift in Sources */,
@@ -555,7 +556,6 @@
 				6EEF664482C4A64ED39A6762 /* LibraryModel.swift in Sources */,
 				FD0D5E21484FD2A1E3F7F1B0 /* LibraryView.swift in Sources */,
 				FF23D71ED34190F124184D0D /* LocationService.swift in Sources */,
-				26A8F8780E3EECE97B1498F6 /* ManualControls.swift in Sources */,
 				15955271AE48AF62C02B525A /* PhotoDelegate.swift in Sources */,
 				8240BC90FCBDA9A280AFAE5E /* PhotoStyle.swift in Sources */,
 				80D87B32828475A5410762DB /* PhotosExporter.swift in Sources */,

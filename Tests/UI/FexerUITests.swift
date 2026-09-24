@@ -64,28 +64,27 @@ final class FexerUITests: XCTestCase {
         XCTAssertTrue(app.buttons["styles"].waitForExistence(timeout: 5))
     }
 
-    func testManualControlsOpensAndCloses() {
+    func testTappingISOPillExpandsAndCollapsesInlineScrubber() {
         let app = launch()
-        XCTAssertTrue(app.buttons["manualControls"].waitForExistence(timeout: 10))
-        app.buttons["manualControls"].tap()
-        XCTAssertTrue(app.staticTexts["Camera controls"].waitForExistence(timeout: 5))
-        // The viewfinder stays visible and tappable behind the panel — this is the point of the redesign.
-        XCTAssertTrue(app.buttons["shutter"].exists)
-        app.buttons["Done"].tap()
-        XCTAssertTrue(app.buttons["manualControls"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["isoControl"].waitForExistence(timeout: 10))
+        app.buttons["isoControl"].tap()
+        // The scrubber takes over the top bar in place of the wordmark and settings gear —
+        // no sheet, so the viewfinder and every other pill stay fully visible underneath.
+        XCTAssertTrue(app.descendants(matching: .any)["ISO"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["settings"].exists)
+        XCTAssertTrue(app.buttons["shutterControl"].exists)
+        app.buttons["collapseControl"].tap()
+        XCTAssertTrue(app.buttons["settings"].waitForExistence(timeout: 5))
     }
 
-    func testManualFocusSliderAppearsWithViewfinderStillVisible() {
+    func testManualFocusScrubberAppearsWithViewfinderStillVisibleAndAutoReverts() {
         let app = launch()
-        XCTAssertTrue(app.buttons["manualControls"].waitForExistence(timeout: 10))
-        app.buttons["manualControls"].tap()
-        XCTAssertTrue(app.staticTexts["Camera controls"].waitForExistence(timeout: 5))
-        app.buttons["Focus"].tap()
-        let manualFocus = app.switches["Manual focus"]
-        XCTAssertTrue(manualFocus.waitForExistence(timeout: 5))
-        manualFocus.tap()
-        XCTAssertTrue(app.sliders["Near → far"].waitForExistence(timeout: 5))
-        app.buttons["Done"].tap()
+        XCTAssertTrue(app.buttons["focusControl"].waitForExistence(timeout: 10))
+        app.buttons["focusControl"].tap()
+        XCTAssertTrue(app.descendants(matching: .any)["Focus"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["shutter"].exists)
+        app.buttons["autoControl"].tap()
+        XCTAssertTrue(app.buttons["settings"].waitForExistence(timeout: 5))
     }
 
     func testPinchToZoomOnViewfinderDoesNotBreakCapture() {

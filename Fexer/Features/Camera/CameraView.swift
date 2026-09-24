@@ -1,5 +1,6 @@
 import AVKit
 import SwiftUI
+import UIKit
 
 struct CameraView: View {
     @Bindable var model: CameraModel
@@ -8,12 +9,15 @@ struct CameraView: View {
     @State private var focusPoint: CGPoint?
     @State private var focusTask: Task<Void, Never>?
     @State private var zoomAnchor: Double?
+    @State private var zoomHapticWhole: Int?
     @State private var showZoomBadge = false
     @State private var zoomBadgeTask: Task<Void, Never>?
-    @State private var controlsCategory: ManualControls.Category = .exposure
+    @State private var expanded: ExpandedControl?
     @State private var dragAnchor: Double?
-    enum Panel: String, Identifiable { case styles, controls, settings, library; var id: Self { self } }
-    private let controlsPanelHeight: CGFloat = 300
+    @State private var dragHapticStep: Int?
+    @State private var dragAtLimit = false
+    enum Panel: String, Identifiable { case styles, settings, library; var id: Self { self } }
+    enum ExpandedControl: Equatable { case iso, shutter, whiteBalance, focus }
 
     var body: some View {
         GeometryReader { geometry in
@@ -31,6 +35,7 @@ struct CameraView: View {
         }
         .preferredColorScheme(.dark)
         .tint(Theme.accent)
+        .environment(\.hapticsEnabled, model.preferences.value.haptics)
         .task { await model.library.load(); await model.start() }
         .onChange(of: scenePhase) { _, phase in
             Task { if phase == .active { await model.start() } else { await model.stop() } }
@@ -49,12 +54,6 @@ struct CameraView: View {
         .sheet(item: $sheet) { panel in
             switch panel {
             case .styles: StylePicker(recipe: $model.recipe, renderer: model.library.renderer, source: nil)
-            case .controls:
-                ManualControls(model: model, initialCategory: controlsCategory)
-                    .presentationDetents([.height(controlsPanelHeight), .medium])
-                    .presentationBackgroundInteraction(.enabled(upThrough: .height(controlsPanelHeight)))
-                    .presentationDragIndicator(.visible)
-                    .presentationCornerRadius(24)
             case .settings: SettingsView(preferences: model.preferences, capabilities: model.capabilities, library: model.library, ratio: $model.recipe.ratio)
             case .library: LibraryView(library: model.library)
             }
@@ -71,15 +70,81 @@ struct CameraView: View {
         }
     }
 
+    /// The header normally just shows the wordmark and settings gear — real estate that sits
+    /// idle most of the time. Tapping (or dragging) a control pill below repurposes it as that
+    /// control's full-width scrubber instead of opening a sheet that would cover the viewfinder.
     private var header: some View {
-        HStack {
-            Text("fexer").font(.system(size: 29, weight: .semibold, design: .serif)).tracking(-1.5).accessibilityLabel("Fexer camera")
-            Spacer()
-            #if targetEnvironment(simulator)
-            Text("SAMPLE CAMERA").font(.system(size: 9, weight: .semibold, design: .monospaced)).tracking(1).foregroundStyle(Theme.muted)
-            #endif
-            IconButton(label: "Settings", symbol: "gearshape") { sheet = .settings }.accessibilityIdentifier("settings")
+        HStack(spacing: 10) {
+            if let expanded {
+                expandedScrubber(expanded).frame(maxWidth: .infinity)
+                Button("AUTO") { setAuto(expanded) }
+                    .font(.system(size: 11, weight: .semibold)).tracking(1)
+                    .buttonStyle(.plain).foregroundStyle(Theme.muted)
+                    .accessibilityIdentifier("autoControl")
+                Button { self.expanded = nil } label: {
+                    Image(systemName: "chevron.down").font(.system(size: 14, weight: .semibold)).frame(width: 30, height: 30)
+                }.buttonStyle(.plain).accessibilityLabel("Collapse control").accessibilityIdentifier("collapseControl")
+            } else {
+                Text("fexer").font(.system(size: 29, weight: .semibold, design: .serif)).tracking(-1.5).accessibilityLabel("Fexer camera")
+                Spacer()
+                #if targetEnvironment(simulator)
+                Text("SAMPLE CAMERA").font(.system(size: 9, weight: .semibold, design: .monospaced)).tracking(1).foregroundStyle(Theme.muted)
+                #endif
+                IconButton(label: "Settings", symbol: "gearshape") { sheet = .settings }.accessibilityIdentifier("settings")
+            }
         }.padding(.leading, 22).padding(.trailing, 10).frame(height: 48)
+    }
+
+    /// Real gradations for each pill's expanded scrubber: ISO/shutter tick in third-stops over a
+    /// log2 domain (how exposure actually works), white balance ticks every 100K, focus every 2%.
+    @ViewBuilder private func expandedScrubber(_ control: ExpandedControl) -> some View {
+        switch control {
+        case .iso:
+            let range = model.capabilities.isoRange
+            let logRange = log2(range.lowerBound)...log2(range.upperBound)
+            HapticScrubber(
+                title: "ISO",
+                value: Binding(get: { log2(model.controls.iso.bounded(range)) }, set: { model.controls.iso = pow(2, $0) }),
+                range: logRange, display: "ISO \(Int(model.controls.iso))",
+                minorStep: 1.0 / 3, majorEvery: 3, compact: true
+            )
+        case .shutter:
+            let range = model.capabilities.shutterRange
+            let logRange = log2(range.lowerBound)...log2(range.upperBound)
+            HapticScrubber(
+                title: "Shutter",
+                value: Binding(get: { log2(model.controls.shutter.bounded(range)) }, set: { model.controls.shutter = pow(2, $0) }),
+                range: logRange, display: CameraText.shutter(model.controls.shutter),
+                minorStep: 1.0 / 3, majorEvery: 3, compact: true
+            )
+        case .whiteBalance:
+            HapticScrubber(
+                title: "White balance", value: $model.controls.temperature, range: 2500...10000,
+                display: "\(Int(model.controls.temperature))K", minorStep: 100, majorEvery: 5, compact: true
+            )
+        case .focus:
+            HapticScrubber(
+                title: "Focus", value: $model.controls.focus, range: 0...1,
+                display: model.controls.focus.formatted(.percent.precision(.fractionLength(0))),
+                minorStep: 0.02, majorEvery: 10, compact: true
+            )
+        }
+    }
+
+    private func setAuto(_ control: ExpandedControl) {
+        switch control {
+        case .iso, .shutter: model.controls.manualExposure = false
+        case .whiteBalance: model.controls.manualWhiteBalance = false
+        case .focus: model.controls.manualFocus = false
+        }
+        expanded = nil
+    }
+
+    /// Tapping a pill again while it's expanded just collapses it (the value/mode is kept);
+    /// tapping a different pill switches which one is expanded.
+    private func toggleExpanded(_ control: ExpandedControl, enable: () -> Void) {
+        if expanded == control { expanded = nil }
+        else { enable(); expanded = control }
     }
 
     private var quickControls: some View {
@@ -93,47 +158,71 @@ struct CameraView: View {
             Spacer(minLength: 0)
             controlPill(
                 "ISO \(Int(model.controls.manualExposure ? model.controls.iso : model.reading.iso))",
-                active: model.controls.manualExposure, onTap: openExposure, onDrag: isoDrag
-            ).accessibilityLabel("ISO, drag to adjust").accessibilityIdentifier("manualControls")
+                active: model.controls.manualExposure, expanded: expanded == .iso, identifier: "isoControl",
+                onTap: openISO, onDrag: isoDrag
+            ).accessibilityLabel("ISO, drag to adjust")
             controlPill(
                 CameraText.shutter(model.controls.manualExposure ? model.controls.shutter : model.reading.shutter),
-                active: model.controls.manualExposure, onTap: openExposure, onDrag: shutterDrag
+                active: model.controls.manualExposure, expanded: expanded == .shutter, identifier: "shutterControl",
+                onTap: openShutter, onDrag: shutterDrag
             ).accessibilityLabel("Shutter speed, drag to adjust")
             controlPill(
                 model.controls.manualWhiteBalance ? "\(Int(model.controls.temperature))K" : "AWB",
-                active: model.controls.manualWhiteBalance, onTap: openWhiteBalance, onDrag: temperatureDrag
+                active: model.controls.manualWhiteBalance, expanded: expanded == .whiteBalance, identifier: "whiteBalanceControl",
+                onTap: openWhiteBalance, onDrag: temperatureDrag
             ).accessibilityLabel("White balance, drag to adjust")
             controlPill(
                 model.controls.manualFocus ? "MF \(model.controls.focus.formatted(.percent.precision(.fractionLength(0))))" : "AF",
-                active: model.controls.manualFocus, onTap: openFocus, onDrag: focusDrag
+                active: model.controls.manualFocus, expanded: expanded == .focus, identifier: "focusControl",
+                onTap: openFocus, onDrag: focusDrag
             ).accessibilityLabel("Focus, drag to adjust")
             Spacer(minLength: 0)
-            IconButton(label: "Zoom, presets & torch", symbol: "ellipsis.circle", selected: model.controls.torch) { controlsCategory = .camera; sheet = .controls }
+            if model.capabilities.supportsTorch {
+                IconButton(
+                    label: model.controls.torch ? "Turn off continuous light" : "Turn on continuous light",
+                    symbol: model.controls.torch ? "flashlight.on.fill" : "flashlight.off.fill", selected: model.controls.torch
+                ) { model.controls.torch.toggle() }
+            }
         }.foregroundStyle(.white).padding(.horizontal, 14).disabled(!model.activity.isIdle)
     }
 
-    /// Pills double as sliders: tap opens the full sheet (already in manual mode), drag adjusts
-    /// in place without leaving the viewfinder — the point of a pro top bar is not burying values
-    /// behind an extra "enable manual" toggle.
-    private func controlPill(_ text: String, active: Bool, onTap: @escaping () -> Void, onDrag: @escaping (CGFloat) -> Void) -> some View {
+    /// Pills double as sliders: tap expands this control's own scrubber in the header above
+    /// (never a sheet that would cover the viewfinder), drag adjusts in place immediately.
+    private func controlPill(_ text: String, active: Bool, expanded: Bool, identifier: String, onTap: @escaping () -> Void, onDrag: @escaping (CGFloat) -> Void) -> some View {
         Button(action: onTap) {
             Text(text).font(.system(size: 11, weight: .semibold, design: .monospaced)).monospacedDigit()
-                .foregroundStyle(active ? Theme.accent : .white)
+                .foregroundStyle(expanded ? Theme.background : (active ? Theme.accent : .white))
                 .padding(.horizontal, 8).frame(minWidth: 46, minHeight: 32)
-                .background(Theme.surface, in: Capsule())
-                .overlay(Capsule().stroke(active ? Theme.accent.opacity(0.6) : .clear, lineWidth: 1))
+                .background(expanded ? Theme.accent : Theme.surface, in: Capsule())
+                .overlay(Capsule().stroke(!expanded && active ? Theme.accent.opacity(0.6) : .clear, lineWidth: 1))
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier(identifier)
         .simultaneousGesture(
             DragGesture(minimumDistance: 6)
                 .onChanged { onDrag($0.translation.height) }
-                .onEnded { _ in dragAnchor = nil }
+                .onEnded { _ in dragAnchor = nil; dragHapticStep = nil; dragAtLimit = false }
         )
     }
 
-    private func openExposure() { model.controls.manualExposure = true; controlsCategory = .exposure; sheet = .controls }
-    private func openWhiteBalance() { model.controls.manualWhiteBalance = true; controlsCategory = .whiteBalance; sheet = .controls }
-    private func openFocus() { model.controls.manualFocus = true; controlsCategory = .focus; sheet = .controls }
+    /// Mirrors HapticScrubber's feel: a selection tick per quantized step, a firmer thud at the
+    /// rail, so dragging a top-bar pill feels the same as scrubbing the sheet's full control.
+    private func fireDragHaptic(normalized: Double, steps: Int = 40) {
+        guard model.preferences.value.haptics else { return }
+        let step = Int((normalized.bounded(0...1) * Double(steps)).rounded())
+        if step != dragHapticStep {
+            dragHapticStep = step
+            UISelectionFeedbackGenerator().selectionChanged()
+        }
+        let reachedLimit = normalized <= 0 || normalized >= 1
+        if reachedLimit, !dragAtLimit { UIImpactFeedbackGenerator(style: .rigid).impactOccurred(intensity: 0.6) }
+        dragAtLimit = reachedLimit
+    }
+
+    private func openISO() { toggleExpanded(.iso) { model.controls.manualExposure = true } }
+    private func openShutter() { toggleExpanded(.shutter) { model.controls.manualExposure = true } }
+    private func openWhiteBalance() { toggleExpanded(.whiteBalance) { model.controls.manualWhiteBalance = true } }
+    private func openFocus() { toggleExpanded(.focus) { model.controls.manualFocus = true } }
 
     private func isoDrag(_ translationY: CGFloat) {
         let range = model.capabilities.isoRange
@@ -143,8 +232,11 @@ struct CameraView: View {
             model.controls.manualExposure = true
             model.controls.iso = start
             dragAnchor = log2(start)
+            expanded = .iso
         }
-        model.controls.iso = pow(2, (dragAnchor! - translationY / 220 * (logRange.upperBound - logRange.lowerBound)).bounded(logRange))
+        let boundedLog = (dragAnchor! - translationY / 220 * (logRange.upperBound - logRange.lowerBound)).bounded(logRange)
+        model.controls.iso = pow(2, boundedLog)
+        fireDragHaptic(normalized: (boundedLog - logRange.lowerBound) / (logRange.upperBound - logRange.lowerBound))
     }
     private func shutterDrag(_ translationY: CGFloat) {
         let range = model.capabilities.shutterRange
@@ -154,8 +246,11 @@ struct CameraView: View {
             model.controls.manualExposure = true
             model.controls.shutter = start
             dragAnchor = log2(start)
+            expanded = .shutter
         }
-        model.controls.shutter = pow(2, (dragAnchor! - translationY / 220 * (logRange.upperBound - logRange.lowerBound)).bounded(logRange))
+        let boundedLog = (dragAnchor! - translationY / 220 * (logRange.upperBound - logRange.lowerBound)).bounded(logRange)
+        model.controls.shutter = pow(2, boundedLog)
+        fireDragHaptic(normalized: (boundedLog - logRange.lowerBound) / (logRange.upperBound - logRange.lowerBound))
     }
     private func temperatureDrag(_ translationY: CGFloat) {
         let range: ClosedRange<Double> = 2500...10000
@@ -164,8 +259,11 @@ struct CameraView: View {
             model.controls.manualWhiteBalance = true
             model.controls.temperature = start
             dragAnchor = start
+            expanded = .whiteBalance
         }
-        model.controls.temperature = (dragAnchor! - translationY / 220 * (range.upperBound - range.lowerBound)).bounded(range)
+        let bounded = (dragAnchor! - translationY / 220 * (range.upperBound - range.lowerBound)).bounded(range)
+        model.controls.temperature = bounded
+        fireDragHaptic(normalized: (bounded - range.lowerBound) / (range.upperBound - range.lowerBound))
     }
     private func focusDrag(_ translationY: CGFloat) {
         let range: ClosedRange<Double> = 0...1
@@ -174,8 +272,11 @@ struct CameraView: View {
             model.controls.manualFocus = true
             model.controls.focus = start
             dragAnchor = start
+            expanded = .focus
         }
-        model.controls.focus = (dragAnchor! - translationY / 220 * (range.upperBound - range.lowerBound)).bounded(range)
+        let bounded = (dragAnchor! - translationY / 220 * (range.upperBound - range.lowerBound)).bounded(range)
+        model.controls.focus = bounded
+        fireDragHaptic(normalized: (bounded - range.lowerBound) / (range.upperBound - range.lowerBound), steps: 20)
     }
 
     private var viewfinder: some View {
@@ -276,7 +377,7 @@ struct CameraView: View {
                 }.tint([CaptureMode.photo, .video].contains(model.mode) ? Theme.muted : Theme.accent)
             }.disabled(!model.activity.isIdle)
             HStack {
-                Button { sheet = .library } label: {
+                Button { expanded = nil; sheet = .library } label: {
                     Group {
                         if let item = model.library.items.first { CaptureThumbnail(item: item, library: model.library).frame(width: 48, height: 48).clipShape(RoundedRectangle(cornerRadius: 12)) }
                         else { Image(systemName: "photo.on.rectangle").font(.title2).frame(width: 48, height: 48).background(Theme.surface, in: RoundedRectangle(cornerRadius: 12)) }
@@ -298,7 +399,7 @@ struct CameraView: View {
                     if model.mode == .video {
                         IconButton(label: "Switch camera", symbol: "arrow.triangle.2.circlepath.camera") { flip() }
                     } else {
-                        IconButton(label: "Photo styles", symbol: "camera.filters", selected: model.recipe.styleID != "original") { sheet = .styles }.accessibilityIdentifier("styles")
+                        IconButton(label: "Photo styles", symbol: "camera.filters", selected: model.recipe.styleID != "original") { expanded = nil; sheet = .styles }.accessibilityIdentifier("styles")
                     }
                 }.frame(width: 48)
             }.padding(.horizontal, 36)
@@ -317,13 +418,20 @@ struct CameraView: View {
             .onChanged { value in
                 guard model.phase == .ready else { return }
                 let base = zoomAnchor ?? model.controls.zoom
+                if zoomAnchor == nil { zoomHapticWhole = Int(base) }
                 zoomAnchor = base
                 model.controls.zoom = (base * value.magnification).bounded(model.capabilities.zoomRange, fallback: base)
+                let whole = Int(model.controls.zoom)
+                if whole != zoomHapticWhole, model.preferences.value.haptics {
+                    zoomHapticWhole = whole
+                    UISelectionFeedbackGenerator().selectionChanged()
+                }
                 showZoomBadge = true
                 zoomBadgeTask?.cancel()
             }
             .onEnded { _ in
                 zoomAnchor = nil
+                zoomHapticWhole = nil
                 zoomBadgeTask = Task {
                     try? await Task.sleep(for: .seconds(1))
                     showZoomBadge = false

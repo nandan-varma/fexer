@@ -28,7 +28,7 @@ struct StylePicker: View {
                             }.buttonStyle(.plain).accessibilityLabel(style.name).accessibilityAddTraits(recipe.styleID == style.id ? .isSelected : [])
                         }
                     }
-                    if recipe.styleID != "original" { ValueSlider(title: "Strength", value: $recipe.intensity, range: 0...1, display: recipe.intensity.formatted(.percent.precision(.fractionLength(0)))) }
+                    if recipe.styleID != "original" { HapticScrubber(title: "Strength", value: $recipe.intensity, range: 0...1, display: recipe.intensity.formatted(.percent.precision(.fractionLength(0)))) }
                 }.padding(20)
             }.background(Theme.background).navigationTitle("Photo styles").navigationBarTitleDisplayMode(.inline)
                 .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
