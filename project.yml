@@ -1,0 +1,85 @@
+name: Fexer
+options:
+  bundleIdPrefix: com.nandanvarma
+  deploymentTarget:
+    iOS: '26.0'
+  xcodeVersion: '26.0'
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: '6.0'
+    SWIFT_STRICT_CONCURRENCY: complete
+    SWIFT_TREAT_WARNINGS_AS_ERRORS: YES
+    GCC_TREAT_WARNINGS_AS_ERRORS: YES
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    DEVELOPMENT_TEAM: 72CW7UW6RB
+    CODE_SIGN_STYLE: Automatic
+    IPHONEOS_DEPLOYMENT_TARGET: '26.0'
+  configs:
+    Debug:
+      SWIFT_ACTIVE_COMPILATION_CONDITIONS: 'DEBUG $(inherited)'
+      SWIFT_OPTIMIZATION_LEVEL: '-Onone'
+      ENABLE_TESTABILITY: YES
+    Release:
+      SWIFT_COMPILATION_MODE: wholemodule
+      SWIFT_OPTIMIZATION_LEVEL: '-O'
+      DEBUG_INFORMATION_FORMAT: dwarf-with-dsym
+targets:
+  Fexer:
+    type: application
+    platform: iOS
+    sources:
+      - path: Fexer
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.nandanvarma.fexer
+        MARKETING_VERSION: '2.0'
+        CURRENT_PROJECT_VERSION: 4
+        TARGETED_DEVICE_FAMILY: 1
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: Fexer
+        INFOPLIST_KEY_NSCameraUsageDescription: 'Fexer uses your camera to preview and capture photos and videos.'
+        INFOPLIST_KEY_NSMicrophoneUsageDescription: 'Record sound with your videos.'
+        INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription: 'Save your finished photos and videos to Photos. Originals remain in Fexer.'
+        INFOPLIST_KEY_NSPhotoLibraryUsageDescription: 'Browse your Photos library and choose pictures to edit in Fexer.'
+        INFOPLIST_KEY_NSLocationWhenInUseUsageDescription: 'Optionally remember where you took each photo.'
+        INFOPLIST_KEY_NSMotionUsageDescription: 'Show the horizon level while composing a photo.'
+        INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: NO
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
+        SUPPORTS_MACCATALYST: NO
+        SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD: NO
+  FexerTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [Tests/Unit]
+    dependencies:
+      - target: Fexer
+    settings:
+      GENERATE_INFOPLIST_FILE: YES
+  FexerUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [Tests/UI]
+    dependencies:
+      - target: Fexer
+    settings:
+      GENERATE_INFOPLIST_FILE: YES
+schemes:
+  Fexer:
+    build:
+      targets:
+        Fexer: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+      gatherCoverageData: true
+      targets:
+        - name: FexerTests
+        - name: FexerUITests
+          parallelizable: false
+    archive:
+      config: Release

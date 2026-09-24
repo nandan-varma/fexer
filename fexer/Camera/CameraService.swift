@@ -1,0 +1,354 @@
+import AVFoundation
+import Dispatch
+import Foundation
+
+protocol CameraOperating: Actor {
+    var events: AsyncStream<CameraEvent> { get }
+    var frames: FrameProcessor { get }
+    func start() async throws
+    func stop() async
+    func capture(_ request: CaptureRequest) async throws -> PhotoPayload
+    func apply(_ controls: CameraControls) async throws
+    func selectLens(_ id: String) async throws
+    func focus(at point: CGPoint) async throws
+    func recordMovie(fourK: Bool, fps: Int) async throws -> URL
+    func finishMovie() async
+    func setPreview(_ options: PreviewOptions) async
+}
+
+/// All session/device mutations execute on one serial executor, separate from MainActor.
+actor CameraService: CameraOperating {
+    private let queue = DispatchSerialQueue(label: "com.fexer.camera", qos: .userInitiated)
+    nonisolated var unownedExecutor: UnownedSerialExecutor { queue.asUnownedSerialExecutor() }
+    nonisolated let frames = FrameProcessor()
+    nonisolated let events: AsyncStream<CameraEvent>
+    private let continuation: AsyncStream<CameraEvent>.Continuation
+    private let session = AVCaptureSession()
+    private let photos = AVCapturePhotoOutput()
+    private let videoFrames = AVCaptureVideoDataOutput()
+    private let movies = AVCaptureMovieFileOutput()
+    private let frameQueue = DispatchQueue(label: "com.fexer.frames", qos: .userInitiated)
+    private var device: AVCaptureDevice?
+    private var videoInput: AVCaptureDeviceInput?
+    private var capabilities = CameraCapabilities()
+    private var controls = CameraControls()
+    private var photoDelegate: PhotoDelegate?
+    private var movieDelegate: MovieDelegate?
+    private var notifications: [NSObjectProtocol] = []
+    private var wantsRunning = false
+    private var configured = false
+    private var recording = false
+    private var polling: Task<Void, Never>?
+
+    init() {
+        let stream = AsyncStream.makeStream(of: CameraEvent.self, bufferingPolicy: .bufferingNewest(12))
+        events = stream.stream
+        continuation = stream.continuation
+    }
+
+    func start() async throws {
+        guard !wantsRunning else { return }
+        wantsRunning = true
+        continuation.yield(.phase(.starting))
+        var status = AVCaptureDevice.authorizationStatus(for: .video)
+        if status == .notDetermined {
+            let allowed = await AVCaptureDevice.requestAccess(for: .video)
+            status = allowed ? .authorized : .denied
+        }
+        guard wantsRunning else { return }
+        guard status == .authorized else {
+            wantsRunning = false
+            continuation.yield(.phase(.denied))
+            throw AppIssue.cameraDenied
+        }
+        do {
+            if !configured { try configure() }
+            observeSession()
+            session.startRunning()
+            guard session.isRunning else { throw AppIssue.cameraUnavailable }
+            continuation.yield(.phase(.ready))
+            polling = Task { [weak self] in
+                while !Task.isCancelled {
+                    await self?.publishReading()
+                    do { try await Task.sleep(for: .milliseconds(250)) } catch { return }
+                }
+            }
+            #if DEBUG
+            Diagnostics.camera.debug("Capture session started")
+            #endif
+        } catch {
+            wantsRunning = false
+            continuation.yield(.phase(.failed(error.localizedDescription)))
+            throw error
+        }
+    }
+
+    func stop() {
+        wantsRunning = false
+        polling?.cancel()
+        polling = nil
+        if movies.isRecording { movies.stopRecording() }
+        if let device, device.hasTorch {
+            do { try device.lockForConfiguration(); device.torchMode = .off; device.unlockForConfiguration() }
+            catch { Diagnostics.report(error, operation: "Turn off torch") }
+        }
+        session.stopRunning()
+        notifications.forEach { NotificationCenter.default.removeObserver($0) }
+        notifications.removeAll()
+        frames.clear()
+        continuation.yield(.phase(.idle))
+    }
+
+    private func configure() throws {
+        guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) else {
+            throw AppIssue.cameraUnavailable
+        }
+        let input = try AVCaptureDeviceInput(device: device)
+        session.beginConfiguration()
+        defer { session.commitConfiguration() }
+        session.sessionPreset = .photo
+        guard session.canAddInput(input), session.canAddOutput(photos), session.canAddOutput(videoFrames) else { throw AppIssue.cameraUnavailable }
+        session.addInput(input)
+        session.addOutput(photos)
+        session.addOutput(videoFrames)
+        videoFrames.alwaysDiscardsLateVideoFrames = true
+        videoFrames.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
+        videoFrames.setSampleBufferDelegate(frames, queue: frameQueue)
+        photos.maxPhotoQualityPrioritization = .quality
+        self.device = device
+        videoInput = input
+        configured = true
+        configureConnections()
+        updateCapabilities()
+    }
+
+    func selectLens(_ id: String) throws {
+        guard photoDelegate == nil, !recording else { throw AppIssue.busy }
+        guard let target = Self.devices().first(where: { $0.uniqueID == id }), target != device else { return }
+        let replacement = try AVCaptureDeviceInput(device: target)
+        session.beginConfiguration()
+        if let videoInput { session.removeInput(videoInput) }
+        guard session.canAddInput(replacement) else {
+            if let videoInput, session.canAddInput(videoInput) { session.addInput(videoInput) }
+            session.commitConfiguration()
+            throw AppIssue.cameraUnavailable
+        }
+        session.addInput(replacement)
+        videoInput = replacement
+        device = target
+        session.commitConfiguration()
+        controls = CameraControls()
+        configureConnections()
+        updateCapabilities()
+        try apply(controls)
+    }
+
+    func capture(_ request: CaptureRequest) async throws -> PhotoPayload {
+        guard session.isRunning, photoDelegate == nil, !recording else { throw AppIssue.busy }
+        guard request.format != .raw || capabilities.supportsRAW else {
+            throw AppIssue("RAW unavailable", "Choose HEIF or JPEG for this camera.")
+        }
+        let settings: AVCapturePhotoSettings
+        if request.proRAW, photos.isAppleProRAWSupported { photos.isAppleProRAWEnabled = true }
+        if request.format == .raw {
+            let rawTypes = photos.availableRawPhotoPixelFormatTypes
+            let selected = request.proRAW ? rawTypes.first(where: AVCapturePhotoOutput.isAppleProRAWPixelFormat) : rawTypes.first
+            guard let type = selected else { throw AppIssue.captureFailed }
+            settings = AVCapturePhotoSettings(rawPixelFormatType: type, processedFormat: [AVVideoCodecKey: AVVideoCodecType.jpeg])
+        } else {
+            let codec: AVVideoCodecType = request.format == .heif && photos.availablePhotoCodecTypes.contains(.hevc) ? .hevc : .jpeg
+            settings = AVCapturePhotoSettings(format: [AVVideoCodecKey: codec])
+            settings.photoQualityPrioritization = .quality
+        }
+        let flash: AVCaptureDevice.FlashMode = request.flash == .on ? .on : request.flash == .auto ? .auto : .off
+        settings.flashMode = photos.supportedFlashModes.contains(flash) ? flash : .off
+        var liveURL: URL?
+        if request.livePhoto, photos.isLivePhotoCaptureSupported, request.format != .raw {
+            photos.isLivePhotoCaptureEnabled = true
+            liveURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".mov")
+            settings.livePhotoMovieFileURL = liveURL
+        }
+        if let connection = photos.connection(with: .video), connection.isVideoRotationAngleSupported(request.rotation) {
+            connection.videoRotationAngle = request.rotation
+            if connection.isVideoMirroringSupported { connection.isVideoMirrored = capabilities.isFront }
+        }
+        defer { photoDelegate = nil }
+        do {
+            return try await withCheckedThrowingContinuation { completion in
+                let delegate = PhotoDelegate { result in completion.resume(with: result) }
+                photoDelegate = delegate
+                photos.capturePhoto(with: settings, delegate: delegate)
+            }
+        } catch {
+            if let liveURL { try? FileManager.default.removeItem(at: liveURL) }
+            throw error
+        }
+    }
+
+    func apply(_ value: CameraControls) throws {
+        guard let device else { return }
+        try device.lockForConfiguration()
+        defer { device.unlockForConfiguration() }
+        controls = value
+        if value.manualExposure, device.isExposureModeSupported(.custom) {
+            device.setExposureModeCustom(duration: CMTime(seconds: value.shutter.bounded(capabilities.shutterRange), preferredTimescale: 1_000_000_000),
+                                         iso: Float(value.iso.bounded(capabilities.isoRange)))
+        } else if value.exposureLocked, device.isExposureModeSupported(.locked) {
+            device.exposureMode = .locked
+        } else if device.isExposureModeSupported(.continuousAutoExposure) { device.exposureMode = .continuousAutoExposure }
+        device.setExposureTargetBias(Float(value.exposureBias.bounded(capabilities.exposureRange)))
+        if value.manualFocus, device.isLockingFocusWithCustomLensPositionSupported {
+            device.setFocusModeLocked(lensPosition: Float(value.focus.bounded(0...1)))
+        } else if device.isFocusModeSupported(.continuousAutoFocus) { device.focusMode = .continuousAutoFocus }
+        if value.manualWhiteBalance, device.isWhiteBalanceModeSupported(.locked) {
+            var gains = device.deviceWhiteBalanceGains(for: .init(temperature: Float(value.temperature.bounded(2500...10000)), tint: Float(value.tint.bounded(-150...150))))
+            gains.redGain = min(max(gains.redGain, 1), device.maxWhiteBalanceGain)
+            gains.greenGain = min(max(gains.greenGain, 1), device.maxWhiteBalanceGain)
+            gains.blueGain = min(max(gains.blueGain, 1), device.maxWhiteBalanceGain)
+            device.setWhiteBalanceModeLocked(with: gains)
+        } else if device.isWhiteBalanceModeSupported(.continuousAutoWhiteBalance) { device.whiteBalanceMode = .continuousAutoWhiteBalance }
+        device.videoZoomFactor = value.zoom.bounded(capabilities.zoomRange)
+        if device.hasTorch, device.isTorchAvailable { device.torchMode = value.torch ? .on : .off }
+    }
+
+    func focus(at point: CGPoint) throws {
+        guard let device else { return }
+        try device.lockForConfiguration()
+        defer { device.unlockForConfiguration() }
+        if !controls.manualFocus, device.isFocusPointOfInterestSupported {
+            device.focusPointOfInterest = point
+            if device.isFocusModeSupported(.autoFocus) { device.focusMode = .autoFocus }
+        }
+        if !controls.manualExposure, !controls.exposureLocked, device.isExposurePointOfInterestSupported {
+            device.exposurePointOfInterest = point
+            if device.isExposureModeSupported(.continuousAutoExposure) { device.exposureMode = .continuousAutoExposure }
+        }
+    }
+
+    func recordMovie(fourK: Bool, fps: Int) async throws -> URL {
+        guard session.isRunning, !recording, photoDelegate == nil else { throw AppIssue.busy }
+        recording = true
+        defer { recording = false; movieDelegate = nil }
+        let allowed = await AVCaptureDevice.requestAccess(for: .audio)
+        guard allowed else { throw AppIssue("Microphone access needed", "Allow Microphone in Settings to record video with sound.") }
+        guard wantsRunning else { throw CancellationError() }
+        session.beginConfiguration()
+        let preset: AVCaptureSession.Preset = fourK ? .hd4K3840x2160 : .hd1920x1080
+        session.sessionPreset = session.canSetSessionPreset(preset) ? preset : .high
+        if !session.outputs.contains(movies), session.canAddOutput(movies) { session.addOutput(movies) }
+        if !session.inputs.contains(where: { ($0 as? AVCaptureDeviceInput)?.device.hasMediaType(.audio) == true }),
+           let microphone = AVCaptureDevice.default(for: .audio) {
+            do {
+                let input = try AVCaptureDeviceInput(device: microphone)
+                if session.canAddInput(input) { session.addInput(input) }
+            } catch { session.commitConfiguration(); throw error }
+        }
+        session.commitConfiguration()
+        guard session.outputs.contains(movies) else { throw AppIssue("Video unavailable", "This camera cannot record video with the current configuration.") }
+        if let device, device.activeFormat.videoSupportedFrameRateRanges.contains(where: { $0.minFrameRate <= Double(fps) && $0.maxFrameRate >= Double(fps) }) {
+            try device.lockForConfiguration()
+            device.activeVideoMinFrameDuration = CMTime(value: 1, timescale: Int32(fps))
+            device.activeVideoMaxFrameDuration = CMTime(value: 1, timescale: Int32(fps))
+            device.unlockForConfiguration()
+        }
+        if let connection = movies.connection(with: .video), connection.isVideoRotationAngleSupported(90) { connection.videoRotationAngle = 90 }
+        configureConnections()
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".mov")
+        defer {
+            session.beginConfiguration()
+            session.removeOutput(movies)
+            for input in session.inputs where (input as? AVCaptureDeviceInput)?.device.hasMediaType(.audio) == true { session.removeInput(input) }
+            session.sessionPreset = .photo
+            session.commitConfiguration()
+            configureConnections()
+            updateCapabilities()
+        }
+        return try await withCheckedThrowingContinuation { completion in
+            let delegate = MovieDelegate { completion.resume(with: $0) }
+            movieDelegate = delegate
+            movies.startRecording(to: url, recordingDelegate: delegate)
+        }
+    }
+
+    func finishMovie() {
+        if movies.isRecording { movies.stopRecording() }
+    }
+
+    func setPreview(_ options: PreviewOptions) { frames.setOptions(options) }
+
+    private func configureConnections() {
+        if let connection = videoFrames.connection(with: .video) {
+            if connection.isVideoRotationAngleSupported(90) { connection.videoRotationAngle = 90 }
+            if connection.isVideoMirroringSupported { connection.isVideoMirrored = device?.position == .front }
+        }
+    }
+
+    private static func devices() -> [AVCaptureDevice] {
+        AVCaptureDevice.DiscoverySession(deviceTypes: [.builtInUltraWideCamera, .builtInWideAngleCamera, .builtInTelephotoCamera],
+                                         mediaType: .video, position: .unspecified).devices
+    }
+
+    private func updateCapabilities() {
+        guard let device else { return }
+        let devices = Self.devices()
+        capabilities = CameraCapabilities(
+            lenses: devices.map { camera in
+                let name: String
+                let label: String
+                switch camera.deviceType {
+                case .builtInUltraWideCamera: name = "Ultra wide"; label = "0.5×"
+                case .builtInTelephotoCamera: name = "Telephoto"; label = "Tele"
+                default: name = camera.position == .front ? "Front" : "Wide"; label = camera.position == .front ? "Front" : "1×"
+                }
+                return CameraLens(id: camera.uniqueID, name: name, label: label, isFront: camera.position == .front)
+            }, activeLensID: device.uniqueID,
+            supportsRAW: !photos.availableRawPhotoPixelFormatTypes.isEmpty,
+            supportsProRAW: photos.isAppleProRAWSupported, supportsLivePhoto: photos.isLivePhotoCaptureSupported,
+            supportsFlash: device.hasFlash, supportsTorch: device.hasTorch,
+            supportsManualExposure: device.isExposureModeSupported(.custom),
+            supportsManualFocus: device.isLockingFocusWithCustomLensPositionSupported,
+            isoRange: Double(device.activeFormat.minISO)...Double(device.activeFormat.maxISO),
+            shutterRange: device.activeFormat.minExposureDuration.seconds...device.activeFormat.maxExposureDuration.seconds,
+            zoomRange: Double(device.minAvailableVideoZoomFactor)...min(Double(device.maxAvailableVideoZoomFactor), 15),
+            exposureRange: Double(device.minExposureTargetBias)...Double(device.maxExposureTargetBias)
+        )
+        continuation.yield(.capabilities(capabilities))
+    }
+
+    private func publishReading() {
+        guard let device else { return }
+        let white = device.temperatureAndTintValues(for: device.deviceWhiteBalanceGains)
+        continuation.yield(.reading(CameraReading(iso: Double(device.iso), shutter: device.exposureDuration.seconds,
+                                                  temperature: Double(white.temperature), focus: Double(device.lensPosition),
+                                                  exposureOffset: Double(device.exposureTargetOffset), zoom: Double(device.videoZoomFactor))))
+    }
+
+    private func observeSession() {
+        guard notifications.isEmpty else { return }
+        notifications = [
+            NotificationCenter.default.addObserver(forName: AVCaptureSession.wasInterruptedNotification, object: session, queue: nil) { [weak self] _ in
+                Task { await self?.interrupted() }
+            },
+            NotificationCenter.default.addObserver(forName: AVCaptureSession.interruptionEndedNotification, object: session, queue: nil) { [weak self] _ in
+                Task { await self?.recover() }
+            },
+            NotificationCenter.default.addObserver(forName: AVCaptureSession.runtimeErrorNotification, object: session, queue: nil) { [weak self] _ in
+                Task { await self?.runtimeError() }
+            }
+        ]
+    }
+    private func interrupted() {
+        continuation.yield(.phase(.interrupted))
+        if movies.isRecording { movies.stopRecording() }
+    }
+    private func runtimeError() {
+        Diagnostics.camera.error("Capture session runtime error")
+        continuation.yield(.phase(.failed("The camera stopped. Tap Try again to restart it.")))
+        wantsRunning = false
+    }
+    private func recover() {
+        guard wantsRunning else { return }
+        if !session.isRunning { session.startRunning() }
+        continuation.yield(.phase(session.isRunning ? .ready : .failed("The camera couldn’t restart.")))
+    }
+}

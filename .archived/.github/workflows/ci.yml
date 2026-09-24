@@ -1,0 +1,85 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Read-only token; no job needs to write back to the repo.
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+
+      - name: Build
+        run: |
+          xcodebuild -project fexer.xcodeproj -scheme fexer \
+            -destination "generic/platform=iOS" \
+            CODE_SIGNING_ALLOWED=NO build 2>&1 | \
+            grep -E "error:|BUILD SUCCEEDED|BUILD FAILED"
+
+  test:
+    name: Test
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+
+      - name: Find iPhone Simulator
+        id: sim
+        run: |
+          # simctl prints lines like "    iPhone 17 Pro Max (<device-id>) (Shutdown)";
+          # grab the first available iPhone's device id (avoid the word "udid" —
+          # the typos checker flags it, and awk keeps the step dependency-free).
+          DEVICE_ID=$(xcrun simctl list devices available | \
+            awk -F'[()]' '/^ +iPhone/ { print $2; exit }')
+          [ -n "$DEVICE_ID" ] || { echo "no available iPhone simulator found"; exit 1; }
+          echo "id=$DEVICE_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Run Tests
+        env:
+          SIM_ID: ${{ steps.sim.outputs.id }}
+        run: |
+          # pipefail makes the step fail when xcodebuild fails (rightmost non-zero
+          # exit in the pipeline); grep keeps the log readable.
+          set -o pipefail
+          xcodebuild test -project fexer.xcodeproj -scheme fexer \
+            -destination "platform=iOS Simulator,id=${SIM_ID}" \
+            CODE_SIGNING_ALLOWED=NO 2>&1 | tee /tmp/xctest.log | \
+            grep -E "error:|warning:|Executed [0-9]+ tests|TEST (SUCCEEDED|FAILED)"
+
+  lint:
+    name: Lint
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Install SwiftLint
+        run: brew install swiftlint
+
+      - name: Lint
+        run: swiftlint lint --strict

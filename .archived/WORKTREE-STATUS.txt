@@ -1,0 +1,23 @@
+ M .github/workflows/ci.yml
+ M docs/capture-flow.md
+ M docs/conventions.md
+ M docs/manual-controls.md
+ M docs/project-overview.md
+ M fexer.xcodeproj/project.pbxproj
+ M fexer/Camera/CameraManager+ManualControls.swift
+ M fexer/Camera/CameraManager.swift
+ M fexer/Camera/CaptureProcessor.swift
+ M fexer/Utilities/HapticManager.swift
+ M fexer/ViewModels/GalleryViewModel.swift
+ M fexer/Views/CameraView+ShutterButton.swift
+ M fexer/Views/CameraView.swift
+ M fexer/Views/ControlsPanel/ExposureRailView.swift
+ D fexer/Views/ControlsPanel/ParameterStripView.swift
+ M fexer/Views/EditView.swift
+ M fexer/Views/GalleryView.swift
+ M fexer/Views/ReviewCarouselView.swift
+ M fexer/Views/ReviewView.swift
+ M fexer/Views/StylePicker/StyleBeforeAfterView.swift
+ M fexer/Views/StylePicker/StyleThumbnailView.swift
+?? .pi/
+?? fexer/Views/ControlsPanel/DialWheelView.swift

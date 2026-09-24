@@ -1,0 +1,898 @@
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+index ff218d8..5acac95 100644
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -46,12 +46,28 @@ jobs:
+       - name: Select Xcode
+         run: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+ 
+-      - name: Build Tests
++      - name: Find iPhone Simulator
++        id: sim
+         run: |
++          # simctl prints lines like "    iPhone 17 Pro Max (<device-id>) (Shutdown)";
++          # grab the first available iPhone's device id (avoid the word "udid" —
++          # the typos checker flags it, and awk keeps the step dependency-free).
++          DEVICE_ID=$(xcrun simctl list devices available | \
++            awk -F'[()]' '/^ +iPhone/ { print $2; exit }')
++          [ -n "$DEVICE_ID" ] || { echo "no available iPhone simulator found"; exit 1; }
++          echo "id=$DEVICE_ID" >> "$GITHUB_OUTPUT"
++
++      - name: Run Tests
++        env:
++          SIM_ID: ${{ steps.sim.outputs.id }}
++        run: |
++          # pipefail makes the step fail when xcodebuild fails (rightmost non-zero
++          # exit in the pipeline); grep keeps the log readable.
++          set -o pipefail
+           xcodebuild test -project fexer.xcodeproj -scheme fexer \
+-            -destination "generic/platform=iOS" \
+-            CODE_SIGNING_ALLOWED=NO build-for-testing 2>&1 | \
+-            grep -E "error:|BUILD SUCCEEDED|BUILD FAILED"
++            -destination "platform=iOS Simulator,id=${SIM_ID}" \
++            CODE_SIGNING_ALLOWED=NO 2>&1 | tee /tmp/xctest.log | \
++            grep -E "error:|warning:|Executed [0-9]+ tests|TEST (SUCCEEDED|FAILED)"
+ 
+   lint:
+     name: Lint
+diff --git a/docs/capture-flow.md b/docs/capture-flow.md
+index 92dd8f7..baeac83 100644
+--- a/docs/capture-flow.md
++++ b/docs/capture-flow.md
+@@ -104,3 +104,8 @@ selectMode(newIndex)
+ | Anamorphic | ✅ Complete | 2× horizontal desqueeze in `CaptureProcessor`; 2.39:1 crop guide |
+ | Night | ✅ Complete | Hardware low-light boost + `.quality` QoS; "HOLD STILL — PROCESSING" advisory during multi-frame capture; yellow spinner overlays the shutter |
+ | Portrait | ✅ Complete | `isDepthDataDeliveryEnabled` + portrait matte; `CIDepthBlurEffect` (f/2.8) applied in `processCapture` BEFORE the LUT bake, using disparity from `photo.depthData` |
++
++**All non-Photo modes are gated behind `FeatureFlags.shootingModesEnabled = false`**
++(`Models/ShootingMode.swift`) — the mode picker, horizontal-swipe cycling, and home-screen
++Quick Actions all check the flag, so only Photo ships today. Flip it to `true` when the modes
++are ready to ship; the state machine above is then reachable and tested on device.
+diff --git a/docs/conventions.md b/docs/conventions.md
+index 6197ec3..e623070 100644
+--- a/docs/conventions.md
++++ b/docs/conventions.md
+@@ -61,8 +61,12 @@ fatalError / force-unwrap / try! / as! is the baseline; keep it that way.**
+ - **`PermissionsManager`** — wraps camera, microphone, photo library, and location
+   authorization in a single `@Observable` class; also owns `CLLocationManager` for GPS
+   tagging.
+-- **`HapticManager`** — static convenience methods (`light()`, `medium()`,
++- **`HapticManager`** — static convenience methods (`light()`, `medium()`, `error()`,
+   `selectionChanged()`, `focusLocked()`). Call sites use e.g. `HapticManager.light()`.
++  `dialDetent(major:)` fires a tuned `UIImpactFeedbackGenerator(.rigid)` click
++  (intensity 1.0 for major detents, 0.55 for minor) for `DialWheelView`'s per-stop feedback —
++  the pre-warmed generator is reliable under rapid repeated fire (many detents/sec during a
++  fast drag) where a hand-rolled CHHapticEngine per-event is not.
+ - **`ExifReader`** — ImageIO-based extraction of ISO, shutter, aperture, WB temperature, GPS
+   coordinates, and capture timestamp from JPEG data.
+ - **`VolumeHUDSuppressor`** — mutes the system volume pop-up that would otherwise appear
+diff --git a/docs/manual-controls.md b/docs/manual-controls.md
+index 726c820..955c98d 100644
+--- a/docs/manual-controls.md
++++ b/docs/manual-controls.md
+@@ -1,6 +1,6 @@
+ # Manual Controls — Exposure, WB, Focus, Lenses
+ 
+-Scope: AE lock, the side-rail badge system, `ParameterStripView`, white balance presets, and
++Scope: AE lock, the top-bezel chip strip, `DialWheelView`, white balance presets, and
+ lens switching. Read with [docs/architecture.md](architecture.md) (all device configuration
+ runs on sessionQueue).
+ 
+@@ -16,41 +16,70 @@ AEL is implemented as
+ `device.setExposureModeCustom(duration: device.exposureDuration, iso: device.iso)` — it
+ freezes the current auto values. Long-press on the shutter button toggles AEL.
+ 
+-## Side-rail system (ExposureRailView)
+-
+-Manual exposure is exposed via two persistent side-rail columns overlaid on the viewfinder:
+-
+-- **Left rail**: ISO badge + shutter-speed badge.
+-- **Right rail**: WB (Kelvin) badge + focus (lens position) badge — focus only shown when
+-  `cameraManager.supportsManualFocus`.
+-
+-Badges are yellow when in manual mode, dim when auto. Tapping a badge sets
+-`cameraViewModel.activeRailParam: RailParam?` (`.iso`, `.shutter`, `.wb`, `.focus`), which
+-triggers `ParameterStripView` to appear above the bottom controls.
+-
+-## ParameterStripView
+-
+-A 280 × ~90 pt horizontal strip containing:
+-
+-1. Parameter name + live value label + auto/manual toggle button.
+-2. A draggable scrub track — snaps to `CaptureSettings.isoStops` / `CaptureSettings.shutterStops`
+-   for discrete params, continuous for WB and focus.
+-3. Representative step labels.
+-
+-The strip auto-dismisses after 4 s of inactivity via a `Task`. Tapping the badge again
+-dismisses it immediately. Both `ExposureRailView` and `ParameterStripView` apply
+-`.rotationEffect(.degrees(DeviceOrientationTracker.shared.rotationAngle))` to counter-rotate
+-when the device is held in landscape.
++## Top-bezel chip strip (ExposureRailView)
++
++Manual exposure is exposed via a single horizontal row of chips. Rather than computing a pixel
++offset into the black letterbox bezel (fragile — `previewImageSize`, and therefore
++`CameraView.letterboxBarHeight`, isn't always known/settled by the time SwiftUI first lays this
++out, and a fixed guess can drift from the real bezel size), the row is a sibling of
++`QuickAccessBar` in the **same** top `VStack` (`CameraView.hudOverlayLayer`), directly below it
++with fixed 8pt spacing. Natural VStack flow guarantees it's always adjacent to the bar and never
++floating in dead space or over the image, regardless of crop ratio or timing:
++
++- **Fixed, in order**: ISO badge, shutter-speed badge, `appState.leftRailItems`
++  (default `[.flash]`), WB (Kelvin) badge, focus (lens position) badge — focus only shown when
++  `cameraManager.supportsManualFocus` — then `appState.rightRailItems` (default `[.metering]`).
++  The `leftRailItems`/`rightRailItems` user defaults (read/written via
++  `AppState.loadRailItems` / `saveRailItems`, not `@AppStorage`) and their Settings UI are
++  unchanged; they now just mean "first group" / "second group" within the one row rather than
++  two screen halves.
++
++Badges are yellow when in manual mode, dim when auto. Tapping a badge calls
++`ExposureRailView.toggle(_:)`, which sets `cameraViewModel.activeRailParam: RailParam?`
++(`.iso`, `.shutter`, `.wb`, `.focus`) inside `withAnimation` (opening now reflows layout — see
++below — so both open and close need to animate, not just close), triggering `DialWheelView`.
++
++## DialWheelView
++
++Same reasoning as the chip strip: rather than an absolutely-positioned overlay guessing a
++bottom padding, `DialWheelView` lives directly in `controlLayer`'s inner `VStack`, right above
++`lensSwitcherRow` — the same flow pattern `StylePickerView` already used for its own contextual
++panel. Showing it pushes the lens-switcher/shutter row up rather than floating over the image;
++tapping a chip animates that reflow via `ExposureRailView.toggle(_:)`.
++
++A 320 pt-wide "big wheel" jog dial with a compact single-row header (label + live value + auto
++pointer on the left, an "A"/"M" toggle capsule on the right — single letter, not the word, so
++it stays compact when counter-rotated in landscape) above a horizontal `Canvas`-drawn tick
++ruler that scrolls beneath a fixed center pointer. The header+toggle share one row rather than
++stacking three, keeping the whole widget shallow (~70pt) so it reliably fits inside a typical
++bezel instead of spilling onto the image — the trade that governed the shallow/near-flat wheel
++curvature choice applies here too: less vertical footprint over more visual flourish.
++
++The wheel's effective radius is far larger than its visible strip: a full 0...1 sweep of the
++parameter takes `virtualTrackWidth` (1400 pt) of drag, so a screen-width drag only covers a
++fraction of the range — more travel per stop than a linear slider, which is what makes fine
++adjustment precise. Dragging follows a content-follows-finger model (drag left reveals higher
++values, like advancing a carousel); `HapticManager.dialDetent(major:)` fires once per detent
++crossed (`detentIndex(for:)` — real ISO/shutter stop index for those two, a fixed bucket count
++for continuous WB/focus), giving a firmer click every 5th (major) detent.
++
++The wheel auto-dismisses after 4 s of inactivity via a `Task`. Tapping the badge again
++dismisses it immediately. **The wheel's frame itself never rotates** — it's a fixed object on
++the bezel, not a HUD element — but its text content does: the readout stack and the "A"/"M"
++toggle each independently apply
++`.rotationEffect(.degrees(DeviceOrientationTracker.shared.rotationAngle))` (same pattern as
++`RailBadge`) so labels stay legible in landscape while the dial's position/size stay put. The
++tick ruler itself is undecorated marks, not text, so it never needs to counter-rotate.
+ 
+ ### Manual controls data flow
+ 
+ ```text
+-User drags ParameterStripView track
++User drags DialWheelView ruler
+   → applyNormalized(_:) sets captureSettings.isAutoISO/Shutter = false, isoValue = stops[idx]
+   → cameraManager.setISO(iso)
+       → sessionQueue.async → device.setExposureModeCustom(duration: .current, iso: clamped)
+       → [KVO fires back] → captureSettings.isoValue updated on MainActor
+-          → SwiftUI re-renders strip label and rail badge
++          → SwiftUI re-renders wheel readout and top-bezel chip
+ ```
+ 
+ `captureSettings` is the source of truth for **all** displayed values. KVO observers update
+diff --git a/docs/project-overview.md b/docs/project-overview.md
+index 725f2ef..7b93bec 100644
+--- a/docs/project-overview.md
++++ b/docs/project-overview.md
+@@ -12,7 +12,7 @@ live filters, Metal preview. ~80 Swift files / ~13.3k LOC.
+ - Deployment target **iOS 26.5**, `SWIFT_VERSION = 5.0` (Swift 5 mode — see
+   [docs/architecture.md](architecture.md) for what that means for isolation checking),
+   `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`.
+-- CI (`.github/workflows/ci.yml`, on push/PR to `main`): device build → build-for-testing →
++- CI (`.github/workflows/ci.yml`, on push/PR to `main`): device build → simulator test run →
+   `swiftlint lint --strict`.
+ 
+ ## Verification loop (build · test · lint)
+@@ -58,9 +58,9 @@ violations**, **111/111 tests pass**. A change that regresses any of these is a
+ 
+ ### Tests
+ 
+-- `Tests/fexerTests/` — CameraManagerTests, ViewModelTests, UtilitiesTests. 111 tests.
+-- The root-level `fexerTests/fexerTests.swift` is an Xcode stub and is **not** part of the
+-  test suite; ignore it.
++- `Tests/fexerTests/` — CameraManagerTests (18), ViewModelTests (24), UtilitiesTests (11),
++  and `fexerTests.swift` (58: PhotoStyle / EditState / enum tests). 111 tests total, all in
++  the fexerTests target via the synchronized root group.
+ 
+ ## Project layout
+ 
+@@ -90,7 +90,7 @@ fexer/
+ │   ├── Overlays/                 # Histogram, Waveform, Vectorscope, LevelIndicator, GridOverlay,
+ │   │                             #   FocusPeakingOverlay, ZebraOverlay, AudioLevelMeterView,
+ │   │                             #   EVOffsetIndicator, GestureHintOverlay
+-│   ├── ControlsPanel/            # ExposureRailView (side rails), ParameterStripView (scrub strip)
++│   ├── ControlsPanel/            # ExposureRailView (top-bezel chip row), DialWheelView (jog dial)
+ │   ├── StylePicker/              # StylePickerView, StyleCategoryView, StyleThumbnailView,
+ │   │                             #   StyleBeforeAfterView, StyleAdjustmentsRow, CapturePresetsView,
+ │   │                             #   SliderThumb
+@@ -121,7 +121,7 @@ fexer/
+ | [architecture.md](architecture.md) | Threading model, isolation annotations, key classes — read for any CameraManager/CaptureProcessor work |
+ | [camera-pipeline.md](camera-pipeline.md) | Frame path, filter chain, locks, rotation, rendering, letterbox positioning |
+ | [capture-flow.md](capture-flow.md) | Shutter flow, capture variants, video recording, shooting modes |
+-| [manual-controls.md](manual-controls.md) | AE lock, side rails, WB, focus, lens switching |
++| [manual-controls.md](manual-controls.md) | AE lock, top-bezel chip strip, WB, focus, lens switching |
+ | [style-system.md](style-system.md) | Styles, LUT loading, thumbnails, non-destructive editing |
+ | [ui-architecture.md](ui-architecture.md) | Views, @AppStorage keys, QuickAccessBar, shared components |
+ | [conventions.md](conventions.md) | House patterns (fxClamped, withLock, Logger…), utilities, safety rules |
+diff --git a/fexer.xcodeproj/project.pbxproj b/fexer.xcodeproj/project.pbxproj
+index 1dfd2b9..936ac76 100644
+--- a/fexer.xcodeproj/project.pbxproj
++++ b/fexer.xcodeproj/project.pbxproj
+@@ -413,7 +413,6 @@
+ 				CODE_SIGN_STYLE = Manual;
+ 				CURRENT_PROJECT_VERSION = 3;
+ 				DEVELOPMENT_TEAM = 72CW7UW6RB;
+-				PROVISIONING_PROFILE_SPECIFIER = "fexer App Store";
+ 				ENABLE_PREVIEWS = YES;
+ 				GENERATE_INFOPLIST_FILE = YES;
+ 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
+@@ -435,6 +434,7 @@
+ 				MARKETING_VERSION = 1.0;
+ 				PRODUCT_BUNDLE_IDENTIFIER = com.nandanvarma.fexer;
+ 				PRODUCT_NAME = "$(TARGET_NAME)";
++				PROVISIONING_PROFILE_SPECIFIER = "fexer App Store";
+ 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+ 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+ 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+diff --git a/fexer/Camera/CameraManager+ManualControls.swift b/fexer/Camera/CameraManager+ManualControls.swift
+index 1ae55ea..1632b82 100644
+--- a/fexer/Camera/CameraManager+ManualControls.swift
++++ b/fexer/Camera/CameraManager+ManualControls.swift
+@@ -141,6 +141,9 @@ extension CameraManager {
+     }
+ 
+     func setZoom(_ factor: CGFloat) {
++        // Snapshot @MainActor properties before crossing to sessionQueue.
++        let zoomLocked = captureSettings.isOpticalZoomLocked
++        let recording = isRecording
+         sessionQueue.async { [self] in
+             guard let device = currentDevice else {
+                 Logger.camera.error("Cannot set zoom: no camera device available")
+@@ -148,7 +151,7 @@ extension CameraManager {
+             }
+             var target = factor
+             // Optical zoom lock: snap to nearest glass-only stop
+-            if captureSettings.isOpticalZoomLocked {
++            if zoomLocked {
+                 let stops = availableZoomFactors
+                 target = stops.min(by: { abs($0 - factor) < abs($1 - factor) }) ?? factor
+             }
+@@ -156,7 +159,7 @@ extension CameraManager {
+                 to: device.minAvailableVideoZoomFactor...device.maxAvailableVideoZoomFactor
+             )
+             device.withLock {
+-                if isRecording {
++                if recording {
+                     // Smooth ramp during recording to avoid jarring jump
+                     device.ramp(toVideoZoomFactor: clamped, withRate: 4.0)
+                 } else {
+diff --git a/fexer/Camera/CameraManager.swift b/fexer/Camera/CameraManager.swift
+index da4da83..512f640 100644
+--- a/fexer/Camera/CameraManager.swift
++++ b/fexer/Camera/CameraManager.swift
+@@ -8,11 +8,11 @@ import OSLog
+ import Photos
+ import UIKit
+ 
+-    /// Owns the AVCaptureSession and all camera hardware configuration.
+-    /// @Observable properties are read from MainActor; all session mutations
+-    /// are dispatched to sessionQueue for thread safety.
+-    @Observable
+-    final class CameraManager: NSObject {
++/// Owns the AVCaptureSession and all camera hardware configuration.
++/// @Observable properties are read from MainActor; all session mutations
++/// are dispatched to sessionQueue for thread safety.
++@Observable
++final class CameraManager: NSObject {
+     // MARK: - Published state (MainActor)
+     var isSessionRunning = false
+     var currentISO: Float = 200
+diff --git a/fexer/Camera/CaptureProcessor.swift b/fexer/Camera/CaptureProcessor.swift
+index a996964..b39ad89 100644
+--- a/fexer/Camera/CaptureProcessor.swift
++++ b/fexer/Camera/CaptureProcessor.swift
+@@ -13,7 +13,8 @@ extension CVBuffer: @retroactive @unchecked Sendable {}
+ /// Runs entirely on sessionQueue (background). Never touches MainActor.
+ ///
+ /// The frame pipeline is: false color → LUT → focus peaking → zebra.
+-/// Histogram is computed from the pre-filter image every 3rd frame.
++/// Histogram/waveform/vectorscope are computed from the pre-filter image every 2nd frame
++/// when any monitoring overlay is active.
+ final class CaptureProcessor: NSObject {
+     /// Latest rendered CIImage for MTKView (thread-safe via OSAllocatedUnfairLock)
+     private let imageLock = OSAllocatedUnfairLock(initialState: Optional<CIImage>.none)
+diff --git a/fexer/Utilities/HapticManager.swift b/fexer/Utilities/HapticManager.swift
+index d6df90a..0494a8c 100644
+--- a/fexer/Utilities/HapticManager.swift
++++ b/fexer/Utilities/HapticManager.swift
+@@ -70,4 +70,15 @@ final class HapticManager {
+         dispatchPrecondition(condition: .onQueue(.main))
+         shared.notification.notificationOccurred(.error)
+     }
++
++    /// Sharp mechanical "click" for a rotary-dial detent — `.rigid` impact with tunable
++    /// intensity so major (labeled) detents feel firmer than intermediate ones. Uses the
++    /// pre-warmed `impactRigid` generator directly rather than a hand-rolled CHHapticEngine:
++    /// generators are reliable under rapid repeated fire (many detents/sec during a fast
++    /// drag) where starting/restarting a raw engine per-event is not.
++    static func dialDetent(major: Bool) {
++        guard isAvailable else { return }
++        dispatchPrecondition(condition: .onQueue(.main))
++        shared.impactRigid.impactOccurred(intensity: major ? 1.0 : 0.55)
++    }
+ }
+diff --git a/fexer/ViewModels/GalleryViewModel.swift b/fexer/ViewModels/GalleryViewModel.swift
+index 4ae83dd..6d5280d 100644
+--- a/fexer/ViewModels/GalleryViewModel.swift
++++ b/fexer/ViewModels/GalleryViewModel.swift
+@@ -112,8 +112,10 @@ final class GalleryViewModel: NSObject, PHPhotoLibraryChangeObserver {
+         authorizationStatus = status
+         if status == .notDetermined {
+             PHPhotoLibrary.requestAuthorization(for: .readWrite) { [weak self] newStatus in
++                guard let self else { return }
++                // Hoisted out of the Task: referencing the weak-optional captured `self`
++                // inside the concurrently-executing closure is a Swift 6 error.
+                 Task { @MainActor in
+-                    guard let self else { return }
+                     self.authorizationStatus = newStatus
+                     if newStatus == .authorized || newStatus == .limited {
+                         PHPhotoLibrary.shared().register(self)
+diff --git a/fexer/Views/CameraView+ShutterButton.swift b/fexer/Views/CameraView+ShutterButton.swift
+index 1fdb742..eb1459d 100644
+--- a/fexer/Views/CameraView+ShutterButton.swift
++++ b/fexer/Views/CameraView+ShutterButton.swift
+@@ -24,7 +24,7 @@ extension CameraView {
+                             if let thumb = lastCapturedThumb {
+                                 Image(uiImage: thumb)
+                                     .resizable()
+-                                    .aspectRatio(contentMode: .fill)
++                                    .scaledToFill()
+                                     .frame(width: 52, height: 52)
+                                     .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                                     .transition(.opacity)
+diff --git a/fexer/Views/CameraView.swift b/fexer/Views/CameraView.swift
+index 1f365c8..2176276 100644
+--- a/fexer/Views/CameraView.swift
++++ b/fexer/Views/CameraView.swift
+@@ -261,14 +261,20 @@ struct CameraView: View {
+             .allowsHitTesting(false)
+         }
+ 
+-        // ── Quick-access bar — top of viewfinder ────────────────────────────
+-        VStack {
++        // ── Quick-access bar + exposure chip row — both flow from the top of the
++        //    viewfinder so the chip row always sits immediately below the bar, using
++        //    whatever black bezel space is actually there instead of a computed guess ──
++        VStack(spacing: 8) {
+             QuickAccessBar(cameraManager: cameraManager, onShowPresets: {
+                 showPresetsSheet = true
+             }, onShowSettings: {
+                 showSettings = true
+             })
+             .environment(appState)
++            if !isCleanViewActive {
++                ExposureRailView(cameraManager: cameraManager, cameraViewModel: cameraViewModel)
++                    .transition(.opacity)
++            }
+             Spacer()
+         }
+ 
+@@ -356,26 +362,6 @@ struct CameraView: View {
+                 .transition(.opacity.combined(with: .scale(scale: 0.85)))
+         }
+ 
+-        // ── Side-rail exposure/focus badges ──────────────────────────────────
+-        if !isCleanViewActive {
+-            ExposureRailView(cameraManager: cameraManager, cameraViewModel: cameraViewModel)
+-                .padding(.top, CameraView.quickBarHeight + 8)
+-                .allowsHitTesting(true)
+-                .transition(.opacity)
+-        }
+-
+-        // ── Parameter strip (contextual horizontal scrub) ─────────────────────
+-        if let param = cameraViewModel.activeRailParam {
+-            ParameterStripView(param: param, cameraManager: cameraManager) {
+-                withAnimation(.easeOut(duration: 0.2)) { cameraViewModel.activeRailParam = nil }
+-            }
+-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+-            .padding(.bottom, max(160, (letterboxBarHeight ?? 0) + 160))
+-            .transition(.opacity.combined(with: .scale(scale: 0.97)))
+-            .allowsHitTesting(true)
+-            .zIndex(5)
+-        }
+-
+         // ── Histogram ────────────────────────────────────────────────────────
+         if showHistogram && !isCleanViewActive && !cameraViewModel.histogram.red.isEmpty {
+             HistogramView(data: cameraViewModel.histogram)
+@@ -498,6 +484,17 @@ struct CameraView: View {
+                     shootingModePicker
+                         .padding(.bottom, 8)
+                 }
++                // Dial wheel — flows directly above the lens/shutter row (same pattern as
++                // the style picker above) so it always sits in real space, pushing the
++                // controls up rather than guessing a fixed offset that may drift from the
++                // actual bezel size.
++                if let param = cameraViewModel.activeRailParam {
++                    DialWheelView(param: param, cameraManager: cameraManager) {
++                        withAnimation(.easeOut(duration: 0.2)) { cameraViewModel.activeRailParam = nil }
++                    }
++                    .padding(.bottom, 14)
++                    .transition(.opacity.combined(with: .scale(scale: 0.97, anchor: .bottom)))
++                }
+                 lensSwitcherRow
+                     .padding(.bottom, 16)
+                 shutterRow
+diff --git a/fexer/Views/ControlsPanel/ExposureRailView.swift b/fexer/Views/ControlsPanel/ExposureRailView.swift
+index 0c44c2c..a0da5ad 100644
+--- a/fexer/Views/ControlsPanel/ExposureRailView.swift
++++ b/fexer/Views/ControlsPanel/ExposureRailView.swift
+@@ -1,8 +1,8 @@
+ import AVFoundation
+ import SwiftUI
+ 
+-/// Left and right side-rail badges.
+-/// ISO·SS·WB·Focus are fixed constants. Everything below is user-customizable via Settings.
++/// Single-row control strip living in the top letterbox bezel, off the live preview image.
++/// ISO·SS·WB·Focus are fixed constants. Everything else is user-customizable via Settings.
+ struct ExposureRailView: View {
+     let cameraManager: CameraManager
+     @Bindable var cameraViewModel: CameraViewModel
+@@ -11,66 +11,47 @@ struct ExposureRailView: View {
+     @AppStorage("isHDREnabled")    private var isHDREnabled: Bool = false
+     @AppStorage("selfTimerDelay")  private var selfTimerDelay: Int = 0
+ 
+-    private var isLandscape: Bool { abs(DeviceOrientationTracker.shared.rotationAngle) > 45 }
+-    // ponytail: fixed spacing avoids layout recalc; 24pt gives ~10pt visual gap after rotation overlap
+-    private var railSpacing: CGFloat { isLandscape ? 24 : 10 }
+-
+     var body: some View {
+-        ZStack {
+-            // Left rail: ISO + Shutter + customizable
+-            VStack(spacing: railSpacing) {
+-                RailBadge(
+-                    label: "ISO",
+-                    value: isoString,
+-                    isManual: !cameraManager.captureSettings.isAutoISO,
+-                    isActive: cameraViewModel.activeRailParam == .iso
+-                ) {
+-                    cameraViewModel.activeRailParam = cameraViewModel.activeRailParam == .iso ? nil : .iso
+-                    HapticManager.light()
+-                }
+-                RailBadge(
+-                    label: "SS",
+-                    value: shutterString,
+-                    isManual: !cameraManager.captureSettings.isAutoShutter,
+-                    isActive: cameraViewModel.activeRailParam == .shutter
+-                ) {
+-                    cameraViewModel.activeRailParam = cameraViewModel.activeRailParam == .shutter ? nil : .shutter
+-                    HapticManager.light()
+-                }
+-                ForEach(appState.leftRailItems) { railBadge(for: $0) }
+-            }
+-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+-            .padding(.leading, 6)
+-            .padding(.bottom, 220)
++        HStack(spacing: 8) {
++            RailBadge(
++                label: "ISO",
++                value: isoString,
++                isManual: !cameraManager.captureSettings.isAutoISO,
++                isActive: cameraViewModel.activeRailParam == .iso
++            ) { toggle(.iso) }
++            RailBadge(
++                label: "SS",
++                value: shutterString,
++                isManual: !cameraManager.captureSettings.isAutoShutter,
++                isActive: cameraViewModel.activeRailParam == .shutter
++            ) { toggle(.shutter) }
++            ForEach(appState.leftRailItems) { railBadge(for: $0) }
+ 
+-            // Right rail: WB + Focus + customizable
+-            VStack(spacing: railSpacing) {
++            RailBadge(
++                label: "WB",
++                value: wbString,
++                isManual: !cameraManager.captureSettings.isAutoWhiteBalance,
++                isActive: cameraViewModel.activeRailParam == .wb
++            ) { toggle(.wb) }
++            if cameraManager.supportsManualFocus {
+                 RailBadge(
+-                    label: "WB",
+-                    value: wbString,
+-                    isManual: !cameraManager.captureSettings.isAutoWhiteBalance,
+-                    isActive: cameraViewModel.activeRailParam == .wb
+-                ) {
+-                    cameraViewModel.activeRailParam = cameraViewModel.activeRailParam == .wb ? nil : .wb
+-                    HapticManager.light()
+-                }
+-                if cameraManager.supportsManualFocus {
+-                    RailBadge(
+-                        label: "MF",
+-                        value: focusString,
+-                        isManual: !cameraManager.captureSettings.isAutoFocus,
+-                        isActive: cameraViewModel.activeRailParam == .focus
+-                    ) {
+-                        cameraViewModel.activeRailParam = cameraViewModel.activeRailParam == .focus ? nil : .focus
+-                        HapticManager.light()
+-                    }
+-                }
+-                ForEach(appState.rightRailItems) { railBadge(for: $0) }
++                    label: "MF",
++                    value: focusString,
++                    isManual: !cameraManager.captureSettings.isAutoFocus,
++                    isActive: cameraViewModel.activeRailParam == .focus
++                ) { toggle(.focus) }
+             }
+-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
+-            .padding(.trailing, 6)
+-            .padding(.bottom, 220)
++            ForEach(appState.rightRailItems) { railBadge(for: $0) }
++        }
++    }
++
++    /// Opening/closing the dial wheel reflows the bottom controls (it lives in `controlLayer`,
++    /// pushing the lens/shutter row up) — animate both directions, not just dismissal.
++    private func toggle(_ param: CameraViewModel.RailParam) {
++        withAnimation(.easeOut(duration: 0.2)) {
++            cameraViewModel.activeRailParam = cameraViewModel.activeRailParam == param ? nil : param
+         }
++        HapticManager.light()
+     }
+ 
+     // MARK: - Fixed badge strings
+diff --git a/fexer/Views/ControlsPanel/ParameterStripView.swift b/fexer/Views/ControlsPanel/ParameterStripView.swift
+deleted file mode 100644
+index 1bc4764..0000000
+--- a/fexer/Views/ControlsPanel/ParameterStripView.swift
++++ /dev/null
+@@ -1,240 +0,0 @@
+-import AVFoundation
+-import SwiftUI
+-
+-/// Compact horizontal strip for adjusting a single camera parameter.
+-/// 280 × ~90 pt; positioned above the bottom control area.
+-struct ParameterStripView: View {
+-    let param: CameraViewModel.RailParam
+-    let cameraManager: CameraManager
+-    var onDismiss: () -> Void
+-
+-    @State private var autoDismissTask: Task<Void, Never>?
+-
+-    var body: some View {
+-        VStack(spacing: 8) {
+-            // Header: label + live value + auto/manual toggle
+-            HStack(spacing: 6) {
+-                Text(paramLabel)
+-                    .font(.system(size: 10, weight: .semibold))
+-                    .foregroundStyle(.white.opacity(0.5))
+-                    .tracking(0.8)
+-                Text(currentValueString)
+-                    .font(.system(size: 13, weight: .bold, design: .monospaced))
+-                    .foregroundStyle(.white)
+-                Spacer()
+-                Button {
+-                    toggleAuto()
+-                    resetAutoDismiss()
+-                    HapticManager.selectionChanged()
+-                } label: {
+-                    Text(isAuto ? "A" : "M")
+-                        .font(.system(size: 10, weight: .bold))
+-                        .foregroundStyle(isAuto ? .black : .white)
+-                        .frame(width: 28, height: 22)
+-                        .background(isAuto ? Color.yellow : Color.white.opacity(0.18), in: Capsule())
+-                }
+-                .buttonStyle(.plain)
+-            }
+-
+-            // Scrub track
+-            GeometryReader { geo in
+-                let thumbX = (normalizedPosition * geo.size.width).fxClamped(to: 0...geo.size.width)
+-                ZStack(alignment: .leading) {
+-                    Capsule()
+-                        .fill(.white.opacity(0.12))
+-                        .frame(height: 5)
+-                    if !isAuto {
+-                        Capsule()
+-                            .fill(Color.yellow.opacity(0.7))
+-                            .frame(width: thumbX, height: 5)
+-                    }
+-                    Circle()
+-                        .fill(isAuto ? Color.white.opacity(0.35) : Color.white)
+-                        .frame(width: 14, height: 14)
+-                        .offset(x: thumbX - 7)
+-                }
+-                // Enlarge hit area vertically
+-                .contentShape(Rectangle().inset(by: -10))
+-                .gesture(
+-                    DragGesture(minimumDistance: 0)
+-                        .onChanged { value in
+-                            let norm = (value.location.x / geo.size.width).fxClamped(to: 0...1)
+-                            applyNormalized(norm)
+-                            resetAutoDismiss()
+-                        }
+-                )
+-                .disabled(isAuto)
+-                .opacity(isAuto ? 0.45 : 1)
+-            }
+-            .frame(height: 14)
+-
+-            // Step labels
+-            HStack(spacing: 0) {
+-                ForEach(Array(stepLabels.enumerated()), id: \.offset) { i, label in
+-                    if i > 0 { Spacer(minLength: 0) }
+-                    Text(label)
+-                        .font(.system(size: 8))
+-                        .foregroundStyle(.white.opacity(0.35))
+-                }
+-            }
+-        }
+-        .padding(.horizontal, 16)
+-        .padding(.vertical, 12)
+-        .frame(width: 280)
+-        .background(.black.opacity(0.82), in: RoundedRectangle(cornerRadius: 16))
+-        .overlay(RoundedRectangle(cornerRadius: 16).stroke(.white.opacity(0.12), lineWidth: 0.5))
+-        .rotationEffect(.degrees(DeviceOrientationTracker.shared.rotationAngle))
+-        .animation(.spring(response: 0.35, dampingFraction: 0.75),
+-                   value: DeviceOrientationTracker.shared.rotationAngle)
+-        .onAppear { resetAutoDismiss() }
+-        .onDisappear { autoDismissTask?.cancel() }
+-    }
+-
+-    // MARK: - Parameter info
+-
+-    private var paramLabel: String {
+-        switch param {
+-        case .iso:     return "ISO"
+-        case .shutter: return "SHUTTER"
+-        case .wb:      return "WHITE BALANCE"
+-        case .focus:   return "FOCUS"
+-        }
+-    }
+-
+-    private var isAuto: Bool {
+-        switch param {
+-        case .iso:     return cameraManager.captureSettings.isAutoISO
+-        case .shutter: return cameraManager.captureSettings.isAutoShutter
+-        case .wb:      return cameraManager.captureSettings.isAutoWhiteBalance
+-        case .focus:   return cameraManager.captureSettings.isAutoFocus
+-        }
+-    }
+-
+-    private var currentValueString: String {
+-        switch param {
+-        case .iso:
+-            return cameraManager.captureSettings.isAutoISO
+-                ? "AUTO"
+-                : "ISO \(Int(cameraManager.captureSettings.isoValue))"
+-        case .shutter:
+-            return cameraManager.captureSettings.isAutoShutter
+-                ? "AUTO"
+-                : cameraManager.captureSettings.shutterSpeedDisplayString
+-        case .wb:
+-            return cameraManager.captureSettings.isAutoWhiteBalance
+-                ? "AUTO"
+-                : "\(Int(cameraManager.captureSettings.whiteBalance))K"
+-        case .focus:
+-            return cameraManager.captureSettings.isAutoFocus
+-                ? "AUTO"
+-                : String(format: "%.2f", cameraManager.captureSettings.focusDistance)
+-        }
+-    }
+-
+-    private var normalizedPosition: CGFloat {
+-        switch param {
+-        case .iso:
+-            let stops = CaptureSettings.isoStops.map { CGFloat($0) }
+-            let val = CGFloat(cameraManager.captureSettings.isoValue)
+-            guard let idx = stops.firstIndex(where: { $0 >= val }) else { return 1 }
+-            return CGFloat(idx) / CGFloat(stops.count - 1)
+-        case .shutter:
+-            let stops = CaptureSettings.shutterStops
+-            let val = cameraManager.captureSettings.shutterSpeed
+-            let idx = stops.firstIndex(where: { CMTimeCompare($0, val) >= 0 }) ?? stops.count - 1
+-            return CGFloat(idx) / CGFloat(stops.count - 1)
+-        case .wb:
+-            return CGFloat((cameraManager.captureSettings.whiteBalance - 2000) / 6000)
+-                .fxClamped(to: 0...1)
+-        case .focus:
+-            return CGFloat(cameraManager.captureSettings.focusDistance).fxClamped(to: 0...1)
+-        }
+-    }
+-
+-    private var stepLabels: [String] {
+-        switch param {
+-        case .iso:     return ["25", "100", "400", "1600", "6400"]
+-        case .shutter: return ["1/8000", "1/250", "1/30", "1\"", "30\""]
+-        case .wb:      return ["2K", "3K", "5.6K", "6.5K", "8K"]
+-        case .focus:   return ["NEAR", "", "", "", "∞"]
+-        }
+-    }
+-
+-    // MARK: - Actions
+-
+-    private func applyNormalized(_ norm: CGFloat) {
+-        switch param {
+-        case .iso:
+-            let stops = CaptureSettings.isoStops
+-            let idx = Int((norm * CGFloat(stops.count - 1)).rounded())
+-                .fxClamped(to: 0...stops.count - 1)
+-            let iso = stops[idx]
+-            cameraManager.captureSettings.isAutoISO = false
+-            cameraManager.captureSettings.isAutoShutter = false
+-            cameraManager.captureSettings.isoValue = iso
+-            cameraManager.setISO(iso)
+-        case .shutter:
+-            let stops = CaptureSettings.shutterStops
+-            let idx = Int((norm * CGFloat(stops.count - 1)).rounded())
+-                .fxClamped(to: 0...stops.count - 1)
+-            let speed = stops[idx]
+-            cameraManager.captureSettings.isAutoISO = false
+-            cameraManager.captureSettings.isAutoShutter = false
+-            cameraManager.captureSettings.shutterSpeed = speed
+-            cameraManager.setShutterSpeed(speed)
+-        case .wb:
+-            let kelvin = Float(2000 + norm * 6000)
+-            cameraManager.captureSettings.isAutoWhiteBalance = false
+-            cameraManager.captureSettings.whiteBalance = kelvin
+-            cameraManager.setWhiteBalance(kelvin: kelvin,
+-                                          tint: cameraManager.captureSettings.whiteBalanceTint)
+-        case .focus:
+-            let pos = Float(norm)
+-            cameraManager.captureSettings.isAutoFocus = false
+-            cameraManager.captureSettings.focusDistance = pos
+-            cameraManager.setFocus(lensPosition: pos)
+-        }
+-    }
+-
+-    private func toggleAuto() {
+-        switch param {
+-        case .iso, .shutter:
+-            if cameraManager.captureSettings.isAutoISO && cameraManager.captureSettings.isAutoShutter {
+-                // Auto → manual: freeze current hardware values
+-                cameraManager.captureSettings.isAutoISO = false
+-                cameraManager.captureSettings.isAutoShutter = false
+-                cameraManager.setISO(cameraManager.captureSettings.isoValue)
+-            } else {
+-                cameraManager.captureSettings.isAutoISO = true
+-                cameraManager.captureSettings.isAutoShutter = true
+-                cameraManager.setAutoExposure()
+-            }
+-        case .wb:
+-            if cameraManager.captureSettings.isAutoWhiteBalance {
+-                cameraManager.captureSettings.isAutoWhiteBalance = false
+-                cameraManager.setWhiteBalance(kelvin: cameraManager.captureSettings.whiteBalance,
+-                                              tint: cameraManager.captureSettings.whiteBalanceTint)
+-            } else {
+-                cameraManager.captureSettings.isAutoWhiteBalance = true
+-                cameraManager.setAutoWhiteBalance()
+-            }
+-        case .focus:
+-            if cameraManager.captureSettings.isAutoFocus {
+-                cameraManager.captureSettings.isAutoFocus = false
+-                cameraManager.setFocusMode(.locked)
+-            } else {
+-                cameraManager.captureSettings.isAutoFocus = true
+-                cameraManager.setAutoFocus()
+-            }
+-        }
+-    }
+-
+-    private func resetAutoDismiss() {
+-        autoDismissTask?.cancel()
+-        autoDismissTask = Task { @MainActor in
+-            try? await Task.sleep(nanoseconds: 4_000_000_000)
+-            guard !Task.isCancelled else { return }
+-            withAnimation(.easeOut(duration: 0.2)) { onDismiss() }
+-        }
+-    }
+-}
+diff --git a/fexer/Views/EditView.swift b/fexer/Views/EditView.swift
+index 7b07ea9..ce93513 100644
+--- a/fexer/Views/EditView.swift
++++ b/fexer/Views/EditView.swift
+@@ -101,7 +101,7 @@ struct EditView: View {
+                 } else if let image = previewImage {
+                     Image(uiImage: image)
+                         .resizable()
+-                        .aspectRatio(contentMode: .fit)
++                        .scaledToFit()
+                         .frame(maxWidth: geometry.size.width, maxHeight: geometry.size.height)
+                         .opacity(isPressingOriginal ? 0 : 1)
+                 }
+@@ -109,7 +109,7 @@ struct EditView: View {
+                 if let image = originalImage {
+                     Image(uiImage: image)
+                         .resizable()
+-                        .aspectRatio(contentMode: .fit)
++                        .scaledToFit()
+                         .frame(maxWidth: geometry.size.width, maxHeight: geometry.size.height)
+                         .opacity(isPressingOriginal ? 1 : 0)
+                         .allowsHitTesting(false)
+diff --git a/fexer/Views/GalleryView.swift b/fexer/Views/GalleryView.swift
+index b5c1518..903ee0a 100644
+--- a/fexer/Views/GalleryView.swift
++++ b/fexer/Views/GalleryView.swift
+@@ -84,7 +84,7 @@ private struct AssetThumbnailView: View {
+                     if let img = thumbnail {
+                         Image(uiImage: img)
+                             .resizable()
+-                            .aspectRatio(contentMode: .fill)
++                            .scaledToFill()
+                     } else {
+                         Color(white: 0.1)
+                             .overlay(
+@@ -150,7 +150,7 @@ private struct GalleryDetailView: View {
+                 if let img = image {
+                     Image(uiImage: img)
+                         .resizable()
+-                        .aspectRatio(contentMode: .fit)
++                        .scaledToFit()
+                         .scaleEffect(magnification)
+                         .gesture(magnificationGesture)
+                         .onTapGesture(count: 2) {
+diff --git a/fexer/Views/ReviewCarouselView.swift b/fexer/Views/ReviewCarouselView.swift
+index 7e1202d..85e652f 100644
+--- a/fexer/Views/ReviewCarouselView.swift
++++ b/fexer/Views/ReviewCarouselView.swift
+@@ -94,7 +94,7 @@ struct LibraryPhotoPageView: View {
+             if let image = loadedImage {
+                 Image(uiImage: image)
+                     .resizable()
+-                    .aspectRatio(contentMode: .fit)
++                    .scaledToFit()
+                     .scaleEffect(magnification)
+                     .gesture(magnificationGesture)
+             } else {
+diff --git a/fexer/Views/ReviewView.swift b/fexer/Views/ReviewView.swift
+index 752874d..58e7019 100644
+--- a/fexer/Views/ReviewView.swift
++++ b/fexer/Views/ReviewView.swift
+@@ -76,7 +76,7 @@ struct ReviewView: View {
+                 if let uiImage = displayImage {
+                     Image(uiImage: uiImage)
+                         .resizable()
+-                        .aspectRatio(contentMode: .fit)
++                        .scaledToFit()
+                         .scaleEffect(magnification)
+                         .gesture(magnificationGesture)
+                 } else {
+diff --git a/fexer/Views/StylePicker/StyleBeforeAfterView.swift b/fexer/Views/StylePicker/StyleBeforeAfterView.swift
+index a23587c..ccd2013 100644
+--- a/fexer/Views/StylePicker/StyleBeforeAfterView.swift
++++ b/fexer/Views/StylePicker/StyleBeforeAfterView.swift
+@@ -65,14 +65,14 @@ struct StyleBeforeAfterView: View {
+         // Styled image — full background
+         Image(uiImage: styled)
+             .resizable()
+-            .aspectRatio(contentMode: .fill)
++            .scaledToFill()
+             .frame(width: geo.size.width, height: geo.size.height)
+             .clipped()
+ 
+         // Original image clipped to left of the divider
+         Image(uiImage: original)
+             .resizable()
+-            .aspectRatio(contentMode: .fill)
++            .scaledToFill()
+             .frame(width: geo.size.width, height: geo.size.height)
+             .clipped()
+             .frame(width: splitX, alignment: .leading)
+diff --git a/fexer/Views/StylePicker/StyleThumbnailView.swift b/fexer/Views/StylePicker/StyleThumbnailView.swift
+index 9d02095..bd8e1f1 100644
+--- a/fexer/Views/StylePicker/StyleThumbnailView.swift
++++ b/fexer/Views/StylePicker/StyleThumbnailView.swift
+@@ -19,7 +19,7 @@ struct StyleThumbnailView: View {
+                 if let thumb = thumbnail {
+                     Image(uiImage: thumb)
+                         .resizable()
+-                        .aspectRatio(contentMode: .fill)
++                        .scaledToFill()
+                 } else {
+                     placeholderGradient
+                 }

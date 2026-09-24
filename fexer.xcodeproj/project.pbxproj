@@ -6,315 +6,681 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		0136DFCA5CF0A4A1F40A3F57 /* EditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F7A1A0E3FED5E896D856330 /* EditorView.swift */; };
+		06B31161F445B00076E47082 /* kodak_trix_400.cube in Resources */ = {isa = PBXBuildFile; fileRef = 4BC8F68D4B520158CE08C096 /* kodak_trix_400.cube */; };
+		06F3051F66D63559A75666CF /* ilford_hp5_bw.cube in Resources */ = {isa = PBXBuildFile; fileRef = F524E2FE5D6B92178FB4E3A9 /* ilford_hp5_bw.cube */; };
+		10CD5F3A7BEFA61E48F43421 /* portrait_warm.cube in Resources */ = {isa = PBXBuildFile; fileRef = 3D5FFA5D8CB4256B6146C5CE /* portrait_warm.cube */; };
+		15955271AE48AF62C02B525A /* PhotoDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8BDD52EAAFC73CEC145FB5F /* PhotoDelegate.swift */; };
+		18457031C960B4D222920DA0 /* ImagePipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = B56B6B0FC2E2AA259E8A5DBC /* ImagePipeline.swift */; };
+		19589BDCD5437D685318C048 /* PreferencesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28FE024C21C8B0D5AB53C3D0 /* PreferencesTests.swift */; };
+		1B699AC24F1D6C072C9FF8AD /* agfa_vista_200.cube in Resources */ = {isa = PBXBuildFile; fileRef = C17EF08051640DE45D4D969D /* agfa_vista_200.cube */; };
+		1BE24C2C72939C8DF3FD1060 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 523A524256B3910959976EEF /* SettingsView.swift */; };
+		26A8F8780E3EECE97B1498F6 /* ManualControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = 55B8103F53675ACA595700E4 /* ManualControls.swift */; };
+		280C15D2444398CCF93EDF0E /* landscape_vivid.cube in Resources */ = {isa = PBXBuildFile; fileRef = FDE03B71302DFC1C0046FE3C /* landscape_vivid.cube */; };
+		29300CC179D5652F5CC88E4D /* street_punch.cube in Resources */ = {isa = PBXBuildFile; fileRef = 982FAB6936E0506F234278B5 /* street_punch.cube */; };
+		2E1ED1070E7953AD4EE08B4A /* ColorMathTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CCC6883E51BAF82499A8217 /* ColorMathTests.swift */; };
+		30C4A1265693529D030FB156 /* CaptureDetail.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75A23B49D991CB21D85331CD /* CaptureDetail.swift */; };
+		347A270E6BC04CEBFF3BD482 /* macro_soft.cube in Resources */ = {isa = PBXBuildFile; fileRef = 01C444563A2BC08FAC5F1579 /* macro_soft.cube */; };
+		350C5AC07B453DE30FAEF631 /* noir_bw.cube in Resources */ = {isa = PBXBuildFile; fileRef = AD099995167DF7EE79B1C5ED /* noir_bw.cube */; };
+		3B7012BB0EE89DBE54F70E7E /* EditRecipeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 121B8C3017013DC278EAF8A4 /* EditRecipeTests.swift */; };
+		40950EDFB6E9DD65F7E0EA5C /* StylePicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14774D414541B2EA7DF53A04 /* StylePicker.swift */; };
+		441F61F9B38F733EA59EAC8B /* ImageRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DD0F590371507268610961F /* ImageRenderer.swift */; };
+		44545F08926E375AAE7705C2 /* fuji_velvia_50.cube in Resources */ = {isa = PBXBuildFile; fileRef = 1508DF765E951BE95D38D3B6 /* fuji_velvia_50.cube */; };
+		45F90292744183D03DD06F88 /* CameraView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC49097C4F707C1EF65AAE51 /* CameraView.swift */; };
+		4719DEAE515D81404734D5CE /* CropGeometryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92592DAB29DFA9EAF41C35B1 /* CropGeometryTests.swift */; };
+		49C16585DC0AE17A639072A2 /* CubeLUT.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC6ACF54771B52D0CFF3ECD7 /* CubeLUT.swift */; };
+		49C5A6257350ADE98770D20B /* CameraService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7AC16562C1E1B0343D4E6060 /* CameraService.swift */; };
+		4CC980B399784F7E6D3512A3 /* CaptureStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD44FBCB13575DE090E51016 /* CaptureStore.swift */; };
+		4DAC6C50D8F5710B749888C0 /* LibraryItemTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 297D721155E963C8E11C502D /* LibraryItemTests.swift */; };
+		529230604110968B07C2F153 /* SimulatedCamera.swift in Sources */ = {isa = PBXBuildFile; fileRef = 261AA486E3EDC09BCA5A8D8C /* SimulatedCamera.swift */; };
+		58B817BF0785B7195EE40930 /* ColorMath.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F460E3C04B769A915C402AF /* ColorMath.swift */; };
+		5D094B241B7CAB84B1F44B42 /* Preferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = 191CCEC390A7CB59F4D2D6FF /* Preferences.swift */; };
+		6AC8B4CD7DC3028D838390E4 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = D4C70169675F06A6C10F9666 /* Assets.xcassets */; };
+		6EEF664482C4A64ED39A6762 /* LibraryModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E837D7DBC9388B2E6A07993 /* LibraryModel.swift */; };
+		7035315259EB8AFE2126A9FA /* EditorModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9D55B8701971B41E1C2FA66 /* EditorModel.swift */; };
+		7C841CE8E58D55578A470FE5 /* architecture_cool.cube in Resources */ = {isa = PBXBuildFile; fileRef = 8824A1667229719B30803A06 /* architecture_cool.cube */; };
+		80D87B32828475A5410762DB /* PhotosExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E715169C5EAD86D3EF93ADC /* PhotosExporter.swift */; };
+		8240BC90FCBDA9A280AFAE5E /* PhotoStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D673042007AB369E187D0CD /* PhotoStyle.swift */; };
+		866369F9F16705C6CEF789CA /* EditRecipe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0EE9B9448CE45A77B0D458C8 /* EditRecipe.swift */; };
+		8A033A61332798B25D0ACDEF /* kodak_portra_400.cube in Resources */ = {isa = PBXBuildFile; fileRef = 60220AADC015CF6A5F3A5DB9 /* kodak_portra_400.cube */; };
+		8B3B8222BA7ECC58EAD34E1E /* CameraTextTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C161318B7F31B0C116FA17B /* CameraTextTests.swift */; };
+		90767DE82556D01F6186EE74 /* kodak_gold_200.cube in Resources */ = {isa = PBXBuildFile; fileRef = 53D62B5CB19496F11254281D /* kodak_gold_200.cube */; };
+		97CAD19A815CB0DF95A41386 /* astro_dark.cube in Resources */ = {isa = PBXBuildFile; fileRef = 4FA4FBE1E9DF411D56B50372 /* astro_dark.cube */; };
+		9AD46F7B8EDF36EFF395E27A /* FexerUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30ACFA9F893A6674AE09D116 /* FexerUITests.swift */; };
+		9C60475A6FD8FAA147822305 /* CaptureStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C859A1A5DFADAA6B1FC531DF /* CaptureStoreTests.swift */; };
+		A36D5A02204F1F23A635B70D /* cool_mist.cube in Resources */ = {isa = PBXBuildFile; fileRef = C7EA9B4979EF7241D0341A21 /* cool_mist.cube */; };
+		A3B455EF461CF27DF9C97CF7 /* punchy_contrast.cube in Resources */ = {isa = PBXBuildFile; fileRef = BE38FAB4C312E32CD6E193E4 /* punchy_contrast.cube */; };
+		A58092A514391FCC91E646E8 /* CameraTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 696577ADD4B9BB18467BD78C /* CameraTypes.swift */; };
+		A6DBB5B6E1DADD18E9A2F04B /* dreamy_soft.cube in Resources */ = {isa = PBXBuildFile; fileRef = 60F49B369B4195563F34AA4E /* dreamy_soft.cube */; };
+		A7585B90EC4D7C1A615B3CAC /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 371768B3D7AB6EB4EF146020 /* PrivacyInfo.xcprivacy */; };
+		B033F5CBAB70AE413E9B0F25 /* LevelService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59146D7909077C10339D53B9 /* LevelService.swift */; };
+		B69B7484A67B60E6D91E47D5 /* CameraModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE42B874C224CBF4106F9C2F /* CameraModel.swift */; };
+		B88F73319B66C8EE1F208A03 /* FrameProcessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70CCA8A8E7BB4AE6138954AC /* FrameProcessor.swift */; };
+		BB915838101112F7D6109A38 /* Diagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 055D1D5E7EA4B98CA678F8F6 /* Diagnostics.swift */; };
+		BFD44D62164B8CD61DD6D874 /* CameraPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9681FCEDB0F0AAEF85154BC8 /* CameraPreview.swift */; };
+		C2A57E5A41C60F156687005C /* PhotoStyleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47E00E2B3FF2132C71CC426B /* PhotoStyleTests.swift */; };
+		CD30B4E86432703B66F1E43C /* EditHistoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13F27C0333957206D2233D09 /* EditHistoryTests.swift */; };
+		D321B79EE7279B10B6A4A896 /* warm_fade.cube in Resources */ = {isa = PBXBuildFile; fileRef = B69BF96A7DE088EE7EE06AE6 /* warm_fade.cube */; };
+		D806844A5BB56E19FCE5F5CB /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6F546944E20BAF6FBEB7481 /* Theme.swift */; };
+		DDDCD9A2F3071BB8F8042C38 /* golden_hour.cube in Resources */ = {isa = PBXBuildFile; fileRef = C184E0492EBFE95377F1C65C /* golden_hour.cube */; };
+		DE3115028D20311E98787CDE /* CubeLUTTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4895508ABF105AE026FBB17 /* CubeLUTTests.swift */; };
+		DF1C8D8F113D964317372CCB /* fuji_provia_100.cube in Resources */ = {isa = PBXBuildFile; fileRef = 466C81BB2528771E5DF29C3D /* fuji_provia_100.cube */; };
+		E6F5BC81DE9B40FE34527209 /* faded_matte.cube in Resources */ = {isa = PBXBuildFile; fileRef = C70ABFEFBC727799B8CFD0BD /* faded_matte.cube */; };
+		ED774F616B9D7235FEE9844D /* CropGeometry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FB6665BF2EB0C4FF1A1635C /* CropGeometry.swift */; };
+		F551D311FAB1AC5C2C37C3A4 /* FexerApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B57E047A3B33802931A2013 /* FexerApp.swift */; };
+		F9030F0A1D5A3E6ABE5D6D55 /* cinematic_teal_orange.cube in Resources */ = {isa = PBXBuildFile; fileRef = 99DD7466DD52B413933B6DA6 /* cinematic_teal_orange.cube */; };
+		FAB1570DA288820331C52B16 /* LibraryItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7FA5F9E38D2BF7D7BE8BB54 /* LibraryItem.swift */; };
+		FD0D5E21484FD2A1E3F7F1B0 /* LibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68ED7B25AC1BD352478CB93D /* LibraryView.swift */; };
+		FF23D71ED34190F124184D0D /* LocationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6E507F70F881787D4F23C62 /* LocationService.swift */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
-		A21EC4D32FF9825A00B5F445 /* PBXContainerItemProxy */ = {
+		4CFE35405BCC582A98328B47 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
-			containerPortal = A25D680A2FE3DDCC00F11BF8 /* Project object */;
+			containerPortal = A6A62A7D5C7227BC9130B343 /* Project object */;
 			proxyType = 1;
-			remoteGlobalIDString = A25D68112FE3DDCC00F11BF8;
-			remoteInfo = fexer;
+			remoteGlobalIDString = 818A41A502C63E785ADF5CC1;
+			remoteInfo = Fexer;
+		};
+		6B6A8C2AC15F8B8E6BD0E3C6 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A6A62A7D5C7227BC9130B343 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 818A41A502C63E785ADF5CC1;
+			remoteInfo = Fexer;
 		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-		A21EC4CF2FF9825A00B5F445 /* fexerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = fexerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		A25D68122FE3DDCC00F11BF8 /* fexer.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = fexer.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		01C444563A2BC08FAC5F1579 /* macro_soft.cube */ = {isa = PBXFileReference; path = macro_soft.cube; sourceTree = "<group>"; };
+		055D1D5E7EA4B98CA678F8F6 /* Diagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Diagnostics.swift; sourceTree = "<group>"; };
+		0B57E047A3B33802931A2013 /* FexerApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FexerApp.swift; sourceTree = "<group>"; };
+		0EE9B9448CE45A77B0D458C8 /* EditRecipe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditRecipe.swift; sourceTree = "<group>"; };
+		0F7A1A0E3FED5E896D856330 /* EditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorView.swift; sourceTree = "<group>"; };
+		0FB6665BF2EB0C4FF1A1635C /* CropGeometry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CropGeometry.swift; sourceTree = "<group>"; };
+		121B8C3017013DC278EAF8A4 /* EditRecipeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditRecipeTests.swift; sourceTree = "<group>"; };
+		13F27C0333957206D2233D09 /* EditHistoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditHistoryTests.swift; sourceTree = "<group>"; };
+		14774D414541B2EA7DF53A04 /* StylePicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StylePicker.swift; sourceTree = "<group>"; };
+		1508DF765E951BE95D38D3B6 /* fuji_velvia_50.cube */ = {isa = PBXFileReference; path = fuji_velvia_50.cube; sourceTree = "<group>"; };
+		191CCEC390A7CB59F4D2D6FF /* Preferences.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Preferences.swift; sourceTree = "<group>"; };
+		1C161318B7F31B0C116FA17B /* CameraTextTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraTextTests.swift; sourceTree = "<group>"; };
+		261AA486E3EDC09BCA5A8D8C /* SimulatedCamera.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SimulatedCamera.swift; sourceTree = "<group>"; };
+		28FE024C21C8B0D5AB53C3D0 /* PreferencesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesTests.swift; sourceTree = "<group>"; };
+		297D721155E963C8E11C502D /* LibraryItemTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryItemTests.swift; sourceTree = "<group>"; };
+		30ACFA9F893A6674AE09D116 /* FexerUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FexerUITests.swift; sourceTree = "<group>"; };
+		371768B3D7AB6EB4EF146020 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		3D5FFA5D8CB4256B6146C5CE /* portrait_warm.cube */ = {isa = PBXFileReference; path = portrait_warm.cube; sourceTree = "<group>"; };
+		3E837D7DBC9388B2E6A07993 /* LibraryModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryModel.swift; sourceTree = "<group>"; };
+		466C81BB2528771E5DF29C3D /* fuji_provia_100.cube */ = {isa = PBXFileReference; path = fuji_provia_100.cube; sourceTree = "<group>"; };
+		47E00E2B3FF2132C71CC426B /* PhotoStyleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoStyleTests.swift; sourceTree = "<group>"; };
+		4BC8F68D4B520158CE08C096 /* kodak_trix_400.cube */ = {isa = PBXFileReference; path = kodak_trix_400.cube; sourceTree = "<group>"; };
+		4D673042007AB369E187D0CD /* PhotoStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoStyle.swift; sourceTree = "<group>"; };
+		4FA4FBE1E9DF411D56B50372 /* astro_dark.cube */ = {isa = PBXFileReference; path = astro_dark.cube; sourceTree = "<group>"; };
+		523A524256B3910959976EEF /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		53D62B5CB19496F11254281D /* kodak_gold_200.cube */ = {isa = PBXFileReference; path = kodak_gold_200.cube; sourceTree = "<group>"; };
+		5451B793B3F8CB23853CF015 /* Fexer.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Fexer.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		55B8103F53675ACA595700E4 /* ManualControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManualControls.swift; sourceTree = "<group>"; };
+		59146D7909077C10339D53B9 /* LevelService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LevelService.swift; sourceTree = "<group>"; };
+		5DD0F590371507268610961F /* ImageRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageRenderer.swift; sourceTree = "<group>"; };
+		60220AADC015CF6A5F3A5DB9 /* kodak_portra_400.cube */ = {isa = PBXFileReference; path = kodak_portra_400.cube; sourceTree = "<group>"; };
+		60F49B369B4195563F34AA4E /* dreamy_soft.cube */ = {isa = PBXFileReference; path = dreamy_soft.cube; sourceTree = "<group>"; };
+		68ED7B25AC1BD352478CB93D /* LibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryView.swift; sourceTree = "<group>"; };
+		696577ADD4B9BB18467BD78C /* CameraTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraTypes.swift; sourceTree = "<group>"; };
+		70CCA8A8E7BB4AE6138954AC /* FrameProcessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrameProcessor.swift; sourceTree = "<group>"; };
+		75A23B49D991CB21D85331CD /* CaptureDetail.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureDetail.swift; sourceTree = "<group>"; };
+		7AC16562C1E1B0343D4E6060 /* CameraService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraService.swift; sourceTree = "<group>"; };
+		8824A1667229719B30803A06 /* architecture_cool.cube */ = {isa = PBXFileReference; path = architecture_cool.cube; sourceTree = "<group>"; };
+		8CCC6883E51BAF82499A8217 /* ColorMathTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ColorMathTests.swift; sourceTree = "<group>"; };
+		92592DAB29DFA9EAF41C35B1 /* CropGeometryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CropGeometryTests.swift; sourceTree = "<group>"; };
+		9681FCEDB0F0AAEF85154BC8 /* CameraPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraPreview.swift; sourceTree = "<group>"; };
+		982FAB6936E0506F234278B5 /* street_punch.cube */ = {isa = PBXFileReference; path = street_punch.cube; sourceTree = "<group>"; };
+		99DD7466DD52B413933B6DA6 /* cinematic_teal_orange.cube */ = {isa = PBXFileReference; path = cinematic_teal_orange.cube; sourceTree = "<group>"; };
+		99E057442A896FF8244C98F3 /* FexerUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = FexerUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		9E715169C5EAD86D3EF93ADC /* PhotosExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotosExporter.swift; sourceTree = "<group>"; };
+		9F460E3C04B769A915C402AF /* ColorMath.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ColorMath.swift; sourceTree = "<group>"; };
+		AD099995167DF7EE79B1C5ED /* noir_bw.cube */ = {isa = PBXFileReference; path = noir_bw.cube; sourceTree = "<group>"; };
+		B4895508ABF105AE026FBB17 /* CubeLUTTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CubeLUTTests.swift; sourceTree = "<group>"; };
+		B56B6B0FC2E2AA259E8A5DBC /* ImagePipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImagePipeline.swift; sourceTree = "<group>"; };
+		B69BF96A7DE088EE7EE06AE6 /* warm_fade.cube */ = {isa = PBXFileReference; path = warm_fade.cube; sourceTree = "<group>"; };
+		BE38FAB4C312E32CD6E193E4 /* punchy_contrast.cube */ = {isa = PBXFileReference; path = punchy_contrast.cube; sourceTree = "<group>"; };
+		C17EF08051640DE45D4D969D /* agfa_vista_200.cube */ = {isa = PBXFileReference; path = agfa_vista_200.cube; sourceTree = "<group>"; };
+		C184E0492EBFE95377F1C65C /* golden_hour.cube */ = {isa = PBXFileReference; path = golden_hour.cube; sourceTree = "<group>"; };
+		C6F546944E20BAF6FBEB7481 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
+		C70ABFEFBC727799B8CFD0BD /* faded_matte.cube */ = {isa = PBXFileReference; path = faded_matte.cube; sourceTree = "<group>"; };
+		C7EA9B4979EF7241D0341A21 /* cool_mist.cube */ = {isa = PBXFileReference; path = cool_mist.cube; sourceTree = "<group>"; };
+		C859A1A5DFADAA6B1FC531DF /* CaptureStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureStoreTests.swift; sourceTree = "<group>"; };
+		C8BDD52EAAFC73CEC145FB5F /* PhotoDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoDelegate.swift; sourceTree = "<group>"; };
+		C9D55B8701971B41E1C2FA66 /* EditorModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorModel.swift; sourceTree = "<group>"; };
+		D4C70169675F06A6C10F9666 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		D78FE6724110BE1EA2A9316C /* FexerTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = FexerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		D7FA5F9E38D2BF7D7BE8BB54 /* LibraryItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryItem.swift; sourceTree = "<group>"; };
+		DC49097C4F707C1EF65AAE51 /* CameraView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraView.swift; sourceTree = "<group>"; };
+		DC6ACF54771B52D0CFF3ECD7 /* CubeLUT.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CubeLUT.swift; sourceTree = "<group>"; };
+		E6E507F70F881787D4F23C62 /* LocationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocationService.swift; sourceTree = "<group>"; };
+		EE42B874C224CBF4106F9C2F /* CameraModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraModel.swift; sourceTree = "<group>"; };
+		F524E2FE5D6B92178FB4E3A9 /* ilford_hp5_bw.cube */ = {isa = PBXFileReference; path = ilford_hp5_bw.cube; sourceTree = "<group>"; };
+		FD44FBCB13575DE090E51016 /* CaptureStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureStore.swift; sourceTree = "<group>"; };
+		FDE03B71302DFC1C0046FE3C /* landscape_vivid.cube */ = {isa = PBXFileReference; path = landscape_vivid.cube; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
-/* Begin PBXFileSystemSynchronizedRootGroup section */
-		A21EC4D02FF9825A00B5F445 /* Tests/fexerTests */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			path = Tests/fexerTests;
-			sourceTree = "<group>";
-		};
-		A25D68142FE3DDCC00F11BF8 /* fexer */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			path = fexer;
-			sourceTree = "<group>";
-		};
-/* End PBXFileSystemSynchronizedRootGroup section */
-
-/* Begin PBXFrameworksBuildPhase section */
-		A21EC4CC2FF9825A00B5F445 /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		A25D680F2FE3DDCC00F11BF8 /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-/* End PBXFrameworksBuildPhase section */
-
 /* Begin PBXGroup section */
-		A25D68092FE3DDCC00F11BF8 = {
+		04F10B4BBA62B07EBAB4D0E1 /* Camera */ = {
 			isa = PBXGroup;
 			children = (
-				A25D68142FE3DDCC00F11BF8 /* fexer */,
-				A21EC4D02FF9825A00B5F445 /* Tests/fexerTests */,
-				A25D68132FE3DDCC00F11BF8 /* Products */,
+				9681FCEDB0F0AAEF85154BC8 /* CameraPreview.swift */,
+				7AC16562C1E1B0343D4E6060 /* CameraService.swift */,
+				70CCA8A8E7BB4AE6138954AC /* FrameProcessor.swift */,
+				C8BDD52EAAFC73CEC145FB5F /* PhotoDelegate.swift */,
+				261AA486E3EDC09BCA5A8D8C /* SimulatedCamera.swift */,
 			);
+			path = Camera;
 			sourceTree = "<group>";
 		};
-		A25D68132FE3DDCC00F11BF8 /* Products */ = {
+		07B3946A2A8801FF95FBC2FE /* Tests */ = {
 			isa = PBXGroup;
 			children = (
-				A25D68122FE3DDCC00F11BF8 /* fexer.app */,
-				A21EC4CF2FF9825A00B5F445 /* fexerTests.xctest */,
+				53A6AD7CBA15F7377FBCED88 /* UI */,
+				33D34742AC72650FB2559C46 /* Unit */,
+			);
+			path = Tests;
+			sourceTree = "<group>";
+		};
+		2AA9F4FCB7DD2816163B8260 /* Domain */ = {
+			isa = PBXGroup;
+			children = (
+				696577ADD4B9BB18467BD78C /* CameraTypes.swift */,
+				0EE9B9448CE45A77B0D458C8 /* EditRecipe.swift */,
+				D7FA5F9E38D2BF7D7BE8BB54 /* LibraryItem.swift */,
+				4D673042007AB369E187D0CD /* PhotoStyle.swift */,
+			);
+			path = Domain;
+			sourceTree = "<group>";
+		};
+		33D34742AC72650FB2559C46 /* Unit */ = {
+			isa = PBXGroup;
+			children = (
+				1C161318B7F31B0C116FA17B /* CameraTextTests.swift */,
+				C859A1A5DFADAA6B1FC531DF /* CaptureStoreTests.swift */,
+				8CCC6883E51BAF82499A8217 /* ColorMathTests.swift */,
+				92592DAB29DFA9EAF41C35B1 /* CropGeometryTests.swift */,
+				B4895508ABF105AE026FBB17 /* CubeLUTTests.swift */,
+				13F27C0333957206D2233D09 /* EditHistoryTests.swift */,
+				121B8C3017013DC278EAF8A4 /* EditRecipeTests.swift */,
+				297D721155E963C8E11C502D /* LibraryItemTests.swift */,
+				47E00E2B3FF2132C71CC426B /* PhotoStyleTests.swift */,
+				28FE024C21C8B0D5AB53C3D0 /* PreferencesTests.swift */,
+			);
+			path = Unit;
+			sourceTree = "<group>";
+		};
+		3B395310638A79BAC6B97D5C /* Design */ = {
+			isa = PBXGroup;
+			children = (
+				C6F546944E20BAF6FBEB7481 /* Theme.swift */,
+			);
+			path = Design;
+			sourceTree = "<group>";
+		};
+		3C4C2131D16D65A3992A3D62 /* Library */ = {
+			isa = PBXGroup;
+			children = (
+				FD44FBCB13575DE090E51016 /* CaptureStore.swift */,
+				3E837D7DBC9388B2E6A07993 /* LibraryModel.swift */,
+				9E715169C5EAD86D3EF93ADC /* PhotosExporter.swift */,
+			);
+			path = Library;
+			sourceTree = "<group>";
+		};
+		4C5676AE7C61C67DA7C932B6 /* Fexer */ = {
+			isa = PBXGroup;
+			children = (
+				8DB66B37E6CD462FCE8390A9 /* App */,
+				04F10B4BBA62B07EBAB4D0E1 /* Camera */,
+				3B395310638A79BAC6B97D5C /* Design */,
+				2AA9F4FCB7DD2816163B8260 /* Domain */,
+				F77B9E44D01549C40B7DA66A /* Features */,
+				55F35FA6BFC6044E23E90402 /* Imaging */,
+				F15C0201F85102C50E30588E /* Infrastructure */,
+				3C4C2131D16D65A3992A3D62 /* Library */,
+				AA1148CD9E3908E73E159B4B /* Resources */,
+			);
+			path = Fexer;
+			sourceTree = "<group>";
+		};
+		5055450A404D1C68892EF63B /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				5451B793B3F8CB23853CF015 /* Fexer.app */,
+				D78FE6724110BE1EA2A9316C /* FexerTests.xctest */,
+				99E057442A896FF8244C98F3 /* FexerUITests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		51F5099AB8557E1937DB05FD /* Camera */ = {
+			isa = PBXGroup;
+			children = (
+				EE42B874C224CBF4106F9C2F /* CameraModel.swift */,
+				DC49097C4F707C1EF65AAE51 /* CameraView.swift */,
+				55B8103F53675ACA595700E4 /* ManualControls.swift */,
+			);
+			path = Camera;
+			sourceTree = "<group>";
+		};
+		53A6AD7CBA15F7377FBCED88 /* UI */ = {
+			isa = PBXGroup;
+			children = (
+				30ACFA9F893A6674AE09D116 /* FexerUITests.swift */,
+			);
+			path = UI;
+			sourceTree = "<group>";
+		};
+		53D12ACA54482671D0AB672B = {
+			isa = PBXGroup;
+			children = (
+				4C5676AE7C61C67DA7C932B6 /* Fexer */,
+				07B3946A2A8801FF95FBC2FE /* Tests */,
+				5055450A404D1C68892EF63B /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		55F35FA6BFC6044E23E90402 /* Imaging */ = {
+			isa = PBXGroup;
+			children = (
+				9F460E3C04B769A915C402AF /* ColorMath.swift */,
+				0FB6665BF2EB0C4FF1A1635C /* CropGeometry.swift */,
+				DC6ACF54771B52D0CFF3ECD7 /* CubeLUT.swift */,
+				B56B6B0FC2E2AA259E8A5DBC /* ImagePipeline.swift */,
+				5DD0F590371507268610961F /* ImageRenderer.swift */,
+			);
+			path = Imaging;
+			sourceTree = "<group>";
+		};
+		770173B48870B92232699B0E /* Settings */ = {
+			isa = PBXGroup;
+			children = (
+				523A524256B3910959976EEF /* SettingsView.swift */,
+			);
+			path = Settings;
+			sourceTree = "<group>";
+		};
+		7DD3A3AEE323F062DA627297 /* Editor */ = {
+			isa = PBXGroup;
+			children = (
+				C9D55B8701971B41E1C2FA66 /* EditorModel.swift */,
+				0F7A1A0E3FED5E896D856330 /* EditorView.swift */,
+				14774D414541B2EA7DF53A04 /* StylePicker.swift */,
+			);
+			path = Editor;
+			sourceTree = "<group>";
+		};
+		8DB66B37E6CD462FCE8390A9 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				0B57E047A3B33802931A2013 /* FexerApp.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		AA1148CD9E3908E73E159B4B /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				D4C70169675F06A6C10F9666 /* Assets.xcassets */,
+				371768B3D7AB6EB4EF146020 /* PrivacyInfo.xcprivacy */,
+				D71CA145AE72D49C635F554F /* LUTs */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		D178D3FB88EE7903DC88028D /* Library */ = {
+			isa = PBXGroup;
+			children = (
+				75A23B49D991CB21D85331CD /* CaptureDetail.swift */,
+				68ED7B25AC1BD352478CB93D /* LibraryView.swift */,
+			);
+			path = Library;
+			sourceTree = "<group>";
+		};
+		D71CA145AE72D49C635F554F /* LUTs */ = {
+			isa = PBXGroup;
+			children = (
+				C17EF08051640DE45D4D969D /* agfa_vista_200.cube */,
+				8824A1667229719B30803A06 /* architecture_cool.cube */,
+				4FA4FBE1E9DF411D56B50372 /* astro_dark.cube */,
+				99DD7466DD52B413933B6DA6 /* cinematic_teal_orange.cube */,
+				C7EA9B4979EF7241D0341A21 /* cool_mist.cube */,
+				60F49B369B4195563F34AA4E /* dreamy_soft.cube */,
+				C70ABFEFBC727799B8CFD0BD /* faded_matte.cube */,
+				466C81BB2528771E5DF29C3D /* fuji_provia_100.cube */,
+				1508DF765E951BE95D38D3B6 /* fuji_velvia_50.cube */,
+				C184E0492EBFE95377F1C65C /* golden_hour.cube */,
+				F524E2FE5D6B92178FB4E3A9 /* ilford_hp5_bw.cube */,
+				53D62B5CB19496F11254281D /* kodak_gold_200.cube */,
+				60220AADC015CF6A5F3A5DB9 /* kodak_portra_400.cube */,
+				4BC8F68D4B520158CE08C096 /* kodak_trix_400.cube */,
+				FDE03B71302DFC1C0046FE3C /* landscape_vivid.cube */,
+				01C444563A2BC08FAC5F1579 /* macro_soft.cube */,
+				AD099995167DF7EE79B1C5ED /* noir_bw.cube */,
+				3D5FFA5D8CB4256B6146C5CE /* portrait_warm.cube */,
+				BE38FAB4C312E32CD6E193E4 /* punchy_contrast.cube */,
+				982FAB6936E0506F234278B5 /* street_punch.cube */,
+				B69BF96A7DE088EE7EE06AE6 /* warm_fade.cube */,
+			);
+			path = LUTs;
+			sourceTree = "<group>";
+		};
+		F15C0201F85102C50E30588E /* Infrastructure */ = {
+			isa = PBXGroup;
+			children = (
+				055D1D5E7EA4B98CA678F8F6 /* Diagnostics.swift */,
+				59146D7909077C10339D53B9 /* LevelService.swift */,
+				E6E507F70F881787D4F23C62 /* LocationService.swift */,
+				191CCEC390A7CB59F4D2D6FF /* Preferences.swift */,
+			);
+			path = Infrastructure;
+			sourceTree = "<group>";
+		};
+		F77B9E44D01549C40B7DA66A /* Features */ = {
+			isa = PBXGroup;
+			children = (
+				51F5099AB8557E1937DB05FD /* Camera */,
+				7DD3A3AEE323F062DA627297 /* Editor */,
+				D178D3FB88EE7903DC88028D /* Library */,
+				770173B48870B92232699B0E /* Settings */,
+			);
+			path = Features;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		A21EC4CE2FF9825A00B5F445 /* fexerTests */ = {
+		818A41A502C63E785ADF5CC1 /* Fexer */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = A21EC4D52FF9825A00B5F445 /* Build configuration list for PBXNativeTarget "fexerTests" */;
+			buildConfigurationList = 1E3404D9482238269C92B85A /* Build configuration list for PBXNativeTarget "Fexer" */;
 			buildPhases = (
-				A21EC4CB2FF9825A00B5F445 /* Sources */,
-				A21EC4CC2FF9825A00B5F445 /* Frameworks */,
-				A21EC4CD2FF9825A00B5F445 /* Resources */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-				A21EC4D42FF9825A00B5F445 /* PBXTargetDependency */,
-			);
-			fileSystemSynchronizedGroups = (
-				A21EC4D02FF9825A00B5F445 /* Tests/fexerTests */,
-			);
-			name = fexerTests;
-			packageProductDependencies = (
-			);
-			productName = fexerTests;
-			productReference = A21EC4CF2FF9825A00B5F445 /* fexerTests.xctest */;
-			productType = "com.apple.product-type.bundle.unit-test";
-		};
-		A25D68112FE3DDCC00F11BF8 /* fexer */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = A25D681D2FE3DDCD00F11BF8 /* Build configuration list for PBXNativeTarget "fexer" */;
-			buildPhases = (
-				A25D680E2FE3DDCC00F11BF8 /* Sources */,
-				A25D680F2FE3DDCC00F11BF8 /* Frameworks */,
-				A25D68102FE3DDCC00F11BF8 /* Resources */,
+				192EE909964F0C43759865E8 /* Sources */,
+				EB62B4D0A5E5D91139423FE3 /* Resources */,
 			);
 			buildRules = (
 			);
 			dependencies = (
 			);
-			fileSystemSynchronizedGroups = (
-				A25D68142FE3DDCC00F11BF8 /* fexer */,
-			);
-			name = fexer;
+			name = Fexer;
 			packageProductDependencies = (
 			);
-			productName = fexer;
-			productReference = A25D68122FE3DDCC00F11BF8 /* fexer.app */;
+			productName = Fexer;
+			productReference = 5451B793B3F8CB23853CF015 /* Fexer.app */;
 			productType = "com.apple.product-type.application";
+		};
+		B97FEC0BD76F0B18A1B72B03 /* FexerUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 24C7429760CB9C1A8CC45B1C /* Build configuration list for PBXNativeTarget "FexerUITests" */;
+			buildPhases = (
+				DFDCD350D6B8DA15EEFD04E6 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				92BF1EC4EFA1F19AC1D09ED7 /* PBXTargetDependency */,
+			);
+			name = FexerUITests;
+			packageProductDependencies = (
+			);
+			productName = FexerUITests;
+			productReference = 99E057442A896FF8244C98F3 /* FexerUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+		C9BF280B3AD50AEA00F8158A /* FexerTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 28B269F81CABE65B1D4F2B45 /* Build configuration list for PBXNativeTarget "FexerTests" */;
+			buildPhases = (
+				36EA76A54D11187B7112F40C /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				D211CD33D8DDB70D6CD15709 /* PBXTargetDependency */,
+			);
+			name = FexerTests;
+			packageProductDependencies = (
+			);
+			productName = FexerTests;
+			productReference = D78FE6724110BE1EA2A9316C /* FexerTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
 		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
-		A25D680A2FE3DDCC00F11BF8 /* Project object */ = {
+		A6A62A7D5C7227BC9130B343 /* Project object */ = {
 			isa = PBXProject;
 			attributes = {
-				BuildIndependentTargetsInParallel = 1;
-				LastSwiftUpdateCheck = 2660;
-				LastUpgradeCheck = 2660;
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 2600;
 				TargetAttributes = {
-					A21EC4CE2FF9825A00B5F445 = {
-						CreatedOnToolsVersion = 26.6;
-						TestTargetID = A25D68112FE3DDCC00F11BF8;
+					818A41A502C63E785ADF5CC1 = {
+						DevelopmentTeam = 72CW7UW6RB;
+						ProvisioningStyle = Automatic;
 					};
-					A25D68112FE3DDCC00F11BF8 = {
-						CreatedOnToolsVersion = 26.5;
+					B97FEC0BD76F0B18A1B72B03 = {
+						DevelopmentTeam = 72CW7UW6RB;
+						ProvisioningStyle = Automatic;
+						TestTargetID = 818A41A502C63E785ADF5CC1;
+					};
+					C9BF280B3AD50AEA00F8158A = {
+						DevelopmentTeam = 72CW7UW6RB;
+						ProvisioningStyle = Automatic;
 					};
 				};
 			};
-			buildConfigurationList = A25D680D2FE3DDCC00F11BF8 /* Build configuration list for PBXProject "fexer" */;
+			buildConfigurationList = F5E7294D4C66A08401E9A3D5 /* Build configuration list for PBXProject "Fexer" */;
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
-				en,
 				Base,
+				en,
 			);
-			mainGroup = A25D68092FE3DDCC00F11BF8;
+			mainGroup = 53D12ACA54482671D0AB672B;
 			minimizedProjectReferenceProxies = 1;
 			preferredProjectObjectVersion = 77;
-			productRefGroup = A25D68132FE3DDCC00F11BF8 /* Products */;
+			productRefGroup = 5055450A404D1C68892EF63B /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				A25D68112FE3DDCC00F11BF8 /* fexer */,
-				A21EC4CE2FF9825A00B5F445 /* fexerTests */,
+				818A41A502C63E785ADF5CC1 /* Fexer */,
+				C9BF280B3AD50AEA00F8158A /* FexerTests */,
+				B97FEC0BD76F0B18A1B72B03 /* FexerUITests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
-		A21EC4CD2FF9825A00B5F445 /* Resources */ = {
+		EB62B4D0A5E5D91139423FE3 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		A25D68102FE3DDCC00F11BF8 /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
+				6AC8B4CD7DC3028D838390E4 /* Assets.xcassets in Resources */,
+				A7585B90EC4D7C1A615B3CAC /* PrivacyInfo.xcprivacy in Resources */,
+				1B699AC24F1D6C072C9FF8AD /* agfa_vista_200.cube in Resources */,
+				7C841CE8E58D55578A470FE5 /* architecture_cool.cube in Resources */,
+				97CAD19A815CB0DF95A41386 /* astro_dark.cube in Resources */,
+				F9030F0A1D5A3E6ABE5D6D55 /* cinematic_teal_orange.cube in Resources */,
+				A36D5A02204F1F23A635B70D /* cool_mist.cube in Resources */,
+				A6DBB5B6E1DADD18E9A2F04B /* dreamy_soft.cube in Resources */,
+				E6F5BC81DE9B40FE34527209 /* faded_matte.cube in Resources */,
+				DF1C8D8F113D964317372CCB /* fuji_provia_100.cube in Resources */,
+				44545F08926E375AAE7705C2 /* fuji_velvia_50.cube in Resources */,
+				DDDCD9A2F3071BB8F8042C38 /* golden_hour.cube in Resources */,
+				06F3051F66D63559A75666CF /* ilford_hp5_bw.cube in Resources */,
+				90767DE82556D01F6186EE74 /* kodak_gold_200.cube in Resources */,
+				8A033A61332798B25D0ACDEF /* kodak_portra_400.cube in Resources */,
+				06B31161F445B00076E47082 /* kodak_trix_400.cube in Resources */,
+				280C15D2444398CCF93EDF0E /* landscape_vivid.cube in Resources */,
+				347A270E6BC04CEBFF3BD482 /* macro_soft.cube in Resources */,
+				350C5AC07B453DE30FAEF631 /* noir_bw.cube in Resources */,
+				10CD5F3A7BEFA61E48F43421 /* portrait_warm.cube in Resources */,
+				A3B455EF461CF27DF9C97CF7 /* punchy_contrast.cube in Resources */,
+				29300CC179D5652F5CC88E4D /* street_punch.cube in Resources */,
+				D321B79EE7279B10B6A4A896 /* warm_fade.cube in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
-		A21EC4CB2FF9825A00B5F445 /* Sources */ = {
+		192EE909964F0C43759865E8 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B69B7484A67B60E6D91E47D5 /* CameraModel.swift in Sources */,
+				BFD44D62164B8CD61DD6D874 /* CameraPreview.swift in Sources */,
+				49C5A6257350ADE98770D20B /* CameraService.swift in Sources */,
+				A58092A514391FCC91E646E8 /* CameraTypes.swift in Sources */,
+				45F90292744183D03DD06F88 /* CameraView.swift in Sources */,
+				30C4A1265693529D030FB156 /* CaptureDetail.swift in Sources */,
+				4CC980B399784F7E6D3512A3 /* CaptureStore.swift in Sources */,
+				58B817BF0785B7195EE40930 /* ColorMath.swift in Sources */,
+				ED774F616B9D7235FEE9844D /* CropGeometry.swift in Sources */,
+				49C16585DC0AE17A639072A2 /* CubeLUT.swift in Sources */,
+				BB915838101112F7D6109A38 /* Diagnostics.swift in Sources */,
+				866369F9F16705C6CEF789CA /* EditRecipe.swift in Sources */,
+				7035315259EB8AFE2126A9FA /* EditorModel.swift in Sources */,
+				0136DFCA5CF0A4A1F40A3F57 /* EditorView.swift in Sources */,
+				F551D311FAB1AC5C2C37C3A4 /* FexerApp.swift in Sources */,
+				B88F73319B66C8EE1F208A03 /* FrameProcessor.swift in Sources */,
+				18457031C960B4D222920DA0 /* ImagePipeline.swift in Sources */,
+				441F61F9B38F733EA59EAC8B /* ImageRenderer.swift in Sources */,
+				B033F5CBAB70AE413E9B0F25 /* LevelService.swift in Sources */,
+				FAB1570DA288820331C52B16 /* LibraryItem.swift in Sources */,
+				6EEF664482C4A64ED39A6762 /* LibraryModel.swift in Sources */,
+				FD0D5E21484FD2A1E3F7F1B0 /* LibraryView.swift in Sources */,
+				FF23D71ED34190F124184D0D /* LocationService.swift in Sources */,
+				26A8F8780E3EECE97B1498F6 /* ManualControls.swift in Sources */,
+				15955271AE48AF62C02B525A /* PhotoDelegate.swift in Sources */,
+				8240BC90FCBDA9A280AFAE5E /* PhotoStyle.swift in Sources */,
+				80D87B32828475A5410762DB /* PhotosExporter.swift in Sources */,
+				5D094B241B7CAB84B1F44B42 /* Preferences.swift in Sources */,
+				1BE24C2C72939C8DF3FD1060 /* SettingsView.swift in Sources */,
+				529230604110968B07C2F153 /* SimulatedCamera.swift in Sources */,
+				40950EDFB6E9DD65F7E0EA5C /* StylePicker.swift in Sources */,
+				D806844A5BB56E19FCE5F5CB /* Theme.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		A25D680E2FE3DDCC00F11BF8 /* Sources */ = {
+		36EA76A54D11187B7112F40C /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				8B3B8222BA7ECC58EAD34E1E /* CameraTextTests.swift in Sources */,
+				9C60475A6FD8FAA147822305 /* CaptureStoreTests.swift in Sources */,
+				2E1ED1070E7953AD4EE08B4A /* ColorMathTests.swift in Sources */,
+				4719DEAE515D81404734D5CE /* CropGeometryTests.swift in Sources */,
+				DE3115028D20311E98787CDE /* CubeLUTTests.swift in Sources */,
+				CD30B4E86432703B66F1E43C /* EditHistoryTests.swift in Sources */,
+				3B7012BB0EE89DBE54F70E7E /* EditRecipeTests.swift in Sources */,
+				4DAC6C50D8F5710B749888C0 /* LibraryItemTests.swift in Sources */,
+				C2A57E5A41C60F156687005C /* PhotoStyleTests.swift in Sources */,
+				19589BDCD5437D685318C048 /* PreferencesTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		DFDCD350D6B8DA15EEFD04E6 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				9AD46F7B8EDF36EFF395E27A /* FexerUITests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
-		A21EC4D42FF9825A00B5F445 /* PBXTargetDependency */ = {
+		92BF1EC4EFA1F19AC1D09ED7 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = A25D68112FE3DDCC00F11BF8 /* fexer */;
-			targetProxy = A21EC4D32FF9825A00B5F445 /* PBXContainerItemProxy */;
+			target = 818A41A502C63E785ADF5CC1 /* Fexer */;
+			targetProxy = 4CFE35405BCC582A98328B47 /* PBXContainerItemProxy */;
+		};
+		D211CD33D8DDB70D6CD15709 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 818A41A502C63E785ADF5CC1 /* Fexer */;
+			targetProxy = 6B6A8C2AC15F8B8E6BD0E3C6 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
-		A21EC4D62FF9825A00B5F445 /* Debug */ = {
+		2B05E06FCCCF7AB9C71D78E7 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				BUNDLE_LOADER = "$(TEST_HOST)";
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
-				DEVELOPMENT_TEAM = 72CW7UW6RB;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CURRENT_PROJECT_VERSION = 4;
 				GENERATE_INFOPLIST_FILE = YES;
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.nandanvarma.fexerTests;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				STRING_CATALOG_GENERATE_SYMBOLS = NO;
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
+				INFOPLIST_KEY_CFBundleDisplayName = Fexer;
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
+				INFOPLIST_KEY_NSCameraUsageDescription = "Fexer uses your camera to preview and capture photos and videos.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Optionally remember where you took each photo.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Record sound with your videos.";
+				INFOPLIST_KEY_NSMotionUsageDescription = "Show the horizon level while composing a photo.";
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Save your finished photos and videos to Photos. Originals remain in Fexer.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Browse your Photos library and choose pictures to edit in Fexer.";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 2.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.nandanvarma.fexer;
+				SDKROOT = iphoneos;
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
 				TARGETED_DEVICE_FAMILY = 1;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/fexer.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/fexer";
-			};
-			name = Debug;
-		};
-		A21EC4D72FF9825A00B5F445 /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				BUNDLE_LOADER = "$(TEST_HOST)";
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
-				DEVELOPMENT_TEAM = 72CW7UW6RB;
-				GENERATE_INFOPLIST_FILE = YES;
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.nandanvarma.fexerTests;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				STRING_CATALOG_GENERATE_SYMBOLS = NO;
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = 1;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/fexer.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/fexer";
 			};
 			name = Release;
 		};
-		A25D681B2FE3DDCD00F11BF8 /* Debug */ = {
+		2CABC575465A8AA0EE784A7E /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ALWAYS_SEARCH_USER_PATHS = NO;
-				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
-				CLANG_ANALYZER_NONNULL = YES;
-				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
-				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
-				CLANG_ENABLE_MODULES = YES;
-				CLANG_ENABLE_OBJC_ARC = YES;
-				CLANG_ENABLE_OBJC_WEAK = YES;
-				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
-				CLANG_WARN_BOOL_CONVERSION = YES;
-				CLANG_WARN_COMMA = YES;
-				CLANG_WARN_CONSTANT_CONVERSION = YES;
-				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
-				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
-				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
-				CLANG_WARN_EMPTY_BODY = YES;
-				CLANG_WARN_ENUM_CONVERSION = YES;
-				CLANG_WARN_INFINITE_RECURSION = YES;
-				CLANG_WARN_INT_CONVERSION = YES;
-				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
-				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
-				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
-				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
-				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
-				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
-				CLANG_WARN_STRICT_PROTOTYPES = YES;
-				CLANG_WARN_SUSPICIOUS_MOVE = YES;
-				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
-				CLANG_WARN_UNREACHABLE_CODE = YES;
-				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
-				COPY_PHASE_STRIP = NO;
-				DEBUG_INFORMATION_FORMAT = dwarf;
-				DEVELOPMENT_TEAM = 72CW7UW6RB;
-				ENABLE_STRICT_OBJC_MSGSEND = YES;
-				ENABLE_TESTABILITY = YES;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
-				GCC_C_LANGUAGE_STANDARD = gnu17;
-				GCC_DYNAMIC_NO_PIC = NO;
-				GCC_NO_COMMON_BLOCKS = YES;
-				GCC_OPTIMIZATION_LEVEL = 0;
-				GCC_PREPROCESSOR_DEFINITIONS = (
-					"DEBUG=1",
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
 				);
-				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
-				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
-				GCC_WARN_UNDECLARED_SELECTOR = YES;
-				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
-				GCC_WARN_UNUSED_FUNCTION = YES;
-				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
-				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
-				MTL_FAST_MATH = YES;
-				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = com.nandanvarma.FexerTests;
 				SDKROOT = iphoneos;
-				STRING_CATALOG_GENERATE_SYMBOLS = YES;
-				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
-				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Fexer.app/Fexer";
 			};
 			name = Debug;
 		};
-		A25D681C2FE3DDCD00F11BF8 /* Release */ = {
+		2D92FCFA9DC78BFA2ED1FB0C /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.nandanvarma.FexerUITests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = Fexer;
+			};
+			name = Debug;
+		};
+		73745285337154E2893CBDF8 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
-				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
-				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
 				CLANG_ENABLE_MODULES = YES;
 				CLANG_ENABLE_OBJC_ARC = YES;
 				CLANG_ENABLE_OBJC_WEAK = YES;
@@ -340,142 +706,209 @@
 				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = 72CW7UW6RB;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
-				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
 				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_TREAT_WARNINGS_AS_ERRORS = YES;
 				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
 				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
 				GCC_WARN_UNDECLARED_SELECTOR = YES;
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
-				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
-				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
-				VALIDATE_PRODUCT = YES;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_TREAT_WARNINGS_AS_ERRORS = YES;
+				SWIFT_VERSION = 6.0;
 			};
 			name = Release;
 		};
-		A25D681E2FE3DDCD00F11BF8 /* Debug */ = {
+		805BDA241DC8D4C53C9D2782 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = 72CW7UW6RB;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_TREAT_WARNINGS_AS_ERRORS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_TREAT_WARNINGS_AS_ERRORS = YES;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		D81D0709639D1E2BA0507CDB /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.nandanvarma.FexerUITests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = Fexer;
+			};
+			name = Release;
+		};
+		E10FB5016484077354D06042 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.nandanvarma.FexerTests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Fexer.app/Fexer";
+			};
+			name = Release;
+		};
+		E2366EEE20A4A9DC91F40B1E /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 3;
-				DEVELOPMENT_TEAM = 72CW7UW6RB;
-				ENABLE_PREVIEWS = YES;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CURRENT_PROJECT_VERSION = 4;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = Fexer;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
-				INFOPLIST_KEY_NSCameraUsageDescription = "fexer uses your camera to show a live viewfinder and capture the photos and videos you take in the app, including real-time filter and exposure previews before you shoot.";
-				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "fexer can embed your location in photo metadata.";
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "fexer records audio when capturing video.";
-				INFOPLIST_KEY_NSMotionUsageDescription = "fexer uses motion data for the horizon level indicator.";
-				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "fexer saves your photos to your library.";
-				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "fexer can show photos you've taken in the app.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Fexer uses your camera to preview and capture photos and videos.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Optionally remember where you took each photo.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Record sound with your videos.";
+				INFOPLIST_KEY_NSMotionUsageDescription = "Show the horizon level while composing a photo.";
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Save your finished photos and videos to Photos. Originals remain in Fexer.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Browse your Photos library and choose pictures to edit in Fexer.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
-				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
-				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationPortrait;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.nandanvarma.fexer;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				STRING_CATALOG_GENERATE_SYMBOLS = YES;
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
-				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
+				SDKROOT = iphoneos;
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
 				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Debug;
 		};
-		A25D681F2FE3DDCD00F11BF8 /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_IDENTITY = "Apple Distribution";
-				CODE_SIGN_STYLE = Manual;
-				CURRENT_PROJECT_VERSION = 3;
-				DEVELOPMENT_TEAM = 72CW7UW6RB;
-				PROVISIONING_PROFILE_SPECIFIER = "fexer App Store";
-				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
-				INFOPLIST_KEY_NSCameraUsageDescription = "fexer uses your camera to show a live viewfinder and capture the photos and videos you take in the app, including real-time filter and exposure previews before you shoot.";
-				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "fexer can embed your location in photo metadata.";
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "fexer records audio when capturing video.";
-				INFOPLIST_KEY_NSMotionUsageDescription = "fexer uses motion data for the horizon level indicator.";
-				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "fexer saves your photos to your library.";
-				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "fexer can show photos you've taken in the app.";
-				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
-				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
-				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationPortrait;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-				);
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.nandanvarma.fexer;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				STRING_CATALOG_GENERATE_SYMBOLS = YES;
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
-				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = 1;
-			};
-			name = Release;
-		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		A21EC4D52FF9825A00B5F445 /* Build configuration list for PBXNativeTarget "fexerTests" */ = {
+		1E3404D9482238269C92B85A /* Build configuration list for PBXNativeTarget "Fexer" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				A21EC4D62FF9825A00B5F445 /* Debug */,
-				A21EC4D72FF9825A00B5F445 /* Release */,
+				E2366EEE20A4A9DC91F40B1E /* Debug */,
+				2B05E06FCCCF7AB9C71D78E7 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
+			defaultConfigurationName = Debug;
 		};
-		A25D680D2FE3DDCC00F11BF8 /* Build configuration list for PBXProject "fexer" */ = {
+		24C7429760CB9C1A8CC45B1C /* Build configuration list for PBXNativeTarget "FexerUITests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				A25D681B2FE3DDCD00F11BF8 /* Debug */,
-				A25D681C2FE3DDCD00F11BF8 /* Release */,
+				2D92FCFA9DC78BFA2ED1FB0C /* Debug */,
+				D81D0709639D1E2BA0507CDB /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
+			defaultConfigurationName = Debug;
 		};
-		A25D681D2FE3DDCD00F11BF8 /* Build configuration list for PBXNativeTarget "fexer" */ = {
+		28B269F81CABE65B1D4F2B45 /* Build configuration list for PBXNativeTarget "FexerTests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				A25D681E2FE3DDCD00F11BF8 /* Debug */,
-				A25D681F2FE3DDCD00F11BF8 /* Release */,
+				2CABC575465A8AA0EE784A7E /* Debug */,
+				E10FB5016484077354D06042 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
+			defaultConfigurationName = Debug;
+		};
+		F5E7294D4C66A08401E9A3D5 /* Build configuration list for PBXProject "Fexer" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				805BDA241DC8D4C53C9D2782 /* Debug */,
+				73745285337154E2893CBDF8 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
 		};
 /* End XCConfigurationList section */
 	};
-	rootObject = A25D680A2FE3DDCC00F11BF8 /* Project object */;
+	rootObject = A6A62A7D5C7227BC9130B343 /* Project object */;
 }
