@@ -5,12 +5,17 @@ import SwiftUI
 struct ManualControls: View {
     @Bindable var model: CameraModel
     @Environment(\.dismiss) private var dismiss
-    @State private var category: Category = .exposure
+    @State private var category: Category
     @State private var presetName = ""
 
     enum Category: String, CaseIterable, Identifiable {
         case exposure = "Exposure", focus = "Focus", whiteBalance = "WB", camera = "Camera"
         var id: Self { self }
+    }
+
+    init(model: CameraModel, initialCategory: Category = .exposure) {
+        self.model = model
+        _category = State(initialValue: initialCategory)
     }
 
     var body: some View {

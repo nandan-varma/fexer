@@ -10,6 +10,8 @@ struct CameraView: View {
     @State private var zoomAnchor: Double?
     @State private var showZoomBadge = false
     @State private var zoomBadgeTask: Task<Void, Never>?
+    @State private var controlsCategory: ManualControls.Category = .exposure
+    @State private var dragAnchor: Double?
     enum Panel: String, Identifiable { case styles, controls, settings, library; var id: Self { self } }
     private let controlsPanelHeight: CGFloat = 300
 
@@ -48,12 +50,12 @@ struct CameraView: View {
             switch panel {
             case .styles: StylePicker(recipe: $model.recipe, renderer: model.library.renderer, source: nil)
             case .controls:
-                ManualControls(model: model)
+                ManualControls(model: model, initialCategory: controlsCategory)
                     .presentationDetents([.height(controlsPanelHeight), .medium])
                     .presentationBackgroundInteraction(.enabled(upThrough: .height(controlsPanelHeight)))
                     .presentationDragIndicator(.visible)
                     .presentationCornerRadius(24)
-            case .settings: SettingsView(preferences: model.preferences, capabilities: model.capabilities, library: model.library)
+            case .settings: SettingsView(preferences: model.preferences, capabilities: model.capabilities, library: model.library, ratio: $model.recipe.ratio)
             case .library: LibraryView(library: model.library)
             }
         }
@@ -81,27 +83,99 @@ struct CameraView: View {
     }
 
     private var quickControls: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 8) {
             Menu {
                 Picker("Flash", selection: $model.preferences.value.flash) {
                     ForEach(FlashSetting.allCases) { Text($0.rawValue).tag($0) }
                 }
-            } label: { Image(systemName: model.preferences.value.flash.symbol).frame(width: 44, height: 42) }
+            } label: { Image(systemName: model.preferences.value.flash.symbol).frame(width: 32, height: 32) }
                 .accessibilityLabel("Flash, \(model.preferences.value.flash.rawValue)").disabled(!model.capabilities.supportsFlash)
             Spacer(minLength: 0)
-            Menu {
-                Picker("Aspect ratio", selection: $model.recipe.ratio) { ForEach(FrameRatio.allCases) { Text($0.rawValue).tag($0) } }
-            } label: { Text(model.recipe.ratio.rawValue).font(.system(.subheadline, design: .monospaced)).frame(minWidth: 44, minHeight: 42) }
-                .accessibilityLabel("Aspect ratio, \(model.recipe.ratio.rawValue)").disabled(model.mode == .video)
+            controlPill(
+                "ISO \(Int(model.controls.manualExposure ? model.controls.iso : model.reading.iso))",
+                active: model.controls.manualExposure, onTap: openExposure, onDrag: isoDrag
+            ).accessibilityLabel("ISO, drag to adjust").accessibilityIdentifier("manualControls")
+            controlPill(
+                CameraText.shutter(model.controls.manualExposure ? model.controls.shutter : model.reading.shutter),
+                active: model.controls.manualExposure, onTap: openExposure, onDrag: shutterDrag
+            ).accessibilityLabel("Shutter speed, drag to adjust")
+            controlPill(
+                model.controls.manualWhiteBalance ? "\(Int(model.controls.temperature))K" : "AWB",
+                active: model.controls.manualWhiteBalance, onTap: openWhiteBalance, onDrag: temperatureDrag
+            ).accessibilityLabel("White balance, drag to adjust")
+            controlPill(
+                model.controls.manualFocus ? "MF \(model.controls.focus.formatted(.percent.precision(.fractionLength(0))))" : "AF",
+                active: model.controls.manualFocus, onTap: openFocus, onDrag: focusDrag
+            ).accessibilityLabel("Focus, drag to adjust")
             Spacer(minLength: 0)
-            Menu {
-                Picker("Timer", selection: $model.preferences.value.timerSeconds) { Text("Off").tag(0); Text("3 seconds").tag(3); Text("10 seconds").tag(10) }
-            } label: { Label(model.preferences.value.timerSeconds == 0 ? "" : "\(model.preferences.value.timerSeconds)s", systemImage: "timer").frame(minWidth: 44, minHeight: 42) }
-                .accessibilityLabel("Timer, \(model.preferences.value.timerSeconds) seconds")
-            Spacer(minLength: 0)
-            IconButton(label: "Manual controls", symbol: "slider.horizontal.3", selected: model.controls.manualExposure || model.controls.manualFocus || model.controls.manualWhiteBalance) { sheet = .controls }
-                .accessibilityIdentifier("manualControls")
+            IconButton(label: "Zoom, presets & torch", symbol: "ellipsis.circle", selected: model.controls.torch) { controlsCategory = .camera; sheet = .controls }
         }.foregroundStyle(.white).padding(.horizontal, 14).disabled(!model.activity.isIdle)
+    }
+
+    /// Pills double as sliders: tap opens the full sheet (already in manual mode), drag adjusts
+    /// in place without leaving the viewfinder — the point of a pro top bar is not burying values
+    /// behind an extra "enable manual" toggle.
+    private func controlPill(_ text: String, active: Bool, onTap: @escaping () -> Void, onDrag: @escaping (CGFloat) -> Void) -> some View {
+        Button(action: onTap) {
+            Text(text).font(.system(size: 11, weight: .semibold, design: .monospaced)).monospacedDigit()
+                .foregroundStyle(active ? Theme.accent : .white)
+                .padding(.horizontal, 8).frame(minWidth: 46, minHeight: 32)
+                .background(Theme.surface, in: Capsule())
+                .overlay(Capsule().stroke(active ? Theme.accent.opacity(0.6) : .clear, lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 6)
+                .onChanged { onDrag($0.translation.height) }
+                .onEnded { _ in dragAnchor = nil }
+        )
+    }
+
+    private func openExposure() { model.controls.manualExposure = true; controlsCategory = .exposure; sheet = .controls }
+    private func openWhiteBalance() { model.controls.manualWhiteBalance = true; controlsCategory = .whiteBalance; sheet = .controls }
+    private func openFocus() { model.controls.manualFocus = true; controlsCategory = .focus; sheet = .controls }
+
+    private func isoDrag(_ translationY: CGFloat) {
+        let range = model.capabilities.isoRange
+        let logRange = log2(range.lowerBound)...log2(range.upperBound)
+        if dragAnchor == nil {
+            let start = (model.controls.manualExposure ? model.controls.iso : model.reading.iso).bounded(range)
+            model.controls.manualExposure = true
+            model.controls.iso = start
+            dragAnchor = log2(start)
+        }
+        model.controls.iso = pow(2, (dragAnchor! - translationY / 220 * (logRange.upperBound - logRange.lowerBound)).bounded(logRange))
+    }
+    private func shutterDrag(_ translationY: CGFloat) {
+        let range = model.capabilities.shutterRange
+        let logRange = log2(range.lowerBound)...log2(range.upperBound)
+        if dragAnchor == nil {
+            let start = (model.controls.manualExposure ? model.controls.shutter : model.reading.shutter).bounded(range)
+            model.controls.manualExposure = true
+            model.controls.shutter = start
+            dragAnchor = log2(start)
+        }
+        model.controls.shutter = pow(2, (dragAnchor! - translationY / 220 * (logRange.upperBound - logRange.lowerBound)).bounded(logRange))
+    }
+    private func temperatureDrag(_ translationY: CGFloat) {
+        let range: ClosedRange<Double> = 2500...10000
+        if dragAnchor == nil {
+            let start = (model.controls.manualWhiteBalance ? model.controls.temperature : model.reading.temperature).bounded(range)
+            model.controls.manualWhiteBalance = true
+            model.controls.temperature = start
+            dragAnchor = start
+        }
+        model.controls.temperature = (dragAnchor! - translationY / 220 * (range.upperBound - range.lowerBound)).bounded(range)
+    }
+    private func focusDrag(_ translationY: CGFloat) {
+        let range: ClosedRange<Double> = 0...1
+        if dragAnchor == nil {
+            let start = (model.controls.manualFocus ? model.controls.focus : model.reading.focus).bounded(range)
+            model.controls.manualFocus = true
+            model.controls.focus = start
+            dragAnchor = start
+        }
+        model.controls.focus = (dragAnchor! - translationY / 220 * (range.upperBound - range.lowerBound)).bounded(range)
     }
 
     private var viewfinder: some View {
@@ -233,7 +307,7 @@ struct CameraView: View {
                     .lineLimit(1)
                 Spacer()
                 if case .sequence(let count) = model.activity { Text("\(count) captured · tap to stop") }
-                else { Text("ISO \(Int(model.reading.iso))  ·  \(CameraText.shutter(model.reading.shutter))").monospacedDigit() }
+                else if model.mode != .video { Text(model.recipe.ratio.rawValue).monospacedDigit() }
             }.font(.system(size: 10, weight: .medium)).foregroundStyle(Theme.muted).padding(.horizontal, 24).padding(.top, 6)
             if model.mode == .lightTrails { Text("Keep steady · \(Int(model.preferences.value.trailSeconds))s · preview resolution").font(.caption2).foregroundStyle(Theme.accent) }
         }

@@ -4,6 +4,7 @@ struct SettingsView: View {
     @Bindable var preferences: PreferenceStore
     let capabilities: CameraCapabilities
     @Bindable var library: LibraryModel
+    @Binding var ratio: FrameRatio
     @Environment(\.dismiss) private var dismiss
     @State private var confirmReset = false
 
@@ -22,9 +23,11 @@ struct SettingsView: View {
                     if capabilities.supportsLivePhoto {
                         Toggle("Live Photo", isOn: $preferences.value.livePhoto).disabled(preferences.value.format == .raw)
                     }
+                    Picker("Self-timer", selection: $preferences.value.timerSeconds) { Text("Off").tag(0); Text("3 seconds").tag(3); Text("10 seconds").tag(10) }
                     Toggle("Haptic feedback", isOn: $preferences.value.haptics)
                 }
                 Section("Viewfinder") {
+                    Picker("Aspect ratio", selection: $ratio) { ForEach(FrameRatio.allCases) { Text($0.rawValue).tag($0) } }
                     Picker("Grid", selection: $preferences.value.grid) { ForEach(GridStyle.allCases) { Text($0.rawValue).tag($0) } }
                     Picker("Exposure monitor", selection: $preferences.value.monitor) { ForEach(Monitor.allCases) { Text($0.rawValue).tag($0) } }
                     Toggle("Level", isOn: $preferences.value.level)
