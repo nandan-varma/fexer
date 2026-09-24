@@ -68,8 +68,34 @@ final class FexerUITests: XCTestCase {
         let app = launch()
         XCTAssertTrue(app.buttons["manualControls"].waitForExistence(timeout: 10))
         app.buttons["manualControls"].tap()
-        XCTAssertTrue(app.navigationBars["Camera controls"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Camera controls"].waitForExistence(timeout: 5))
+        // The viewfinder stays visible and tappable behind the panel — this is the point of the redesign.
+        XCTAssertTrue(app.buttons["shutter"].exists)
         app.buttons["Done"].tap()
         XCTAssertTrue(app.buttons["manualControls"].waitForExistence(timeout: 5))
+    }
+
+    func testManualFocusSliderAppearsWithViewfinderStillVisible() {
+        let app = launch()
+        XCTAssertTrue(app.buttons["manualControls"].waitForExistence(timeout: 10))
+        app.buttons["manualControls"].tap()
+        XCTAssertTrue(app.staticTexts["Camera controls"].waitForExistence(timeout: 5))
+        app.buttons["Focus"].tap()
+        let manualFocus = app.switches["Manual focus"]
+        XCTAssertTrue(manualFocus.waitForExistence(timeout: 5))
+        manualFocus.tap()
+        XCTAssertTrue(app.sliders["Near → far"].waitForExistence(timeout: 5))
+        app.buttons["Done"].tap()
+    }
+
+    func testPinchToZoomOnViewfinderDoesNotBreakCapture() {
+        let app = launch()
+        let viewfinder = app.otherElements.matching(NSPredicate(format: "label == %@", "Camera viewfinder. Tap to focus, pinch to zoom.")).firstMatch
+        XCTAssertTrue(viewfinder.waitForExistence(timeout: 10))
+        viewfinder.pinch(withScale: 2, velocity: 1)
+        let shutter = app.buttons["shutter"]
+        XCTAssertTrue(shutter.waitForExistence(timeout: 5))
+        shutter.tap()
+        XCTAssertTrue(shutter.waitForExistence(timeout: 10))
     }
 }

@@ -7,7 +7,11 @@ struct CameraView: View {
     @State private var sheet: Panel?
     @State private var focusPoint: CGPoint?
     @State private var focusTask: Task<Void, Never>?
+    @State private var zoomAnchor: Double?
+    @State private var showZoomBadge = false
+    @State private var zoomBadgeTask: Task<Void, Never>?
     enum Panel: String, Identifiable { case styles, controls, settings, library; var id: Self { self } }
+    private let controlsPanelHeight: CGFloat = 300
 
     var body: some View {
         GeometryReader { geometry in
@@ -43,7 +47,12 @@ struct CameraView: View {
         .sheet(item: $sheet) { panel in
             switch panel {
             case .styles: StylePicker(recipe: $model.recipe, renderer: model.library.renderer, source: nil)
-            case .controls: ManualControls(model: model)
+            case .controls:
+                ManualControls(model: model)
+                    .presentationDetents([.height(controlsPanelHeight), .medium])
+                    .presentationBackgroundInteraction(.enabled(upThrough: .height(controlsPanelHeight)))
+                    .presentationDragIndicator(.visible)
+                    .presentationCornerRadius(24)
             case .settings: SettingsView(preferences: model.preferences, capabilities: model.capabilities, library: model.library)
             case .library: LibraryView(library: model.library)
             }
@@ -111,6 +120,14 @@ struct CameraView: View {
                 }
                 phaseOverlay
                 if model.preferences.value.level, model.phase == .ready { LevelIndicator(roll: model.level.roll) }
+                if showZoomBadge {
+                    Text(String(format: "%.1f×", model.controls.zoom))
+                        .font(.system(.title3, design: .rounded).weight(.semibold)).monospacedDigit()
+                        .padding(.horizontal, 16).padding(.vertical, 8)
+                        .background(.black.opacity(0.55), in: Capsule())
+                        .transition(.opacity)
+                        .accessibilityHidden(true)
+                }
                 if case .countdown(let count) = model.activity {
                     Text(count.formatted()).font(.system(size: 84, weight: .light, design: .rounded)).shadow(radius: 20).accessibilityLabel("Capture in \(count)")
                 }
@@ -146,8 +163,10 @@ struct CameraView: View {
                 focusTask?.cancel()
                 focusTask = Task { do { try await Task.sleep(for: .seconds(1.5)); focusPoint = nil } catch {} }
             }
+            .simultaneousGesture(zoomGesture)
+            .animation(.easeOut(duration: 0.2), value: showZoomBadge)
             .accessibilityElement(children: .contain)
-            .accessibilityLabel("Camera viewfinder. Tap to focus.")
+            .accessibilityLabel("Camera viewfinder. Tap to focus, pinch to zoom.")
         }
     }
 
@@ -218,6 +237,24 @@ struct CameraView: View {
             }.font(.system(size: 10, weight: .medium)).foregroundStyle(Theme.muted).padding(.horizontal, 24).padding(.top, 6)
             if model.mode == .lightTrails { Text("Keep steady · \(Int(model.preferences.value.trailSeconds))s · preview resolution").font(.caption2).foregroundStyle(Theme.accent) }
         }
+    }
+    private var zoomGesture: some Gesture {
+        MagnifyGesture()
+            .onChanged { value in
+                guard model.phase == .ready else { return }
+                let base = zoomAnchor ?? model.controls.zoom
+                zoomAnchor = base
+                model.controls.zoom = (base * value.magnification).bounded(model.capabilities.zoomRange, fallback: base)
+                showZoomBadge = true
+                zoomBadgeTask?.cancel()
+            }
+            .onEnded { _ in
+                zoomAnchor = nil
+                zoomBadgeTask = Task {
+                    try? await Task.sleep(for: .seconds(1))
+                    showZoomBadge = false
+                }
+            }
     }
     private func flip() {
         if let lens = model.capabilities.lenses.first(where: { $0.isFront != model.capabilities.isFront }) { Task { await model.selectLens(lens) } }
