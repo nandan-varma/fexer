@@ -21,7 +21,7 @@ struct CaptureStoreTests {
         let store = makeStore()
         let bytes = Data([0xFF, 0xD8, 0xFF, 0x01, 0x02])
         let saved = try await store.save(PhotoPayload(processed: bytes), recipe: EditRecipe(), location: nil, needsPhotosSave: true)
-        let read = try await store.source(for: saved)
+        let read = try store.source(for: saved)
         #expect(read == bytes)
     }
 

@@ -128,7 +128,11 @@ actor CameraService: CameraOperating {
 
     func selectLens(_ id: String) throws {
         guard photoDelegate == nil, !recording else { throw AppIssue.busy }
-        guard let target = Self.devices().first(where: { $0.uniqueID == id }), target != device else { return }
+        // Discovery was previously done twice — once here to find the target, again inside
+        // updateCapabilities() — an AVCaptureDevice.DiscoverySession enumeration isn't free.
+        // Reuse this same list for both.
+        let devices = Diagnostics.time("service.selectLens.discoverDevices") { Self.devices() }
+        guard let target = devices.first(where: { $0.uniqueID == id }), target != device else { return }
         let replacement = try AVCaptureDeviceInput(device: target)
         try Diagnostics.time("service.selectLens.commitConfiguration") {
             session.beginConfiguration()
@@ -144,10 +148,10 @@ actor CameraService: CameraOperating {
             session.commitConfiguration()
         }
         controls = CameraControls()
-        configureConnections()
-        updateCapabilities()
-        if wantsRunning { observeDevice() }
-        try apply(controls)
+        Diagnostics.time("service.selectLens.configureConnections") { configureConnections() }
+        Diagnostics.time("service.selectLens.updateCapabilities") { updateCapabilities(using: devices) }
+        if wantsRunning { Diagnostics.time("service.selectLens.observeDevice") { observeDevice() } }
+        try Diagnostics.time("service.selectLens.apply") { try apply(controls) }
     }
 
     func capture(_ request: CaptureRequest) async throws -> PhotoPayload {
@@ -353,9 +357,9 @@ actor CameraService: CameraOperating {
                                          mediaType: .video, position: .unspecified).devices
     }
 
-    private func updateCapabilities() {
+    private func updateCapabilities(using knownDevices: [AVCaptureDevice]? = nil) {
         guard let device else { return }
-        let devices = Self.devices()
+        let devices = knownDevices ?? Self.devices()
         capabilities = CameraCapabilities(
             lenses: devices.map { camera in
                 let name: String

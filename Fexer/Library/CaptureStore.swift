@@ -11,7 +11,10 @@ protocol CaptureStoring: Sendable {
 /// An interrupted write leaves an unpublished directory, never a partially readable record.
 actor CaptureStore: CaptureStoring {
     let root: URL
-    private let files = FileManager.default
+    // FileManager.default is documented thread-safe by Apple but not marked Sendable in the SDK;
+    // nonisolated(unsafe) lets the nonisolated read methods below touch it without a false
+    // "actor-isolated property" error, while writes stay isolated for genuine safety elsewhere.
+    private nonisolated(unsafe) let files = FileManager.default
 
     init(root: URL) { self.root = root }
 
@@ -76,15 +79,23 @@ actor CaptureStore: CaptureStoring {
         return item
     }
 
-    func source(for item: LibraryItem) throws -> Data {
+    // Read-only, touching only immutable `let` state (root, and FileManager.default which is
+    // itself thread-safe) — nonisolated so N concurrent reads (e.g. a library grid populating
+    // many thumbnails at once) actually run in parallel instead of queueing one at a time behind
+    // this actor's single executor. Field logs showed 17 sequential ~20ms thumbnail cache-checks
+    // in a tight burst; none of them touch shared mutable state, so serializing them bought
+    // nothing but ~340ms of avoidable wall-clock time. Writes stay actor-isolated.
+    nonisolated func source(for item: LibraryItem) throws -> Data {
         try Diagnostics.time("store.readSource") { try Data(contentsOf: sourceURL(item), options: .mappedIfSafe) }
     }
-    func sourceURL(_ item: LibraryItem) -> URL { folder(item).appendingPathComponent("original.\(item.sourceExtension)") }
-    func rawURL(_ item: LibraryItem) -> URL? { item.hasRAW ? folder(item).appendingPathComponent("original.dng") : nil }
-    func liveURL(_ item: LibraryItem) -> URL? { item.hasLiveMovie ? folder(item).appendingPathComponent("live.mov") : nil }
-    func thumbnail(_ item: LibraryItem) throws -> Data? {
-        let url = folder(item).appendingPathComponent("thumbnail-\(item.revision).jpg")
-        return files.fileExists(atPath: url.path) ? try Data(contentsOf: url) : nil
+    nonisolated func sourceURL(_ item: LibraryItem) -> URL { folder(item).appendingPathComponent("original.\(item.sourceExtension)") }
+    nonisolated func rawURL(_ item: LibraryItem) -> URL? { item.hasRAW ? folder(item).appendingPathComponent("original.dng") : nil }
+    nonisolated func liveURL(_ item: LibraryItem) -> URL? { item.hasLiveMovie ? folder(item).appendingPathComponent("live.mov") : nil }
+    nonisolated func thumbnail(_ item: LibraryItem) throws -> Data? {
+        try Diagnostics.time("store.readThumbnailCache") {
+            let url = folder(item).appendingPathComponent("thumbnail-\(item.revision).jpg")
+            return files.fileExists(atPath: url.path) ? try Data(contentsOf: url) : nil
+        }
     }
     func saveThumbnail(_ data: Data, for item: LibraryItem) throws {
         try data.write(to: folder(item).appendingPathComponent("thumbnail-\(item.revision).jpg"), options: .atomic)
@@ -97,7 +108,7 @@ actor CaptureStore: CaptureStoring {
     func delete(_ item: LibraryItem) throws {
         try Diagnostics.time("store.delete") { try files.removeItem(at: folder(item)) }
     }
-    private func folder(_ item: LibraryItem) -> URL { root.appendingPathComponent(item.id.uuidString, isDirectory: true) }
+    private nonisolated func folder(_ item: LibraryItem) -> URL { root.appendingPathComponent(item.id.uuidString, isDirectory: true) }
 
     static func imageExtension(_ data: Data) -> String {
         if data.starts(with: [0x89, 0x50, 0x4e, 0x47]) { return "png" }

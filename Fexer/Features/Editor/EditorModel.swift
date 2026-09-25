@@ -19,7 +19,7 @@ final class EditorModel {
     init(item: LibraryItem, library: LibraryModel) { self.item = item; self.library = library; recipe = item.recipe.validated }
     func load() async {
         do {
-            let data = try await Diagnostics.time("editor.loadSource") { try await library.store.source(for: item) }
+            let data = try Diagnostics.time("editor.loadSource") { try library.store.source(for: item) }
             source = data
             originalImage = try await UIImage(cgImage: Diagnostics.time("editor.loadOriginalPreview") { try await library.renderer.preview(data: data, edit: EditRecipe()) })
             render()

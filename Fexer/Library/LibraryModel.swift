@@ -61,11 +61,11 @@ final class LibraryModel {
             if item.kind == .video {
                 id = try await Diagnostics.time("export.photosSaveVideo") { try await PhotosExporter().saveVideo(url: store.sourceURL(item), date: item.createdAt, location: item.location) }
             } else {
-                let source = try await store.source(for: item)
+                let source = try store.source(for: item)
                 // A Live Photo must retain the original still/movie pairing. Edited exports are stills.
                 let unchanged = !item.recipe.isModified
                 let data = unchanged ? source : try await Diagnostics.time("export.render") { try await renderer.export(data: source, edit: item.recipe, format: .jpeg) }
-                let live = unchanged ? await store.liveURL(item) : nil
+                let live = unchanged ? store.liveURL(item) : nil
                 id = try await Diagnostics.time("export.photosSavePhoto (\(data.count / 1024)KB)") { try await exporter.savePhoto(data: data, rawURL: store.rawURL(item), liveURL: live, date: item.createdAt, location: item.location) }
             }
             item.photosIdentifier = id
@@ -115,14 +115,14 @@ final class LibraryModel {
     private func thumbnailUncached(_ item: LibraryItem, key: NSString) async -> UIImage? {
         do {
             let data: Data
-            if let cached = try await Diagnostics.time("thumbnail.diskCacheCheck", { try await store.thumbnail(item) }) {
+            if let cached = try Diagnostics.time("thumbnail.diskCacheCheck", { try store.thumbnail(item) }) {
                 data = cached
             }
             else if item.kind == .photo {
                 data = try await Diagnostics.time("thumbnail.render") { try await renderer.thumbnailJPEG(data: store.source(for: item), edit: item.recipe) }
                 try await Diagnostics.time("thumbnail.writeCache") { try await store.saveThumbnail(data, for: item) }
             } else {
-                let asset = AVURLAsset(url: await store.sourceURL(item))
+                let asset = AVURLAsset(url: store.sourceURL(item))
                 let generator = AVAssetImageGenerator(asset: asset)
                 generator.appliesPreferredTrackTransform = true
                 generator.maximumSize = CGSize(width: 480, height: 480)

@@ -57,10 +57,10 @@ struct CaptureDetail: View {
     }
 
     private func load() async {
-        if current.kind == .video { videoURL = await library.store.sourceURL(current); return }
+        if current.kind == .video { videoURL = library.store.sourceURL(current); return }
         do {
             try await Diagnostics.time("captureDetail.load") {
-                let data = try await library.store.source(for: current)
+                let data = try library.store.source(for: current)
                 let pixels = try await library.renderer.preview(data: data, edit: current.recipe)
                 image = UIImage(cgImage: pixels)
             }
@@ -75,9 +75,9 @@ struct CaptureDetail: View {
                     let url = FileManager.default.temporaryDirectory
                         .appendingPathComponent(UUID().uuidString + "." + (captured.kind == .video ? "mov" : captured.sourceExtension))
                     if captured.kind == .video {
-                        try FileManager.default.copyItem(at: await library.store.sourceURL(captured), to: url)
+                        try FileManager.default.copyItem(at: library.store.sourceURL(captured), to: url)
                     } else {
-                        let data = try await library.store.source(for: captured)
+                        let data = try library.store.source(for: captured)
                         let export = captured.recipe.isModified ? try await library.renderer.export(data: data, edit: captured.recipe, format: .jpeg) : data
                         try export.write(to: url)
                     }
