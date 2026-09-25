@@ -98,8 +98,8 @@ struct EditorView: View {
             }
             HapticScrubber(title: "Straighten", value: $model.recipe.straighten, range: -45...45, display: String(format: "%.1f°", model.recipe.straighten), onEditingChanged: model.gesture)
             HapticScrubber(title: "Crop zoom", value: $model.recipe.cropZoom, range: 1...6, display: String(format: "%.1f×", model.recipe.cropZoom), onEditingChanged: model.gesture)
-            HapticScrubber(title: "Horizontal position", value: $model.recipe.cropX, range: 0...1, onEditingChanged: model.gesture)
-            HapticScrubber(title: "Vertical position", value: $model.recipe.cropY, range: 0...1, onEditingChanged: model.gesture)
+            HapticScrubber(title: "Horizontal position", value: $model.recipe.cropX, range: 0...1, display: model.recipe.cropX.formatted(.percent.precision(.fractionLength(0))), onEditingChanged: model.gesture)
+            HapticScrubber(title: "Vertical position", value: $model.recipe.cropY, range: 0...1, display: model.recipe.cropY.formatted(.percent.precision(.fractionLength(0))), onEditingChanged: model.gesture)
         }
     }
     private var colorTools: some View {
@@ -125,7 +125,8 @@ struct EditorView: View {
                 context.stroke(path, with: .color(Theme.accent), lineWidth: 2)
             }.frame(height: 75).background(.white.opacity(0.04))
             ForEach(0..<5) { index in
-                HapticScrubber(title: ["Blacks", "Shadows", "Midtones", "Highlights", "Whites"][index], value: $model.recipe.curves[channel][index], range: 0...1, onEditingChanged: model.gesture)
+                HapticScrubber(title: ["Blacks", "Shadows", "Midtones", "Highlights", "Whites"][index], value: $model.recipe.curves[channel][index], range: 0...1,
+                                display: model.recipe.curves[channel][index].formatted(.percent.precision(.fractionLength(0))), onEditingChanged: model.gesture)
             }
             Button("Reset channel") { model.change { $0.curves[channel] = [0, 0.25, 0.5, 0.75, 1] } }
         }

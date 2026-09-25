@@ -87,6 +87,45 @@ final class FexerUITests: XCTestCase {
         XCTAssertTrue(app.buttons["settings"].waitForExistence(timeout: 5))
     }
 
+    func testEditorSaveRoundTripsThroughAllTools() {
+        let app = launch()
+        let shutter = app.buttons["shutter"]
+        XCTAssertTrue(shutter.waitForExistence(timeout: 10))
+        shutter.tap()
+        XCTAssertTrue(shutter.waitForExistence(timeout: 10))
+        app.buttons["library"].tap()
+        XCTAssertTrue(app.navigationBars["Library"].waitForExistence(timeout: 5))
+        app.scrollViews.buttons.firstMatch.tap()
+        XCTAssertTrue(app.navigationBars.buttons["Library"].waitForExistence(timeout: 5))
+        app.buttons["More options"].tap()
+        XCTAssertTrue(app.buttons["Edit"].waitForExistence(timeout: 3))
+        app.buttons["Edit"].tap()
+        XCTAssertTrue(app.navigationBars["Edit photo"].waitForExistence(timeout: 5))
+        for tool in ["Crop", "Color", "Curves", "Adjust"] { app.buttons[tool].tap() }
+        // Drag the Exposure scrubber to exercise the render pipeline + undo history.
+        let exposure = app.otherElements["Exposure"]
+        XCTAssertTrue(exposure.waitForExistence(timeout: 3))
+        let start = exposure.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        let end = exposure.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5))
+        start.press(forDuration: 0.05, thenDragTo: end)
+        app.buttons["saveEdits"].tap()
+        XCTAssertTrue(app.navigationBars.buttons["Library"].waitForExistence(timeout: 5))
+        app.navigationBars.buttons["Library"].tap()
+        app.buttons["Done"].tap()
+    }
+
+    func testSelectingAStyleShowsCheckmarkAndStrengthControl() {
+        let app = launch()
+        XCTAssertTrue(app.buttons["styles"].waitForExistence(timeout: 10))
+        app.buttons["styles"].tap()
+        XCTAssertTrue(app.navigationBars["Photo styles"].waitForExistence(timeout: 5))
+        let portra = app.buttons["Portra 400"]
+        XCTAssertTrue(portra.waitForExistence(timeout: 3))
+        portra.tap()
+        XCTAssertTrue(app.otherElements["Strength"].waitForExistence(timeout: 3))
+        app.buttons["Done"].tap()
+    }
+
     func testPinchToZoomOnViewfinderDoesNotBreakCapture() {
         let app = launch()
         let viewfinder = app.otherElements.matching(NSPredicate(format: "label == %@", "Camera viewfinder. Tap to focus, pinch to zoom.")).firstMatch
