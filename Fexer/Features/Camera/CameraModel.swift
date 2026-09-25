@@ -70,6 +70,18 @@ final class CameraModel {
             } catch is CancellationError {} catch { show(error, operation: "Apply style") }
         }
     }
+    /// Pays the session-reconfiguration cost (preset change, mic input, movie output) whenever
+    /// the target mode or its settings (4K/fps) change, so tapping record itself does no
+    /// reconfiguration. Idempotent — the service no-ops if nothing actually changed.
+    func updateCaptureMode() {
+        let video4K = preferences.value.video4K
+        let videoFPS = preferences.value.videoFPS
+        let wantsVideo = mode == .video
+        Task {
+            if wantsVideo { await service.prewarmVideo(fourK: video4K, fps: videoFPS) }
+            else { await service.prewarmPhoto() }
+        }
+    }
     func updateControls() {
         controlTask?.cancel()
         let value = controls

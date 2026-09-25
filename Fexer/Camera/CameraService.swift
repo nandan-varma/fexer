@@ -14,6 +14,12 @@ protocol CameraOperating: Actor {
     func recordMovie(fourK: Bool, fps: Int) async throws -> URL
     func finishMovie() async
     func setPreview(_ options: PreviewOptions) async
+    /// Pays the AVCaptureSession reconfiguration cost (preset change, mic input, movie output)
+    /// up front, e.g. when the user switches to the Video tab, instead of at record-tap time.
+    func prewarmVideo(fourK: Bool, fps: Int) async
+    /// Reverts a prewarmed video session back to the photo-optimized preset. Safe to call anytime;
+    /// a no-op unless video mode was actually prewarmed.
+    func prewarmPhoto() async
 }
 
 /// All session/device mutations execute on one serial executor, separate from MainActor.
@@ -38,7 +44,10 @@ actor CameraService: CameraOperating {
     private var wantsRunning = false
     private var configured = false
     private var recording = false
-    private var polling: Task<Void, Never>?
+    private var deviceObservations: [NSKeyValueObservation] = []
+    private var videoModeConfigured = false
+    private var videoFourK = false
+    private var videoFPS = 30
 
     init() {
         let stream = AsyncStream.makeStream(of: CameraEvent.self, bufferingPolicy: .bufferingNewest(12))
@@ -64,15 +73,10 @@ actor CameraService: CameraOperating {
         do {
             if !configured { try configure() }
             observeSession()
+            observeDevice()
             session.startRunning()
             guard session.isRunning else { throw AppIssue.cameraUnavailable }
             continuation.yield(.phase(.ready))
-            polling = Task { [weak self] in
-                while !Task.isCancelled {
-                    await self?.publishReading()
-                    do { try await Task.sleep(for: .milliseconds(250)) } catch { return }
-                }
-            }
             #if DEBUG
             Diagnostics.camera.debug("Capture session started")
             #endif
@@ -85,8 +89,8 @@ actor CameraService: CameraOperating {
 
     func stop() {
         wantsRunning = false
-        polling?.cancel()
-        polling = nil
+        deviceObservations.forEach { $0.invalidate() }
+        deviceObservations.removeAll()
         if movies.isRecording { movies.stopRecording() }
         if let device, device.hasTorch {
             do { try device.lockForConfiguration(); device.torchMode = .off; device.unlockForConfiguration() }
@@ -140,6 +144,7 @@ actor CameraService: CameraOperating {
         controls = CameraControls()
         configureConnections()
         updateCapabilities()
+        if wantsRunning { observeDevice() }
         try apply(controls)
     }
 
@@ -229,40 +234,17 @@ actor CameraService: CameraOperating {
         guard session.isRunning, !recording, photoDelegate == nil else { throw AppIssue.busy }
         recording = true
         defer { recording = false; movieDelegate = nil }
-        let allowed = await AVCaptureDevice.requestAccess(for: .audio)
-        guard allowed else { throw AppIssue("Microphone access needed", "Allow Microphone in Settings to record video with sound.") }
+        // No-op if the Video tab already warmed this up; only pays the reconfiguration cost here
+        // as a fallback (e.g. mic permission wasn't yet decided, or prewarm lost a race).
+        await prewarmVideo(fourK: fourK, fps: fps)
+        guard videoModeConfigured else {
+            if AVCaptureDevice.authorizationStatus(for: .audio) != .authorized {
+                throw AppIssue("Microphone access needed", "Allow Microphone in Settings to record video with sound.")
+            }
+            throw AppIssue("Video unavailable", "This camera cannot record video with the current configuration.")
+        }
         guard wantsRunning else { throw CancellationError() }
-        session.beginConfiguration()
-        let preset: AVCaptureSession.Preset = fourK ? .hd4K3840x2160 : .hd1920x1080
-        session.sessionPreset = session.canSetSessionPreset(preset) ? preset : .high
-        if !session.outputs.contains(movies), session.canAddOutput(movies) { session.addOutput(movies) }
-        if !session.inputs.contains(where: { ($0 as? AVCaptureDeviceInput)?.device.hasMediaType(.audio) == true }),
-           let microphone = AVCaptureDevice.default(for: .audio) {
-            do {
-                let input = try AVCaptureDeviceInput(device: microphone)
-                if session.canAddInput(input) { session.addInput(input) }
-            } catch { session.commitConfiguration(); throw error }
-        }
-        session.commitConfiguration()
-        guard session.outputs.contains(movies) else { throw AppIssue("Video unavailable", "This camera cannot record video with the current configuration.") }
-        if let device, device.activeFormat.videoSupportedFrameRateRanges.contains(where: { $0.minFrameRate <= Double(fps) && $0.maxFrameRate >= Double(fps) }) {
-            try device.lockForConfiguration()
-            device.activeVideoMinFrameDuration = CMTime(value: 1, timescale: Int32(fps))
-            device.activeVideoMaxFrameDuration = CMTime(value: 1, timescale: Int32(fps))
-            device.unlockForConfiguration()
-        }
-        if let connection = movies.connection(with: .video), connection.isVideoRotationAngleSupported(90) { connection.videoRotationAngle = 90 }
-        configureConnections()
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".mov")
-        defer {
-            session.beginConfiguration()
-            session.removeOutput(movies)
-            for input in session.inputs where (input as? AVCaptureDeviceInput)?.device.hasMediaType(.audio) == true { session.removeInput(input) }
-            session.sessionPreset = .photo
-            session.commitConfiguration()
-            configureConnections()
-            updateCapabilities()
-        }
         return try await withCheckedThrowingContinuation { completion in
             let delegate = MovieDelegate { completion.resume(with: $0) }
             movieDelegate = delegate
@@ -272,6 +254,48 @@ actor CameraService: CameraOperating {
 
     func finishMovie() {
         if movies.isRecording { movies.stopRecording() }
+    }
+
+    func prewarmVideo(fourK: Bool, fps: Int) async {
+        guard wantsRunning, !recording else { return }
+        guard !videoModeConfigured || videoFourK != fourK || videoFPS != fps else { return }
+        let allowed = await AVCaptureDevice.requestAccess(for: .audio)
+        guard allowed, wantsRunning, !recording else { return }
+        session.beginConfiguration()
+        let preset: AVCaptureSession.Preset = fourK ? .hd4K3840x2160 : .hd1920x1080
+        session.sessionPreset = session.canSetSessionPreset(preset) ? preset : .high
+        if !session.outputs.contains(movies), session.canAddOutput(movies) { session.addOutput(movies) }
+        if !session.inputs.contains(where: { ($0 as? AVCaptureDeviceInput)?.device.hasMediaType(.audio) == true }),
+           let microphone = AVCaptureDevice.default(for: .audio),
+           let input = try? AVCaptureDeviceInput(device: microphone), session.canAddInput(input) {
+            session.addInput(input)
+        }
+        session.commitConfiguration()
+        guard session.outputs.contains(movies) else { return }
+        if let device, device.activeFormat.videoSupportedFrameRateRanges.contains(where: { $0.minFrameRate <= Double(fps) && $0.maxFrameRate >= Double(fps) }) {
+            try? device.lockForConfiguration()
+            device.activeVideoMinFrameDuration = CMTime(value: 1, timescale: Int32(fps))
+            device.activeVideoMaxFrameDuration = CMTime(value: 1, timescale: Int32(fps))
+            device.unlockForConfiguration()
+        }
+        if let connection = movies.connection(with: .video), connection.isVideoRotationAngleSupported(90) { connection.videoRotationAngle = 90 }
+        configureConnections()
+        updateCapabilities()
+        videoModeConfigured = true
+        videoFourK = fourK
+        videoFPS = fps
+    }
+
+    func prewarmPhoto() {
+        guard videoModeConfigured, !recording else { return }
+        session.beginConfiguration()
+        session.removeOutput(movies)
+        for input in session.inputs where (input as? AVCaptureDeviceInput)?.device.hasMediaType(.audio) == true { session.removeInput(input) }
+        session.sessionPreset = .photo
+        session.commitConfiguration()
+        configureConnections()
+        updateCapabilities()
+        videoModeConfigured = false
     }
 
     func setPreview(_ options: PreviewOptions) { frames.setOptions(options) }
@@ -321,6 +345,23 @@ actor CameraService: CameraOperating {
         continuation.yield(.reading(CameraReading(iso: Double(device.iso), shutter: device.exposureDuration.seconds,
                                                   temperature: Double(white.temperature), focus: Double(device.lensPosition),
                                                   exposureOffset: Double(device.exposureTargetOffset), zoom: Double(device.videoZoomFactor))))
+    }
+
+    /// KVO instead of a fixed-interval poll: the top bar reflects the true device state the
+    /// instant AVFoundation's 3A loop actually changes it, not up to 250ms late, and the actor
+    /// stays idle whenever nothing is actually changing.
+    private func observeDevice() {
+        deviceObservations.forEach { $0.invalidate() }
+        guard let device else { deviceObservations = []; return }
+        // Closure literals passed directly as arguments are inferred @Sendable; a shared nested
+        // function would instead inherit this actor's isolation and be rejected by KVO's API.
+        deviceObservations = [
+            device.observe(\.iso, options: [.initial, .new]) { [weak self] _, _ in Task { await self?.publishReading() } },
+            device.observe(\.exposureDuration, options: .new) { [weak self] _, _ in Task { await self?.publishReading() } },
+            device.observe(\.lensPosition, options: .new) { [weak self] _, _ in Task { await self?.publishReading() } },
+            device.observe(\.videoZoomFactor, options: .new) { [weak self] _, _ in Task { await self?.publishReading() } },
+            device.observe(\.deviceWhiteBalanceGains, options: .new) { [weak self] _, _ in Task { await self?.publishReading() } },
+        ]
     }
 
     private func observeSession() {

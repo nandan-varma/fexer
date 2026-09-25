@@ -29,12 +29,18 @@ final class LibraryModel {
         catch { present(error, operation: "Load library") }
     }
 
+    /// The Photos-library round trip (`export`) can take hundreds of ms to over a second — far
+    /// longer than the local save. Firing it in the background lets the shutter (gated on
+    /// `pendingCapture`/this call returning) re-enable as soon as the original is safely on disk,
+    /// instead of blocking every capture on a full PHPhotoLibrary import. The existing
+    /// `needsPhotosSave` badge and Settings bulk-export action already cover the "still pending"
+    /// state this creates.
     func accept(_ payload: PhotoPayload, recipe: EditRecipe, location: GeoTag?, autoExport: Bool) async throws -> LibraryItem {
         var item = try await store.save(payload, recipe: recipe, location: location)
         item.needsPhotosSave = autoExport
         try await store.update(item)
         items.insert(item, at: 0)
-        if autoExport { await export(item) }
+        if autoExport { Task { await self.export(item) } }
         return items.first { $0.id == item.id } ?? item
     }
 
@@ -43,7 +49,7 @@ final class LibraryModel {
         item.needsPhotosSave = autoExport
         try await store.update(item)
         items.insert(item, at: 0)
-        if autoExport { await export(item) }
+        if autoExport { Task { await self.export(item) } }
         return item
     }
 

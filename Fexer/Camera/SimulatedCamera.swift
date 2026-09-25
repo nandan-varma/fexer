@@ -42,6 +42,8 @@ actor SimulatedCamera: CameraOperating {
         throw AppIssue("Use an iPhone for video", "The simulator displays a sample scene. Video recording requires a physical camera.")
     }
     func finishMovie() {}
+    func prewarmVideo(fourK: Bool, fps: Int) {}
+    func prewarmPhoto() {}
     private func publish() {
         guard let image = CIImage(data: sample, options: [.applyOrientationProperty: true]) else { return }
         let scale = min(1, 1200 / max(image.extent.width, image.extent.height))

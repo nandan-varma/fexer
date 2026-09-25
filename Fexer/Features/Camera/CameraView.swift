@@ -36,15 +36,22 @@ struct CameraView: View {
         .preferredColorScheme(.dark)
         .tint(Theme.accent)
         .environment(\.hapticsEnabled, model.preferences.value.haptics)
-        .task { await model.library.load(); await model.start() }
+        .task {
+            // Independent actors (CaptureStore vs. CameraService) — no reason to make the
+            // camera wait on the library's disk scan before it starts warming up.
+            async let library: Void = model.library.load()
+            async let camera: Void = model.start()
+            _ = await (library, camera)
+        }
         .onChange(of: scenePhase) { _, phase in
             Task { if phase == .active { await model.start() } else { await model.stop() } }
         }
         .onChange(of: model.recipe) { model.updatePreview() }
-        .onChange(of: model.mode) { model.updatePreview() }
+        .onChange(of: model.mode) { model.updatePreview(); model.updateCaptureMode() }
         .onChange(of: model.controls) { model.updateControls() }
         .onChange(of: model.preferences.value) {
             model.updatePreview()
+            model.updateCaptureMode()
             model.location.setEnabled(model.preferences.value.location && scenePhase == .active)
             model.level.setEnabled(model.preferences.value.level && scenePhase == .active)
         }
