@@ -24,16 +24,16 @@ protocol CameraOperating: Actor {
 
 /// All session/device mutations execute on one serial executor, separate from MainActor.
 actor CameraService: CameraOperating {
-    private let queue = DispatchSerialQueue(label: "com.fexer.camera", qos: .userInitiated)
+    private let queue: DispatchSerialQueue
     nonisolated var unownedExecutor: UnownedSerialExecutor { queue.asUnownedSerialExecutor() }
-    nonisolated let frames = FrameProcessor()
+    nonisolated let frames: FrameProcessor
     nonisolated let events: AsyncStream<CameraEvent>
     private let continuation: AsyncStream<CameraEvent>.Continuation
     private let session: AVCaptureSession
     private let photos: AVCapturePhotoOutput
     private let videoFrames: AVCaptureVideoDataOutput
     private let movies: AVCaptureMovieFileOutput
-    private let frameQueue = DispatchQueue(label: "com.fexer.frames", qos: .userInitiated)
+    private let frameQueue: DispatchQueue
     private var device: AVCaptureDevice?
     private var videoInput: AVCaptureDeviceInput?
     private var capabilities = CameraCapabilities()
@@ -50,12 +50,16 @@ actor CameraService: CameraOperating {
     private var videoFPS = 30
 
     init() {
-        let stream = AsyncStream.makeStream(of: CameraEvent.self, bufferingPolicy: .bufferingNewest(12))
+        // app.init.cameraService measured ~460-470ms, but the four AVFoundation object inits
+        // below only ever accounted for ~75ms of it — moving every remaining stored property out
+        // of its inline default and into this timed sequence to find the rest, or rule out
+        // everything app-code-visible and conclude it's the actor's custom-executor bootstrap.
+        queue = Diagnostics.time("service.init.dispatchQueue") { DispatchSerialQueue(label: "com.fexer.camera", qos: .userInitiated) }
+        frames = Diagnostics.time("service.init.frameProcessor") { FrameProcessor() }
+        frameQueue = Diagnostics.time("service.init.frameDispatchQueue") { DispatchQueue(label: "com.fexer.frames", qos: .userInitiated) }
+        let stream = Diagnostics.time("service.init.eventStream") { AsyncStream.makeStream(of: CameraEvent.self, bufferingPolicy: .bufferingNewest(12)) }
         events = stream.stream
         continuation = stream.continuation
-        // app.init.cameraService measured ~460ms; breaking out which specific AVFoundation
-        // object construction actually pays the (likely one-time, first-touch) mediaserverd
-        // connection cost this app has seen dominate everything else so far.
         session = Diagnostics.time("service.init.captureSession") { AVCaptureSession() }
         photos = Diagnostics.time("service.init.photoOutput") { AVCapturePhotoOutput() }
         videoFrames = Diagnostics.time("service.init.videoDataOutput") { AVCaptureVideoDataOutput() }
