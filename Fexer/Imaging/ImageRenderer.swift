@@ -68,7 +68,9 @@ actor ImageRenderer {
         let quality = CIImageRepresentationOption(rawValue: kCGImageDestinationLossyCompressionQuality as String)
         let encoded: Data?
         if format == .heif {
-            encoded = ImagePipeline.context.heifRepresentation(of: image, format: .RGBA8, colorSpace: ImagePipeline.colorSpace, options: [quality: 0.95])
+            // HEIF is what iPhone sensors actually capture in and what this app defaults to —
+            // encode with the full Display P3 gamut instead of clipping edited photos to sRGB.
+            encoded = ImagePipeline.context.heifRepresentation(of: image, format: .RGBA8, colorSpace: ImagePipeline.wideColorSpace, options: [quality: 0.95])
         } else {
             encoded = ImagePipeline.context.jpegRepresentation(of: image, colorSpace: ImagePipeline.colorSpace, options: [quality: 0.95])
         }

@@ -11,7 +11,15 @@ struct RenderRecipe: Sendable {
 /// Stateless filter graph builder. Each invocation owns its CIFilters; no shared mutable filters.
 enum ImagePipeline {
     static let colorSpace = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
-    static let context = CIContext(options: [.cacheIntermediates: false, .workingColorSpace: colorSpace])
+    // iPhone HEIC capture is Display P3 (wider than sRGB); using it as the *working* space means
+    // filter math never clips real sensor gamut during editing, regardless of final output
+    // format. `colorSpace` (sRGB) stays separate and unchanged: applyCube's colorCubeWithColorSpace
+    // filter uses it to say what space the .cube LUT's own values were authored in — a LUT-
+    // correctness concern, not an output-gamut one — and JPEG/thumbnail output still wants sRGB
+    // for universal compatibility. Only HEIF export (this app's default, and the format actually
+    // designed for wide gamut) uses wideColorSpace for its final encoding.
+    static let wideColorSpace = CGColorSpace(name: CGColorSpace.displayP3) ?? colorSpace
+    static let context = CIContext(options: [.cacheIntermediates: false, .workingColorSpace: wideColorSpace])
 
     static func apply(_ input: CIImage, recipe: RenderRecipe, geometry: Bool = true) -> CIImage {
         let state = recipe.edit.validated
