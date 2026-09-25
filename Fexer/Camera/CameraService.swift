@@ -11,7 +11,7 @@ protocol CameraOperating: Actor {
     func apply(_ controls: CameraControls) async throws
     func selectLens(_ id: String) async throws
     func focus(at point: CGPoint) async throws
-    func recordMovie(fourK: Bool, fps: Int) async throws -> URL
+    func recordMovie(fourK: Bool, fps: Int, onStarted: @escaping @Sendable () -> Void) async throws -> URL
     func finishMovie() async
     func setPreview(_ options: PreviewOptions) async
     /// Pays the AVCaptureSession reconfiguration cost (preset change, mic input, movie output)
@@ -236,12 +236,13 @@ actor CameraService: CameraOperating {
         }
     }
 
-    func recordMovie(fourK: Bool, fps: Int) async throws -> URL {
+    func recordMovie(fourK: Bool, fps: Int, onStarted: @escaping @Sendable () -> Void) async throws -> URL {
         guard session.isRunning, !recording, photoDelegate == nil else { throw AppIssue.busy }
         recording = true
         defer { recording = false; movieDelegate = nil }
         // No-op if the Video tab already warmed this up; only pays the reconfiguration cost here
-        // as a fallback (e.g. mic permission wasn't yet decided, or prewarm lost a race).
+        // as a fallback (e.g. mic permission wasn't yet decided, or prewarm lost a race). Either
+        // way, `onStarted` (not this call) is the accurate "recording is actually rolling" signal.
         await prewarmVideo(fourK: fourK, fps: fps)
         guard videoModeConfigured else {
             if AVCaptureDevice.authorizationStatus(for: .audio) != .authorized {
@@ -252,7 +253,7 @@ actor CameraService: CameraOperating {
         guard wantsRunning else { throw CancellationError() }
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".mov")
         return try await withCheckedThrowingContinuation { completion in
-            let delegate = MovieDelegate { completion.resume(with: $0) }
+            let delegate = MovieDelegate(onStarted: onStarted) { completion.resume(with: $0) }
             movieDelegate = delegate
             movies.startRecording(to: url, recordingDelegate: delegate)
         }

@@ -128,8 +128,16 @@ final class CameraModel {
                 }
                 try Task.checkCancellation()
                 if selectedMode == .video {
-                    activity = .recording(Date())
-                    let url = try await service.recordMovie(fourK: preferences.value.video4K, fps: preferences.value.videoFPS)
+                    // Recording may not start immediately (a session reconfigure can still be
+                    // running as a fallback) — show the same "please wait" spinner as a photo
+                    // capture until AVFoundation confirms it's actually rolling, so the displayed
+                    // timer's start time is accurate rather than counting time that was spent
+                    // waiting on setup.
+                    activity = .capturing
+                    let url = try await service.recordMovie(fourK: preferences.value.video4K, fps: preferences.value.videoFPS) {
+                        Diagnostics.mark("shutter.recordTapToRolling", since: tapTime)
+                        Task { @MainActor in self.activity = .recording(Date()) }
+                    }
                     activity = .finishing
                     _ = try await library.acceptVideo(url: url, location: location.location, autoExport: preferences.value.saveToPhotos)
                     try? FileManager.default.removeItem(at: url)

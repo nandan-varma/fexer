@@ -38,13 +38,10 @@ struct CameraView: View {
         .environment(\.hapticsEnabled, model.preferences.value.haptics)
         .task {
             // Independent actors (CaptureStore vs. CameraService) — no reason to make the
-            // camera wait on the library's disk scan before it starts warming up. The audio
-            // primer runs on its own disposable session (never touches CameraService's actor),
-            // so it can't queue a real capture behind it even if it's still running.
+            // camera wait on the library's disk scan before it starts warming up.
             async let library: Void = Diagnostics.time("boot.libraryLoad") { await model.library.load() }
             async let camera: Void = Diagnostics.time("boot.cameraStart") { await model.start() }
-            async let audio: Void = AudioSessionPrimer.prime()
-            _ = await (library, camera, audio)
+            _ = await (library, camera)
         }
         .onChange(of: scenePhase) { _, phase in
             Task { if phase == .active { await model.start() } else { await model.stop() } }

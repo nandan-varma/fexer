@@ -60,8 +60,17 @@ final class PhotoDelegate: NSObject, AVCapturePhotoCaptureDelegate, Sendable {
 }
 
 final class MovieDelegate: NSObject, AVCaptureFileOutputRecordingDelegate, Sendable {
+    let onStarted: @Sendable () -> Void
     let completion: @Sendable (Result<URL, any Error>) -> Void
-    init(completion: @escaping @Sendable (Result<URL, any Error>) -> Void) { self.completion = completion }
+    init(onStarted: @escaping @Sendable () -> Void, completion: @escaping @Sendable (Result<URL, any Error>) -> Void) {
+        self.onStarted = onStarted
+        self.completion = completion
+    }
+    /// Fires once recording is actually rolling — any prewarm/session-reconfigure delay before
+    /// this happens must not be counted into the displayed recording duration.
+    func fileOutput(_ output: AVCaptureFileOutput, didStartRecordingTo fileURL: URL, from connections: [AVCaptureConnection]) {
+        onStarted()
+    }
     func fileOutput(_ output: AVCaptureFileOutput, didFinishRecordingTo outputFileURL: URL,
                     from connections: [AVCaptureConnection], error: (any Error)?) {
         if let error {
