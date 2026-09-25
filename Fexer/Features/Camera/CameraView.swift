@@ -317,6 +317,11 @@ struct CameraView: View {
                     HStack(alignment: .top) {
                         if model.preferences.value.monitor != .off { ScopeView(frames: model.frames, monitor: model.preferences.value.monitor) }
                         Spacer()
+                        if model.thermal.state == .critical {
+                            Label("Overheating", systemImage: "thermometer.high").font(.caption2).padding(8).background(.red.opacity(0.85), in: Capsule())
+                        } else if model.thermal.state == .serious {
+                            Label("Warm", systemImage: "thermometer.medium").font(.caption2).padding(8).background(.orange.opacity(0.75), in: Capsule())
+                        }
                         if model.controls.exposureLocked { Label("AE LOCK", systemImage: "lock.fill").font(.caption2).padding(8).background(.black.opacity(0.6), in: Capsule()) }
                         if case .recording(let start) = model.activity {
                             HStack { Circle().fill(.red).frame(width: 7, height: 7); Text(start, style: .timer).monospacedDigit() }

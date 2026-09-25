@@ -22,6 +22,7 @@ final class CameraModel {
     var preferences: PreferenceStore
     let location = LocationService()
     let level = LevelService()
+    let thermal = ThermalMonitor()
     private var eventsTask: Task<Void, Never>?
     private var captureTask: Task<Void, Never>?
     private var previewTask: Task<Void, Never>?
@@ -48,6 +49,7 @@ final class CameraModel {
         active = true
         location.setEnabled(preferences.value.location)
         level.setEnabled(preferences.value.level)
+        thermal.start()
         do { try await service.start(); updatePreview() }
         catch { show(error, operation: "Start camera") }
     }
@@ -56,6 +58,7 @@ final class CameraModel {
         captureTask?.cancel()
         location.setEnabled(false)
         level.setEnabled(false)
+        thermal.stop()
         await service.stop()
     }
     func updatePreview() {

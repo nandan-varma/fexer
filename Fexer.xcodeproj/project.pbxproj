@@ -46,6 +46,7 @@
 		8A033A61332798B25D0ACDEF /* kodak_portra_400.cube in Resources */ = {isa = PBXBuildFile; fileRef = 60220AADC015CF6A5F3A5DB9 /* kodak_portra_400.cube */; };
 		8B3B8222BA7ECC58EAD34E1E /* CameraTextTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C161318B7F31B0C116FA17B /* CameraTextTests.swift */; };
 		90767DE82556D01F6186EE74 /* kodak_gold_200.cube in Resources */ = {isa = PBXBuildFile; fileRef = 53D62B5CB19496F11254281D /* kodak_gold_200.cube */; };
+		95B06EA184C9FBDF51E9C575 /* ThermalMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = E89783416C8F64CE42BA41B7 /* ThermalMonitor.swift */; };
 		97CAD19A815CB0DF95A41386 /* astro_dark.cube in Resources */ = {isa = PBXBuildFile; fileRef = 4FA4FBE1E9DF411D56B50372 /* astro_dark.cube */; };
 		9AD46F7B8EDF36EFF395E27A /* FexerUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30ACFA9F893A6674AE09D116 /* FexerUITests.swift */; };
 		9C60475A6FD8FAA147822305 /* CaptureStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C859A1A5DFADAA6B1FC531DF /* CaptureStoreTests.swift */; };
@@ -160,6 +161,7 @@
 		DC6ACF54771B52D0CFF3ECD7 /* CubeLUT.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CubeLUT.swift; sourceTree = "<group>"; };
 		DF42F6288B987950CF65DBF5 /* HapticScrubber.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HapticScrubber.swift; sourceTree = "<group>"; };
 		E6E507F70F881787D4F23C62 /* LocationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocationService.swift; sourceTree = "<group>"; };
+		E89783416C8F64CE42BA41B7 /* ThermalMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThermalMonitor.swift; sourceTree = "<group>"; };
 		EE42B874C224CBF4106F9C2F /* CameraModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraModel.swift; sourceTree = "<group>"; };
 		F524E2FE5D6B92178FB4E3A9 /* ilford_hp5_bw.cube */ = {isa = PBXFileReference; path = ilford_hp5_bw.cube; sourceTree = "<group>"; };
 		FD44FBCB13575DE090E51016 /* CaptureStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureStore.swift; sourceTree = "<group>"; };
@@ -380,6 +382,7 @@
 				59146D7909077C10339D53B9 /* LevelService.swift */,
 				E6E507F70F881787D4F23C62 /* LocationService.swift */,
 				191CCEC390A7CB59F4D2D6FF /* Preferences.swift */,
+				E89783416C8F64CE42BA41B7 /* ThermalMonitor.swift */,
 			);
 			path = Infrastructure;
 			sourceTree = "<group>";
@@ -567,6 +570,7 @@
 				529230604110968B07C2F153 /* SimulatedCamera.swift in Sources */,
 				40950EDFB6E9DD65F7E0EA5C /* StylePicker.swift in Sources */,
 				D806844A5BB56E19FCE5F5CB /* Theme.swift in Sources */,
+				95B06EA184C9FBDF51E9C575 /* ThermalMonitor.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
