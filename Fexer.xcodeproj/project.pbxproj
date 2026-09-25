@@ -466,7 +466,6 @@
 				TargetAttributes = {
 					818A41A502C63E785ADF5CC1 = {
 						DevelopmentTeam = 72CW7UW6RB;
-						ProvisioningStyle = Automatic;
 					};
 					B97FEC0BD76F0B18A1B72B03 = {
 						DevelopmentTeam = 72CW7UW6RB;
@@ -620,8 +619,9 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 4;
+				CODE_SIGN_IDENTITY = "Apple Distribution";
+				CODE_SIGN_STYLE = Manual;
+				CURRENT_PROJECT_VERSION = 5;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = Fexer;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
@@ -639,6 +639,7 @@
 				);
 				MARKETING_VERSION = 2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.nandanvarma.fexer;
+				PROVISIONING_PROFILE_SPECIFIER = "fexer App Store Testflight";
 				SDKROOT = iphoneos;
 				SUPPORTS_MACCATALYST = NO;
 				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
@@ -850,7 +851,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 4;
+				CURRENT_PROJECT_VERSION = 5;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = Fexer;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
