@@ -272,10 +272,19 @@ actor CameraService: CameraOperating {
         // mic access (a system permission check, near-instant once decided) is instead the culprit.
         let allowed = await Diagnostics.time("service.requestMicAccess") { await AVCaptureDevice.requestAccess(for: .audio) }
         guard allowed, wantsRunning, !recording else { return }
-        // Temporarily split into two commits (production code would batch these into one) to
-        // find out which specific change the ~4.7s measured in the field actually comes from:
-        // the 4K preset switch (sensor/ISP format renegotiation) or attaching the movie output
-        // and mic input (just wiring, expected to be cheap).
+        // Field logs isolated the ~4.7s cost to attachOutputsInputs, not the preset change (which
+        // measured 276ms — fine). The app never explicitly configures AVAudioSession anywhere, so
+        // adding the mic AVCaptureDeviceInput was the FIRST audio activity of the process, forcing
+        // iOS to implicitly negotiate and activate an audio session on the spot — a well-known slow
+        // path. Doing that negotiation explicitly and up front (still only when entering Video mode,
+        // never for photo-only users, so we don't silently pause someone's music just for opening
+        // the camera) should convert that stall into a one-time, earlier cost.
+        Diagnostics.time("service.prewarmVideo.audioSessionActivate") {
+            do {
+                try AVAudioSession.sharedInstance().setCategory(.playAndRecord, options: [.allowBluetoothHFP, .defaultToSpeaker])
+                try AVAudioSession.sharedInstance().setActive(true)
+            } catch { Diagnostics.report(error, operation: "Activate audio session for video") }
+        }
         let preset: AVCaptureSession.Preset = fourK ? .hd4K3840x2160 : .hd1920x1080
         if session.sessionPreset != preset {
             Diagnostics.time("service.prewarmVideo.presetChange (\(preset.rawValue))") {
@@ -318,6 +327,10 @@ actor CameraService: CameraOperating {
             session.sessionPreset = .photo
             session.commitConfiguration()
         }
+        // Release the recording-capable audio session so a paused Music/podcast app resumes —
+        // the cost of renegotiating it is paid again next time the user enters Video mode.
+        do { try AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation) }
+        catch { Diagnostics.report(error, operation: "Deactivate audio session after video") }
         configureConnections()
         updateCapabilities()
         videoModeConfigured = false
