@@ -59,6 +59,7 @@
 		BB915838101112F7D6109A38 /* Diagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 055D1D5E7EA4B98CA678F8F6 /* Diagnostics.swift */; };
 		BFD44D62164B8CD61DD6D874 /* CameraPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9681FCEDB0F0AAEF85154BC8 /* CameraPreview.swift */; };
 		C2A57E5A41C60F156687005C /* PhotoStyleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47E00E2B3FF2132C71CC426B /* PhotoStyleTests.swift */; };
+		C43DA9B422330C0D4876F64E /* AudioSessionPrimer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3ADEE68BDBF8810BAF4B4D30 /* AudioSessionPrimer.swift */; };
 		CD30B4E86432703B66F1E43C /* EditHistoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13F27C0333957206D2233D09 /* EditHistoryTests.swift */; };
 		D321B79EE7279B10B6A4A896 /* warm_fade.cube in Resources */ = {isa = PBXBuildFile; fileRef = B69BF96A7DE088EE7EE06AE6 /* warm_fade.cube */; };
 		D806844A5BB56E19FCE5F5CB /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6F546944E20BAF6FBEB7481 /* Theme.swift */; };
@@ -110,6 +111,7 @@
 		297D721155E963C8E11C502D /* LibraryItemTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryItemTests.swift; sourceTree = "<group>"; };
 		30ACFA9F893A6674AE09D116 /* FexerUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FexerUITests.swift; sourceTree = "<group>"; };
 		371768B3D7AB6EB4EF146020 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		3ADEE68BDBF8810BAF4B4D30 /* AudioSessionPrimer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioSessionPrimer.swift; sourceTree = "<group>"; };
 		3D5FFA5D8CB4256B6146C5CE /* portrait_warm.cube */ = {isa = PBXFileReference; path = portrait_warm.cube; sourceTree = "<group>"; };
 		3E837D7DBC9388B2E6A07993 /* LibraryModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryModel.swift; sourceTree = "<group>"; };
 		466C81BB2528771E5DF29C3D /* fuji_provia_100.cube */ = {isa = PBXFileReference; path = fuji_provia_100.cube; sourceTree = "<group>"; };
@@ -168,6 +170,7 @@
 		04F10B4BBA62B07EBAB4D0E1 /* Camera */ = {
 			isa = PBXGroup;
 			children = (
+				3ADEE68BDBF8810BAF4B4D30 /* AudioSessionPrimer.swift */,
 				9681FCEDB0F0AAEF85154BC8 /* CameraPreview.swift */,
 				7AC16562C1E1B0343D4E6060 /* CameraService.swift */,
 				70CCA8A8E7BB4AE6138954AC /* FrameProcessor.swift */,
@@ -532,6 +535,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C43DA9B422330C0D4876F64E /* AudioSessionPrimer.swift in Sources */,
 				B69B7484A67B60E6D91E47D5 /* CameraModel.swift in Sources */,
 				BFD44D62164B8CD61DD6D874 /* CameraPreview.swift in Sources */,
 				49C5A6257350ADE98770D20B /* CameraService.swift in Sources */,
