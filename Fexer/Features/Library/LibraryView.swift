@@ -39,9 +39,12 @@ private struct LibraryCell: View {
     let item: LibraryItem
     let library: LibraryModel
     var body: some View {
-        CaptureThumbnail(item: item, library: library)
-            .aspectRatio(1, contentMode: .fill)
-            .clipped()
+        GeometryReader { geometry in
+            CaptureThumbnail(item: item, library: library)
+                .frame(width: geometry.size.width, height: geometry.size.height)
+                .clipped()
+        }
+        .aspectRatio(1, contentMode: .fit)
             .overlay(alignment: .bottomTrailing) {
                 HStack(spacing: 3) {
                     if item.favorite { Image(systemName: "heart.fill") }

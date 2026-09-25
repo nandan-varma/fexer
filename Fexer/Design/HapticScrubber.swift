@@ -40,7 +40,6 @@ struct HapticScrubber: View {
     @State private var dragStartValue: Double?
     @State private var lastHapticStep: Int?
     @State private var atLimit = false
-    @State private var isDragging = false
 
     private let tickSpacing: CGFloat = 10
 
@@ -96,10 +95,9 @@ struct HapticScrubber: View {
                 Capsule().fill(Theme.accent).frame(width: 2, height: indicatorHeight)
             }
             .frame(width: width)
+            .clipped()
             .contentShape(Rectangle())
             .gesture(dragGesture(width: width))
-            .scaleEffect(isDragging ? 1.03 : 1, anchor: .center)
-            .animation(.easeOut(duration: 0.15), value: isDragging)
         }
     }
 
@@ -108,15 +106,19 @@ struct HapticScrubber: View {
         let offset = width / 2 - CGFloat(normalized) * totalWidth
         let majorHeight: CGFloat = compact ? 18 : 24
         let minorHeight: CGFloat = compact ? 9 : 13
-        return HStack(spacing: tickSpacing - 1.5) {
-            ForEach(0...tickCount, id: \.self) { tick in
-                Capsule()
-                    .fill(Theme.muted.opacity(tick % majorEvery == 0 ? 0.7 : 0.35))
-                    .frame(width: 1.5, height: tick % majorEvery == 0 ? majorHeight : minorHeight)
+        return Color.clear
+            .frame(width: width, height: majorHeight)
+            .overlay(alignment: .leading) {
+                HStack(spacing: tickSpacing - 1.5) {
+                    ForEach(0...tickCount, id: \.self) { tick in
+                        Capsule()
+                            .fill(Theme.muted.opacity(tick % majorEvery == 0 ? 0.7 : 0.35))
+                            .frame(width: 1.5, height: tick % majorEvery == 0 ? majorHeight : minorHeight)
+                    }
+                }
+                .frame(width: totalWidth, alignment: .leading)
+                .offset(x: offset)
             }
-        }
-        .frame(width: totalWidth, alignment: .leading)
-        .offset(x: offset)
         .mask(
             LinearGradient(stops: [
                 .init(color: .clear, location: 0),
@@ -133,13 +135,12 @@ struct HapticScrubber: View {
                 if dragStartValue == nil {
                     dragStartValue = value
                     lastHapticStep = Int((normalized * Double(tickCount)).rounded())
-                    isDragging = true
                     onEditingChanged(true)
                 }
-                let totalWidth = CGFloat(tickCount) * tickSpacing
                 let span = range.upperBound - range.lowerBound
+                guard span > 0 else { return }
                 let startNormalized = (dragStartValue! - range.lowerBound) / span
-                let draggedNormalized = startNormalized - Double(drag.translation.width / totalWidth)
+                let draggedNormalized = startNormalized - Double(drag.translation.width / max(width, 1))
                 let clamped = draggedNormalized.bounded(0...1)
                 let newValue = range.lowerBound + clamped * span
                 if newValue != value {
@@ -154,7 +155,6 @@ struct HapticScrubber: View {
                 dragStartValue = nil
                 lastHapticStep = nil
                 atLimit = false
-                isDragging = false
                 onEditingChanged(false)
             }
     }

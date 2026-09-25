@@ -62,7 +62,7 @@ struct CameraView: View {
             switch panel {
             case .styles: StylePicker(recipe: $model.recipe, renderer: model.library.renderer, source: nil)
             case .settings: SettingsView(preferences: model.preferences, capabilities: model.capabilities, library: model.library, ratio: $model.recipe.ratio)
-            case .library: LibraryView(library: model.library)
+            case .library: LibraryView(library: model.library).presentationDetents([.large])
             }
         }
         .sheet(item: $model.review) { item in

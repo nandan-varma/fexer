@@ -35,6 +35,7 @@ actor CameraService: CameraOperating {
     private let movies: AVCaptureMovieFileOutput
     private let frameQueue: DispatchQueue
     private var device: AVCaptureDevice?
+    private var rotationCoordinator: AVCaptureDevice.RotationCoordinator?
     private var videoInput: AVCaptureDeviceInput?
     private var capabilities = CameraCapabilities()
     private var controls = CameraControls()
@@ -131,6 +132,7 @@ actor CameraService: CameraOperating {
         videoFrames.setSampleBufferDelegate(frames, queue: frameQueue)
         photos.maxPhotoQualityPrioritization = .quality
         self.device = device
+        rotationCoordinator = AVCaptureDevice.RotationCoordinator(device: device, previewLayer: nil)
         videoInput = input
         configured = true
         configureConnections()
@@ -156,6 +158,7 @@ actor CameraService: CameraOperating {
             session.addInput(replacement)
             videoInput = replacement
             device = target
+            rotationCoordinator = AVCaptureDevice.RotationCoordinator(device: target, previewLayer: nil)
             session.commitConfiguration()
         }
         controls = CameraControls()
@@ -194,9 +197,13 @@ actor CameraService: CameraOperating {
             liveURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".mov")
             settings.livePhotoMovieFileURL = liveURL
         }
-        if let connection = photos.connection(with: .video), connection.isVideoRotationAngleSupported(request.rotation) {
-            connection.videoRotationAngle = request.rotation
-            if connection.isVideoMirroringSupported { connection.isVideoMirrored = capabilities.isFront }
+        let rotation = rotationCoordinator?.videoRotationAngleForHorizonLevelCapture ?? CGFloat(request.rotation)
+        if let connection = photos.connection(with: .video), connection.isVideoRotationAngleSupported(rotation) {
+            connection.videoRotationAngle = rotation
+            if connection.isVideoMirroringSupported {
+                connection.automaticallyAdjustsVideoMirroring = false
+                connection.isVideoMirrored = capabilities.isFront
+            }
         }
         defer { photoDelegate = nil }
         do {
@@ -331,7 +338,6 @@ actor CameraService: CameraOperating {
             device.activeVideoMaxFrameDuration = CMTime(value: 1, timescale: Int32(fps))
             device.unlockForConfiguration()
         }
-        if let connection = movies.connection(with: .video), connection.isVideoRotationAngleSupported(90) { connection.videoRotationAngle = 90 }
         configureConnections()
         updateCapabilities()
         videoModeConfigured = true
@@ -360,9 +366,20 @@ actor CameraService: CameraOperating {
     func setPreview(_ options: PreviewOptions) { frames.setOptions(options) }
 
     private func configureConnections() {
+        let rotation = rotationCoordinator?.videoRotationAngleForHorizonLevelCapture ?? 90
         if let connection = videoFrames.connection(with: .video) {
-            if connection.isVideoRotationAngleSupported(90) { connection.videoRotationAngle = 90 }
-            if connection.isVideoMirroringSupported { connection.isVideoMirrored = device?.position == .front }
+            if connection.isVideoRotationAngleSupported(rotation) { connection.videoRotationAngle = rotation }
+            if connection.isVideoMirroringSupported {
+                connection.automaticallyAdjustsVideoMirroring = false
+                connection.isVideoMirrored = device?.position == .front
+            }
+        }
+        if let connection = movies.connection(with: .video) {
+            if connection.isVideoRotationAngleSupported(rotation) { connection.videoRotationAngle = rotation }
+            if connection.isVideoMirroringSupported {
+                connection.automaticallyAdjustsVideoMirroring = false
+                connection.isVideoMirrored = device?.position == .front
+            }
         }
     }
 
