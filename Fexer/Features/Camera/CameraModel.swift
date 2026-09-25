@@ -94,7 +94,7 @@ final class CameraModel {
     }
     func selectLens(_ lens: CameraLens) async {
         do {
-            try await service.selectLens(lens.id)
+            try await Diagnostics.time("model.selectLens") { try await service.selectLens(lens.id) }
             controls = CameraControls()
             if !capabilities.supportsRAW { preferences.value.format = .heif }
         } catch { show(error, operation: "Switch camera") }

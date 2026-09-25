@@ -59,9 +59,11 @@ struct CaptureDetail: View {
     private func load() async {
         if current.kind == .video { videoURL = await library.store.sourceURL(current); return }
         do {
-            let data = try await library.store.source(for: current)
-            let pixels = try await library.renderer.preview(data: data, edit: current.recipe)
-            image = UIImage(cgImage: pixels)
+            try await Diagnostics.time("captureDetail.load") {
+                let data = try await library.store.source(for: current)
+                let pixels = try await library.renderer.preview(data: data, edit: current.recipe)
+                image = UIImage(cgImage: pixels)
+            }
         } catch { Diagnostics.report(error, operation: "Load photo") }
     }
 
@@ -69,16 +71,18 @@ struct CaptureDetail: View {
         Task {
             let captured = current
             do {
-                let url = FileManager.default.temporaryDirectory
-                    .appendingPathComponent(UUID().uuidString + "." + (captured.kind == .video ? "mov" : captured.sourceExtension))
-                if captured.kind == .video {
-                    try FileManager.default.copyItem(at: await library.store.sourceURL(captured), to: url)
-                } else {
-                    let data = try await library.store.source(for: captured)
-                    let export = captured.recipe.isModified ? try await library.renderer.export(data: data, edit: captured.recipe, format: .jpeg) : data
-                    try export.write(to: url)
+                try await Diagnostics.time("captureDetail.share") {
+                    let url = FileManager.default.temporaryDirectory
+                        .appendingPathComponent(UUID().uuidString + "." + (captured.kind == .video ? "mov" : captured.sourceExtension))
+                    if captured.kind == .video {
+                        try FileManager.default.copyItem(at: await library.store.sourceURL(captured), to: url)
+                    } else {
+                        let data = try await library.store.source(for: captured)
+                        let export = captured.recipe.isModified ? try await library.renderer.export(data: data, edit: captured.recipe, format: .jpeg) : data
+                        try export.write(to: url)
+                    }
+                    shareFile = ShareableFile(url: url)
                 }
-                shareFile = ShareableFile(url: url)
             } catch { Diagnostics.report(error, operation: "Share capture") }
         }
     }

@@ -86,7 +86,7 @@ final class LibraryModel {
         item.recipe = recipe.validated
         item.revision += 1
         item.needsPhotosSave = item.photosIdentifier != nil && item.exportedRecipe != item.recipe
-        try await store.update(item)
+        try await Diagnostics.time("library.saveEdits") { try await store.update(item) }
         replace(item)
         return item
     }
@@ -94,14 +94,14 @@ final class LibraryModel {
     func toggleFavorite(_ original: LibraryItem) async {
         guard var item = items.first(where: { $0.id == original.id }) else { return }
         item.favorite.toggle()
-        do { try await store.update(item); replace(item) }
+        do { try await Diagnostics.time("library.toggleFavorite") { try await store.update(item) }; replace(item) }
         catch { present(error, operation: "Save favorite") }
     }
 
     func delete(_ item: LibraryItem) async -> Bool {
         guard !exporting.contains(item.id) else { return false }
         do {
-            try await store.delete(item)
+            try await Diagnostics.time("library.delete") { try await store.delete(item) }
             items.removeAll { $0.id == item.id }
             return true
         } catch { present(error, operation: "Delete capture"); return false }

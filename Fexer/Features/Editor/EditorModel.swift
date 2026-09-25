@@ -19,9 +19,9 @@ final class EditorModel {
     init(item: LibraryItem, library: LibraryModel) { self.item = item; self.library = library; recipe = item.recipe.validated }
     func load() async {
         do {
-            let data = try await library.store.source(for: item)
+            let data = try await Diagnostics.time("editor.loadSource") { try await library.store.source(for: item) }
             source = data
-            originalImage = UIImage(cgImage: try await library.renderer.preview(data: data, edit: EditRecipe()))
+            originalImage = try await UIImage(cgImage: Diagnostics.time("editor.loadOriginalPreview") { try await library.renderer.preview(data: data, edit: EditRecipe()) })
             render()
         } catch { fail(error) }
     }
@@ -56,7 +56,7 @@ final class EditorModel {
         guard !saving else { return false }
         saving = true
         defer { saving = false }
-        do { _ = try await library.saveEdits(recipe, for: item); return true }
+        do { _ = try await Diagnostics.time("editor.saveEdits") { try await library.saveEdits(recipe, for: item) }; return true }
         catch { fail(error); return false }
     }
     func importCube(_ url: URL) async {

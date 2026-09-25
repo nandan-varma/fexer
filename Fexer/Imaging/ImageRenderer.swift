@@ -8,9 +8,11 @@ actor ImageRenderer {
     private var lastAdjustment: (EditRecipe, CubeLUT?)?
 
     func loadCube(from url: URL) throws -> CubeLUT {
-        let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
-        guard size > 0, size <= 16 * 1024 * 1024 else { throw AppIssue.decodingFailed }
-        return try CubeLUT.parse(String(contentsOf: url, encoding: .utf8))
+        try Diagnostics.time("renderer.loadCube (imported)") {
+            let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+            guard size > 0, size <= 16 * 1024 * 1024 else { throw AppIssue.decodingFailed }
+            return try CubeLUT.parse(String(contentsOf: url, encoding: .utf8))
+        }
     }
 
     func prepare(_ edit: EditRecipe) throws -> RenderRecipe {
@@ -32,7 +34,7 @@ actor ImageRenderer {
         if let lastAdjustment, lastAdjustment.0.colors == valid.colors, lastAdjustment.0.curves == valid.curves {
             adjusted = lastAdjustment.1
         } else {
-            adjusted = ColorMath.adjustmentCube(valid)
+            adjusted = Diagnostics.time("renderer.adjustmentCube (uncached)") { ColorMath.adjustmentCube(valid) }
             lastAdjustment = (valid, adjusted)
         }
         return RenderRecipe(edit: valid, styleCube: cube, adjustmentCube: adjusted)

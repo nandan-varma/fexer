@@ -130,17 +130,19 @@ actor CameraService: CameraOperating {
         guard photoDelegate == nil, !recording else { throw AppIssue.busy }
         guard let target = Self.devices().first(where: { $0.uniqueID == id }), target != device else { return }
         let replacement = try AVCaptureDeviceInput(device: target)
-        session.beginConfiguration()
-        if let videoInput { session.removeInput(videoInput) }
-        guard session.canAddInput(replacement) else {
-            if let videoInput, session.canAddInput(videoInput) { session.addInput(videoInput) }
+        try Diagnostics.time("service.selectLens.commitConfiguration") {
+            session.beginConfiguration()
+            if let videoInput { session.removeInput(videoInput) }
+            guard session.canAddInput(replacement) else {
+                if let videoInput, session.canAddInput(videoInput) { session.addInput(videoInput) }
+                session.commitConfiguration()
+                throw AppIssue.cameraUnavailable
+            }
+            session.addInput(replacement)
+            videoInput = replacement
+            device = target
             session.commitConfiguration()
-            throw AppIssue.cameraUnavailable
         }
-        session.addInput(replacement)
-        videoInput = replacement
-        device = target
-        session.commitConfiguration()
         controls = CameraControls()
         configureConnections()
         updateCapabilities()

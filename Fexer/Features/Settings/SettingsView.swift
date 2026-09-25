@@ -53,7 +53,9 @@ struct SettingsView: View {
                     LabeledContent("Captures", value: "\(library.items.count)")
                     let pending = library.items.filter(\.needsPhotosSave)
                     if !pending.isEmpty {
-                        Button("Save \(pending.count) to Photos") { Task { for item in pending { await library.export(item) } } }
+                        Button("Save \(pending.count) to Photos") {
+                            Task { await Diagnostics.time("settings.bulkExport (\(pending.count) items)") { for item in pending { await library.export(item) } } }
+                        }
                     }
                 }
                 Section {

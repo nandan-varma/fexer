@@ -61,7 +61,7 @@ actor CaptureStore: CaptureStoring {
             if let movie = payload.liveMovieURL {
                 try Diagnostics.time("store.copyLiveMovie") { try files.copyItem(at: movie, to: directory.appendingPathComponent("live.mov")) }
             }
-            try Diagnostics.time("store.writeRecord") { try update(item) }
+            try update(item)
         }
         return item
     }
@@ -76,7 +76,9 @@ actor CaptureStore: CaptureStoring {
         return item
     }
 
-    func source(for item: LibraryItem) throws -> Data { try Data(contentsOf: sourceURL(item), options: .mappedIfSafe) }
+    func source(for item: LibraryItem) throws -> Data {
+        try Diagnostics.time("store.readSource") { try Data(contentsOf: sourceURL(item), options: .mappedIfSafe) }
+    }
     func sourceURL(_ item: LibraryItem) -> URL { folder(item).appendingPathComponent("original.\(item.sourceExtension)") }
     func rawURL(_ item: LibraryItem) -> URL? { item.hasRAW ? folder(item).appendingPathComponent("original.dng") : nil }
     func liveURL(_ item: LibraryItem) -> URL? { item.hasLiveMovie ? folder(item).appendingPathComponent("live.mov") : nil }
@@ -88,9 +90,13 @@ actor CaptureStore: CaptureStoring {
         try data.write(to: folder(item).appendingPathComponent("thumbnail-\(item.revision).jpg"), options: .atomic)
     }
     func update(_ item: LibraryItem) throws {
-        try JSONEncoder().encode(item).write(to: folder(item).appendingPathComponent("record.json"), options: [.atomic, .completeFileProtectionUnlessOpen])
+        try Diagnostics.time("store.writeRecord") {
+            try JSONEncoder().encode(item).write(to: folder(item).appendingPathComponent("record.json"), options: [.atomic, .completeFileProtectionUnlessOpen])
+        }
     }
-    func delete(_ item: LibraryItem) throws { try files.removeItem(at: folder(item)) }
+    func delete(_ item: LibraryItem) throws {
+        try Diagnostics.time("store.delete") { try files.removeItem(at: folder(item)) }
+    }
     private func folder(_ item: LibraryItem) -> URL { root.appendingPathComponent(item.id.uuidString, isDirectory: true) }
 
     static func imageExtension(_ data: Data) -> String {
