@@ -29,10 +29,10 @@ actor CameraService: CameraOperating {
     nonisolated let frames = FrameProcessor()
     nonisolated let events: AsyncStream<CameraEvent>
     private let continuation: AsyncStream<CameraEvent>.Continuation
-    private let session = AVCaptureSession()
-    private let photos = AVCapturePhotoOutput()
-    private let videoFrames = AVCaptureVideoDataOutput()
-    private let movies = AVCaptureMovieFileOutput()
+    private let session: AVCaptureSession
+    private let photos: AVCapturePhotoOutput
+    private let videoFrames: AVCaptureVideoDataOutput
+    private let movies: AVCaptureMovieFileOutput
     private let frameQueue = DispatchQueue(label: "com.fexer.frames", qos: .userInitiated)
     private var device: AVCaptureDevice?
     private var videoInput: AVCaptureDeviceInput?
@@ -53,6 +53,13 @@ actor CameraService: CameraOperating {
         let stream = AsyncStream.makeStream(of: CameraEvent.self, bufferingPolicy: .bufferingNewest(12))
         events = stream.stream
         continuation = stream.continuation
+        // app.init.cameraService measured ~460ms; breaking out which specific AVFoundation
+        // object construction actually pays the (likely one-time, first-touch) mediaserverd
+        // connection cost this app has seen dominate everything else so far.
+        session = Diagnostics.time("service.init.captureSession") { AVCaptureSession() }
+        photos = Diagnostics.time("service.init.photoOutput") { AVCapturePhotoOutput() }
+        videoFrames = Diagnostics.time("service.init.videoDataOutput") { AVCaptureVideoDataOutput() }
+        movies = Diagnostics.time("service.init.movieFileOutput") { AVCaptureMovieFileOutput() }
     }
 
     func start() async throws {
