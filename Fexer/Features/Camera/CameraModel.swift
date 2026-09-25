@@ -134,7 +134,7 @@ final class CameraModel {
                     // timer's start time is accurate rather than counting time that was spent
                     // waiting on setup.
                     activity = .capturing
-                    let url = try await service.recordMovie(fourK: preferences.value.video4K, fps: preferences.value.videoFPS) {
+                    let url = try await service.recordMovie(fourK: preferences.value.video4K, fps: preferences.value.videoFPS, location: location.location) {
                         Diagnostics.mark("shutter.recordTapToRolling", since: tapTime)
                         Task { @MainActor in self.activity = .recording(Date()) }
                     }

@@ -89,6 +89,42 @@ actor ImageRenderer {
         return output as Data
     }
 
+    /// Embeds GPS coordinates directly into the image's own EXIF, independent of whatever
+    /// happens to it afterward (shared directly, exported to Photos, or just kept on-device
+    /// forever) — previously location only ever reached PHAssetCreationRequest.location, which
+    /// is Photos-database metadata, not something carried by the file itself. A metadata-only
+    /// rewrite (CGImageDestinationAddImageFromSource with the original source, not a re-render)
+    /// means the pixel data is untouched — no generation loss on an unedited original. Every
+    /// downstream export (renderer.export, direct sharing) already copies properties forward
+    /// from this same source, so geotagging here is the single point that makes it stick.
+    func embedLocation(_ location: GeoTag, into data: Data) throws -> Data {
+        try Diagnostics.time("renderer.embedLocation") {
+            guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+                  let type = CGImageSourceGetType(source) else { throw AppIssue.decodingFailed }
+            var metadata = (CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [String: Any]) ?? [:]
+            metadata[kCGImagePropertyGPSDictionary as String] = Self.gpsDictionary(for: location)
+            let output = NSMutableData()
+            guard let destination = CGImageDestinationCreateWithData(output, type, 1, nil) else { throw AppIssue.exportFailed }
+            CGImageDestinationAddImageFromSource(destination, source, 0, metadata as CFDictionary)
+            guard CGImageDestinationFinalize(destination) else { throw AppIssue.exportFailed }
+            return output as Data
+        }
+    }
+
+    private static func gpsDictionary(for location: GeoTag) -> [String: Any] {
+        var gps: [String: Any] = [
+            kCGImagePropertyGPSLatitude as String: abs(location.latitude),
+            kCGImagePropertyGPSLatitudeRef as String: location.latitude >= 0 ? "N" : "S",
+            kCGImagePropertyGPSLongitude as String: abs(location.longitude),
+            kCGImagePropertyGPSLongitudeRef as String: location.longitude >= 0 ? "E" : "W",
+        ]
+        if let altitude = location.altitude {
+            gps[kCGImagePropertyGPSAltitude as String] = abs(altitude)
+            gps[kCGImagePropertyGPSAltitudeRef as String] = altitude >= 0 ? 0 : 1
+        }
+        return gps
+    }
+
     func thumbnailJPEG(data: Data, edit: EditRecipe) throws -> Data {
         let image = try preview(data: data, edit: edit, dimension: 480)
         guard let result = ImagePipeline.context.jpegRepresentation(of: CIImage(cgImage: image), colorSpace: ImagePipeline.colorSpace) else {

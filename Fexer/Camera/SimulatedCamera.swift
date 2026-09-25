@@ -38,7 +38,7 @@ actor SimulatedCamera: CameraOperating {
     func selectLens(_ id: String) {}
     func focus(at point: CGPoint) {}
     func setPreview(_ options: PreviewOptions) { frames.setOptions(options) }
-    func recordMovie(fourK: Bool, fps: Int, onStarted: @escaping @Sendable () -> Void) throws -> URL {
+    func recordMovie(fourK: Bool, fps: Int, location: GeoTag?, onStarted: @escaping @Sendable () -> Void) throws -> URL {
         throw AppIssue("Use an iPhone for video", "The simulator displays a sample scene. Video recording requires a physical camera.")
     }
     func finishMovie() {}

@@ -42,7 +42,6 @@ targets:
         INFOPLIST_KEY_NSCameraUsageDescription: 'Fexer uses your camera to preview and capture photos and videos.'
         INFOPLIST_KEY_NSMicrophoneUsageDescription: 'Record sound with your videos.'
         INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription: 'Save your finished photos and videos to Photos. Originals remain in Fexer.'
-        INFOPLIST_KEY_NSPhotoLibraryUsageDescription: 'Browse your Photos library and choose pictures to edit in Fexer.'
         INFOPLIST_KEY_NSLocationWhenInUseUsageDescription: 'Optionally remember where you took each photo.'
         INFOPLIST_KEY_NSMotionUsageDescription: 'Show the horizon level while composing a photo.'
         INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: NO

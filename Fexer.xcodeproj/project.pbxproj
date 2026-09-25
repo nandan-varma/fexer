@@ -37,6 +37,7 @@
 		5D094B241B7CAB84B1F44B42 /* Preferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = 191CCEC390A7CB59F4D2D6FF /* Preferences.swift */; };
 		6AC8B4CD7DC3028D838390E4 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = D4C70169675F06A6C10F9666 /* Assets.xcassets */; };
 		6EEF664482C4A64ED39A6762 /* LibraryModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E837D7DBC9388B2E6A07993 /* LibraryModel.swift */; };
+		6FBAB147B056DBB0965C2E85 /* ImageRendererTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B175D6453AB970FED25E7AD /* ImageRendererTests.swift */; };
 		7035315259EB8AFE2126A9FA /* EditorModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9D55B8701971B41E1C2FA66 /* EditorModel.swift */; };
 		7C841CE8E58D55578A470FE5 /* architecture_cool.cube in Resources */ = {isa = PBXBuildFile; fileRef = 8824A1667229719B30803A06 /* architecture_cool.cube */; };
 		80D87B32828475A5410762DB /* PhotosExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E715169C5EAD86D3EF93ADC /* PhotosExporter.swift */; };
@@ -136,6 +137,7 @@
 		982FAB6936E0506F234278B5 /* street_punch.cube */ = {isa = PBXFileReference; path = street_punch.cube; sourceTree = "<group>"; };
 		99DD7466DD52B413933B6DA6 /* cinematic_teal_orange.cube */ = {isa = PBXFileReference; path = cinematic_teal_orange.cube; sourceTree = "<group>"; };
 		99E057442A896FF8244C98F3 /* FexerUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = FexerUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		9B175D6453AB970FED25E7AD /* ImageRendererTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageRendererTests.swift; sourceTree = "<group>"; };
 		9E715169C5EAD86D3EF93ADC /* PhotosExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotosExporter.swift; sourceTree = "<group>"; };
 		9F460E3C04B769A915C402AF /* ColorMath.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ColorMath.swift; sourceTree = "<group>"; };
 		AD099995167DF7EE79B1C5ED /* noir_bw.cube */ = {isa = PBXFileReference; path = noir_bw.cube; sourceTree = "<group>"; };
@@ -207,6 +209,7 @@
 				B4895508ABF105AE026FBB17 /* CubeLUTTests.swift */,
 				13F27C0333957206D2233D09 /* EditHistoryTests.swift */,
 				121B8C3017013DC278EAF8A4 /* EditRecipeTests.swift */,
+				9B175D6453AB970FED25E7AD /* ImageRendererTests.swift */,
 				297D721155E963C8E11C502D /* LibraryItemTests.swift */,
 				47E00E2B3FF2132C71CC426B /* PhotoStyleTests.swift */,
 				28FE024C21C8B0D5AB53C3D0 /* PreferencesTests.swift */,
@@ -578,6 +581,7 @@
 				DE3115028D20311E98787CDE /* CubeLUTTests.swift in Sources */,
 				CD30B4E86432703B66F1E43C /* EditHistoryTests.swift in Sources */,
 				3B7012BB0EE89DBE54F70E7E /* EditRecipeTests.swift in Sources */,
+				6FBAB147B056DBB0965C2E85 /* ImageRendererTests.swift in Sources */,
 				4DAC6C50D8F5710B749888C0 /* LibraryItemTests.swift in Sources */,
 				C2A57E5A41C60F156687005C /* PhotoStyleTests.swift in Sources */,
 				19589BDCD5437D685318C048 /* PreferencesTests.swift in Sources */,
@@ -622,7 +626,6 @@
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Record sound with your videos.";
 				INFOPLIST_KEY_NSMotionUsageDescription = "Show the horizon level while composing a photo.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Save your finished photos and videos to Photos. Originals remain in Fexer.";
-				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Browse your Photos library and choose pictures to edit in Fexer.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
@@ -852,7 +855,6 @@
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Record sound with your videos.";
 				INFOPLIST_KEY_NSMotionUsageDescription = "Show the horizon level while composing a photo.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Save your finished photos and videos to Photos. Originals remain in Fexer.";
-				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Browse your Photos library and choose pictures to edit in Fexer.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;

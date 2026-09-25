@@ -36,6 +36,16 @@ final class LibraryModel {
     /// `needsPhotosSave` badge and Settings bulk-export action already cover the "still pending"
     /// state this creates.
     func accept(_ payload: PhotoPayload, recipe: EditRecipe, location: GeoTag?, autoExport: Bool) async throws -> LibraryItem {
+        var payload = payload
+        // Embedded once, here, in the file's own EXIF — not just PHAssetCreationRequest.location
+        // (Photos-database metadata that never reaches the actual bytes). Every downstream path
+        // (direct share, renderer.export for edits) copies properties forward from this same
+        // source, so this one write is what makes geotagging travel with the file everywhere.
+        // RAW is deliberately left untouched: rewriting DNG structure risks corrupting the one
+        // format photographers keep specifically for lossless post-processing.
+        if let location {
+            payload.processed = try await Diagnostics.time("library.embedLocation") { try await renderer.embedLocation(location, into: payload.processed) }
+        }
         // needsPhotosSave is baked into the one record.json write inside store.save — writing it
         // there and then rewriting it here was a second full disk write on every capture (~40ms).
         let item = try await store.save(payload, recipe: recipe, location: location, needsPhotosSave: autoExport)

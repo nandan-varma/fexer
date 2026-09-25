@@ -11,7 +11,7 @@ protocol CameraOperating: Actor {
     func apply(_ controls: CameraControls) async throws
     func selectLens(_ id: String) async throws
     func focus(at point: CGPoint) async throws
-    func recordMovie(fourK: Bool, fps: Int, onStarted: @escaping @Sendable () -> Void) async throws -> URL
+    func recordMovie(fourK: Bool, fps: Int, location: GeoTag?, onStarted: @escaping @Sendable () -> Void) async throws -> URL
     func finishMovie() async
     func setPreview(_ options: PreviewOptions) async
     /// Pays the AVCaptureSession reconfiguration cost (preset change, mic input, movie output)
@@ -253,7 +253,7 @@ actor CameraService: CameraOperating {
         }
     }
 
-    func recordMovie(fourK: Bool, fps: Int, onStarted: @escaping @Sendable () -> Void) async throws -> URL {
+    func recordMovie(fourK: Bool, fps: Int, location: GeoTag?, onStarted: @escaping @Sendable () -> Void) async throws -> URL {
         guard session.isRunning, !recording, photoDelegate == nil else { throw AppIssue.busy }
         recording = true
         defer { recording = false; movieDelegate = nil }
@@ -268,6 +268,9 @@ actor CameraService: CameraOperating {
             throw AppIssue("Video unavailable", "This camera cannot record video with the current configuration.")
         }
         guard wantsRunning else { throw CancellationError() }
+        // Embedded directly in the .mov's own QuickTime metadata — not just applied to the
+        // PHAsset after export — so the file itself carries an accurate geotag wherever it goes.
+        movies.metadata = location.map { [Self.locationMetadataItem(for: $0)] } ?? []
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".mov")
         return try await withCheckedThrowingContinuation { completion in
             let delegate = MovieDelegate(onStarted: onStarted) { completion.resume(with: $0) }
@@ -361,6 +364,15 @@ actor CameraService: CameraOperating {
             if connection.isVideoRotationAngleSupported(90) { connection.videoRotationAngle = 90 }
             if connection.isVideoMirroringSupported { connection.isVideoMirrored = device?.position == .front }
         }
+    }
+
+    private static func locationMetadataItem(for location: GeoTag) -> AVMetadataItem {
+        let item = AVMutableMetadataItem()
+        item.identifier = .quickTimeMetadataLocationISO6709
+        var iso6709 = String(format: "%+.6f%+.6f", location.latitude, location.longitude)
+        if let altitude = location.altitude { iso6709 += String(format: "%+.6f", altitude) }
+        item.value = (iso6709 + "/") as NSString
+        return item
     }
 
     private static func devices() -> [AVCaptureDevice] {
