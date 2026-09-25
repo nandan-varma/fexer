@@ -111,8 +111,13 @@ final class CameraModel {
         if preferences.value.haptics { UIImpactFeedbackGenerator(style: .light).impactOccurred() }
         activity = .capturing
         let selectedMode = mode
+        let tapTime = ContinuousClock.now
         captureTask = Task {
-            defer { activity = .idle; captureTask = nil }
+            defer {
+                activity = .idle; captureTask = nil
+                // The literal "how long was the shutter unresponsive" metric — what the user feels.
+                Diagnostics.mark("shutter.tapToReady", since: tapTime)
+            }
             do {
                 let delay = preferences.value.timerSeconds
                 if delay > 0 {
@@ -148,11 +153,13 @@ final class CameraModel {
         let settings = preferences.value
         let capturedRecipe = recipe
         let geo = location.location
-        let payload = try await service.capture(.init(format: settings.format, flash: settings.flash,
-                                                      livePhoto: settings.livePhoto, proRAW: settings.proRAW))
+        let payload = try await Diagnostics.time("model.serviceCapture") {
+            try await service.capture(.init(format: settings.format, flash: settings.flash,
+                                            livePhoto: settings.livePhoto, proRAW: settings.proRAW))
+        }
         // Once the camera returns pixels, finish the durable save even if the user backgrounds the app.
         pendingCapture = payload; pendingRecipe = capturedRecipe; pendingLocation = geo
-        try await persistPending(autoExport: settings.saveToPhotos)
+        try await Diagnostics.time("model.persistPending") { try await persistPending(autoExport: settings.saveToPhotos) }
     }
     func retrySave() async {
         do { try await persistPending(autoExport: preferences.value.saveToPhotos) }
@@ -160,7 +167,9 @@ final class CameraModel {
     }
     private func persistPending(autoExport: Bool) async throws {
         guard let payload = pendingCapture else { return }
-        let saved = try await library.accept(payload, recipe: pendingRecipe, location: pendingLocation, autoExport: autoExport)
+        let saved = try await Diagnostics.time("model.libraryAccept (local save, gates pendingCapture/shutter)") {
+            try await library.accept(payload, recipe: pendingRecipe, location: pendingLocation, autoExport: autoExport)
+        }
         pendingCapture = nil
         if let movie = payload.liveMovieURL { try? FileManager.default.removeItem(at: movie) }
         announcement = "Saved to Fexer"

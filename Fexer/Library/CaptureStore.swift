@@ -2,7 +2,7 @@ import Foundation
 
 protocol CaptureStoring: Sendable {
     func list() async throws -> [LibraryItem]
-    func save(_ payload: PhotoPayload, recipe: EditRecipe, location: GeoTag?) async throws -> LibraryItem
+    func save(_ payload: PhotoPayload, recipe: EditRecipe, location: GeoTag?, needsPhotosSave: Bool) async throws -> LibraryItem
     func source(for item: LibraryItem) async throws -> Data
     func update(_ item: LibraryItem) async throws
 }
@@ -21,6 +21,9 @@ actor CaptureStore: CaptureStoring {
     }
 
     func list() throws -> [LibraryItem] {
+        try Diagnostics.time("store.list") { try listUnmeasured() }
+    }
+    private func listUnmeasured() throws -> [LibraryItem] {
         try files.createDirectory(at: root, withIntermediateDirectories: true)
         let directories = try files.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)
         var items: [LibraryItem] = []
@@ -43,24 +46,30 @@ actor CaptureStore: CaptureStoring {
         return items.sorted { $0.createdAt > $1.createdAt }
     }
 
-    func save(_ payload: PhotoPayload, recipe: EditRecipe, location: GeoTag?) throws -> LibraryItem {
-        let item = LibraryItem(id: UUID(), createdAt: Date(), kind: .photo,
+    func save(_ payload: PhotoPayload, recipe: EditRecipe, location: GeoTag?, needsPhotosSave: Bool) throws -> LibraryItem {
+        var item = LibraryItem(id: UUID(), createdAt: Date(), kind: .photo,
                                sourceExtension: Self.imageExtension(payload.processed), hasRAW: payload.raw != nil,
                                hasLiveMovie: payload.liveMovieURL != nil, recipe: recipe.validated, location: location)
-        let directory = folder(item)
-        try files.createDirectory(at: directory, withIntermediateDirectories: true)
-        try payload.processed.write(to: sourceURL(item), options: [.atomic, .completeFileProtectionUnlessOpen])
-        if let raw = payload.raw { try raw.write(to: directory.appendingPathComponent("original.dng"), options: [.atomic, .completeFileProtectionUnlessOpen]) }
-        if let movie = payload.liveMovieURL {
-            try files.copyItem(at: movie, to: directory.appendingPathComponent("live.mov"))
+        item.needsPhotosSave = needsPhotosSave
+        try Diagnostics.time("store.save (\(payload.processed.count / 1024)KB)") {
+            let directory = folder(item)
+            try files.createDirectory(at: directory, withIntermediateDirectories: true)
+            try Diagnostics.time("store.writeOriginal") { try payload.processed.write(to: sourceURL(item), options: [.atomic, .completeFileProtectionUnlessOpen]) }
+            if let raw = payload.raw {
+                try Diagnostics.time("store.writeRAW (\(raw.count / 1024)KB)") { try raw.write(to: directory.appendingPathComponent("original.dng"), options: [.atomic, .completeFileProtectionUnlessOpen]) }
+            }
+            if let movie = payload.liveMovieURL {
+                try Diagnostics.time("store.copyLiveMovie") { try files.copyItem(at: movie, to: directory.appendingPathComponent("live.mov")) }
+            }
+            try Diagnostics.time("store.writeRecord") { try update(item) }
         }
-        try update(item)
         return item
     }
 
-    func saveVideo(from url: URL, location: GeoTag?) throws -> LibraryItem {
-        let item = LibraryItem(id: UUID(), createdAt: Date(), kind: .video, sourceExtension: "mov", hasRAW: false,
+    func saveVideo(from url: URL, location: GeoTag?, needsPhotosSave: Bool) throws -> LibraryItem {
+        var item = LibraryItem(id: UUID(), createdAt: Date(), kind: .video, sourceExtension: "mov", hasRAW: false,
                                hasLiveMovie: false, recipe: EditRecipe(), location: location)
+        item.needsPhotosSave = needsPhotosSave
         try files.createDirectory(at: folder(item), withIntermediateDirectories: true)
         try files.copyItem(at: url, to: sourceURL(item))
         try update(item)

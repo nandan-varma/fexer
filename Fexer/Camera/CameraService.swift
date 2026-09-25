@@ -71,10 +71,10 @@ actor CameraService: CameraOperating {
             throw AppIssue.cameraDenied
         }
         do {
-            if !configured { try configure() }
+            if !configured { try Diagnostics.time("service.configure") { try configure() } }
             observeSession()
             observeDevice()
-            session.startRunning()
+            Diagnostics.time("service.sessionStartRunning") { session.startRunning() }
             guard session.isRunning else { throw AppIssue.cameraUnavailable }
             continuation.yield(.phase(.ready))
             #if DEBUG
@@ -163,7 +163,11 @@ actor CameraService: CameraOperating {
         } else {
             let codec: AVVideoCodecType = request.format == .heif && photos.availablePhotoCodecTypes.contains(.hevc) ? .hevc : .jpeg
             settings = AVCapturePhotoSettings(format: [AVVideoCodecKey: codec])
-            settings.photoQualityPrioritization = .quality
+            // .quality lets the ISP run its full Deep Fusion/Smart HDR pipeline, which measured
+            // ~600ms of the ~850ms didCapture→didFinishProcessing gap on a real device — the
+            // single biggest chunk of "capture feels slow". .balanced keeps multi-frame fusion in
+            // good light but caps how long the ISP is allowed to spend on it.
+            settings.photoQualityPrioritization = .balanced
         }
         let flash: AVCaptureDevice.FlashMode = request.flash == .on ? .on : request.flash == .auto ? .auto : .off
         settings.flashMode = photos.supportedFlashModes.contains(flash) ? flash : .off
@@ -179,10 +183,12 @@ actor CameraService: CameraOperating {
         }
         defer { photoDelegate = nil }
         do {
-            return try await withCheckedThrowingContinuation { completion in
-                let delegate = PhotoDelegate { result in completion.resume(with: result) }
-                photoDelegate = delegate
-                photos.capturePhoto(with: settings, delegate: delegate)
+            return try await Diagnostics.time("service.capturePhoto (AVFoundation end-to-end)") {
+                try await withCheckedThrowingContinuation { completion in
+                    let delegate = PhotoDelegate { result in completion.resume(with: result) }
+                    photoDelegate = delegate
+                    photos.capturePhoto(with: settings, delegate: delegate)
+                }
             }
         } catch {
             if let liveURL { try? FileManager.default.removeItem(at: liveURL) }
@@ -259,18 +265,35 @@ actor CameraService: CameraOperating {
     func prewarmVideo(fourK: Bool, fps: Int) async {
         guard wantsRunning, !recording else { return }
         guard !videoModeConfigured || videoFourK != fourK || videoFPS != fps else { return }
-        let allowed = await AVCaptureDevice.requestAccess(for: .audio)
+        // beginConfiguration()/property sets just enqueue; AVCaptureSession does the actual
+        // reconfiguration work atomically inside commitConfiguration(), so that's the only call
+        // worth isolating a timing around — measuring the whole begin...commit span would have
+        // just attributed everything to "session reconfigure" without showing whether requesting
+        // mic access (a system permission check, near-instant once decided) is instead the culprit.
+        let allowed = await Diagnostics.time("service.requestMicAccess") { await AVCaptureDevice.requestAccess(for: .audio) }
         guard allowed, wantsRunning, !recording else { return }
-        session.beginConfiguration()
+        // Temporarily split into two commits (production code would batch these into one) to
+        // find out which specific change the ~4.7s measured in the field actually comes from:
+        // the 4K preset switch (sensor/ISP format renegotiation) or attaching the movie output
+        // and mic input (just wiring, expected to be cheap).
         let preset: AVCaptureSession.Preset = fourK ? .hd4K3840x2160 : .hd1920x1080
-        session.sessionPreset = session.canSetSessionPreset(preset) ? preset : .high
-        if !session.outputs.contains(movies), session.canAddOutput(movies) { session.addOutput(movies) }
-        if !session.inputs.contains(where: { ($0 as? AVCaptureDeviceInput)?.device.hasMediaType(.audio) == true }),
-           let microphone = AVCaptureDevice.default(for: .audio),
-           let input = try? AVCaptureDeviceInput(device: microphone), session.canAddInput(input) {
-            session.addInput(input)
+        if session.sessionPreset != preset {
+            Diagnostics.time("service.prewarmVideo.presetChange (\(preset.rawValue))") {
+                session.beginConfiguration()
+                session.sessionPreset = session.canSetSessionPreset(preset) ? preset : .high
+                session.commitConfiguration()
+            }
         }
-        session.commitConfiguration()
+        Diagnostics.time("service.prewarmVideo.attachOutputsInputs") {
+            session.beginConfiguration()
+            if !session.outputs.contains(movies), session.canAddOutput(movies) { session.addOutput(movies) }
+            if !session.inputs.contains(where: { ($0 as? AVCaptureDeviceInput)?.device.hasMediaType(.audio) == true }),
+               let microphone = AVCaptureDevice.default(for: .audio),
+               let input = try? AVCaptureDeviceInput(device: microphone), session.canAddInput(input) {
+                session.addInput(input)
+            }
+            session.commitConfiguration()
+        }
         guard session.outputs.contains(movies) else { return }
         if let device, device.activeFormat.videoSupportedFrameRateRanges.contains(where: { $0.minFrameRate <= Double(fps) && $0.maxFrameRate >= Double(fps) }) {
             try? device.lockForConfiguration()
@@ -288,11 +311,13 @@ actor CameraService: CameraOperating {
 
     func prewarmPhoto() {
         guard videoModeConfigured, !recording else { return }
-        session.beginConfiguration()
-        session.removeOutput(movies)
-        for input in session.inputs where (input as? AVCaptureDeviceInput)?.device.hasMediaType(.audio) == true { session.removeInput(input) }
-        session.sessionPreset = .photo
-        session.commitConfiguration()
+        Diagnostics.time("service.prewarmPhoto (session reconfigure)") {
+            session.beginConfiguration()
+            session.removeOutput(movies)
+            for input in session.inputs where (input as? AVCaptureDeviceInput)?.device.hasMediaType(.audio) == true { session.removeInput(input) }
+            session.sessionPreset = .photo
+            session.commitConfiguration()
+        }
         configureConnections()
         updateCapabilities()
         videoModeConfigured = false

@@ -36,20 +36,18 @@ final class LibraryModel {
     /// `needsPhotosSave` badge and Settings bulk-export action already cover the "still pending"
     /// state this creates.
     func accept(_ payload: PhotoPayload, recipe: EditRecipe, location: GeoTag?, autoExport: Bool) async throws -> LibraryItem {
-        var item = try await store.save(payload, recipe: recipe, location: location)
-        item.needsPhotosSave = autoExport
-        try await store.update(item)
+        // needsPhotosSave is baked into the one record.json write inside store.save — writing it
+        // there and then rewriting it here was a second full disk write on every capture (~40ms).
+        let item = try await store.save(payload, recipe: recipe, location: location, needsPhotosSave: autoExport)
         items.insert(item, at: 0)
-        if autoExport { Task { await self.export(item) } }
+        if autoExport { Task { await Diagnostics.time("library.photosExport (background)") { await self.export(item) } } }
         return items.first { $0.id == item.id } ?? item
     }
 
     func acceptVideo(url: URL, location: GeoTag?, autoExport: Bool) async throws -> LibraryItem {
-        var item = try await store.saveVideo(from: url, location: location)
-        item.needsPhotosSave = autoExport
-        try await store.update(item)
+        let item = try await store.saveVideo(from: url, location: location, needsPhotosSave: autoExport)
         items.insert(item, at: 0)
-        if autoExport { Task { await self.export(item) } }
+        if autoExport { Task { await Diagnostics.time("library.photosExport (background)") { await self.export(item) } } }
         return item
     }
 
@@ -61,14 +59,14 @@ final class LibraryModel {
         do {
             let id: String
             if item.kind == .video {
-                id = try await PhotosExporter().saveVideo(url: store.sourceURL(item), date: item.createdAt, location: item.location)
+                id = try await Diagnostics.time("export.photosSaveVideo") { try await PhotosExporter().saveVideo(url: store.sourceURL(item), date: item.createdAt, location: item.location) }
             } else {
                 let source = try await store.source(for: item)
                 // A Live Photo must retain the original still/movie pairing. Edited exports are stills.
                 let unchanged = !item.recipe.isModified
-                let data = unchanged ? source : try await renderer.export(data: source, edit: item.recipe, format: .jpeg)
+                let data = unchanged ? source : try await Diagnostics.time("export.render") { try await renderer.export(data: source, edit: item.recipe, format: .jpeg) }
                 let live = unchanged ? await store.liveURL(item) : nil
-                id = try await exporter.savePhoto(data: data, rawURL: store.rawURL(item), liveURL: live, date: item.createdAt, location: item.location)
+                id = try await Diagnostics.time("export.photosSavePhoto (\(data.count / 1024)KB)") { try await exporter.savePhoto(data: data, rawURL: store.rawURL(item), liveURL: live, date: item.createdAt, location: item.location) }
             }
             item.photosIdentifier = id
             item.exportedRecipe = item.recipe
@@ -112,12 +110,17 @@ final class LibraryModel {
     func thumbnail(_ item: LibraryItem) async -> UIImage? {
         let key = "\(item.id)-\(item.revision)" as NSString
         if let cached = thumbnails.object(forKey: key) { return cached }
+        return await Diagnostics.time("library.thumbnailGenerate") { await thumbnailUncached(item, key: key) }
+    }
+    private func thumbnailUncached(_ item: LibraryItem, key: NSString) async -> UIImage? {
         do {
             let data: Data
-            if let cached = try await store.thumbnail(item) { data = cached }
+            if let cached = try await Diagnostics.time("thumbnail.diskCacheCheck", { try await store.thumbnail(item) }) {
+                data = cached
+            }
             else if item.kind == .photo {
-                data = try await renderer.thumbnailJPEG(data: store.source(for: item), edit: item.recipe)
-                try await store.saveThumbnail(data, for: item)
+                data = try await Diagnostics.time("thumbnail.render") { try await renderer.thumbnailJPEG(data: store.source(for: item), edit: item.recipe) }
+                try await Diagnostics.time("thumbnail.writeCache") { try await store.saveThumbnail(data, for: item) }
             } else {
                 let asset = AVURLAsset(url: await store.sourceURL(item))
                 let generator = AVAssetImageGenerator(asset: asset)

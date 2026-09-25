@@ -23,7 +23,7 @@ actor ImageRenderer {
                 guard let url = Bundle.main.url(forResource: filename, withExtension: "cube") else {
                     throw AppIssue("Style unavailable", "This style couldn’t be loaded. Try another style.")
                 }
-                let loaded = try CubeLUT.parse(String(contentsOf: url, encoding: .utf8))
+                let loaded = try Diagnostics.time("renderer.parseCube (\(filename), uncached)") { try CubeLUT.parse(String(contentsOf: url, encoding: .utf8)) }
                 cubes[filename] = loaded
                 cube = loaded
             }
@@ -39,6 +39,9 @@ actor ImageRenderer {
     }
 
     func preview(data: Data, edit: EditRecipe, dimension: Int = 1400) throws -> CGImage {
+        try Diagnostics.time("renderer.preview (\(dimension)px)") { try previewUnmeasured(data: data, edit: edit, dimension: dimension) }
+    }
+    private func previewUnmeasured(data: Data, edit: EditRecipe, dimension: Int) throws -> CGImage {
         try Task.checkCancellation()
         guard let source = CGImageSourceCreateWithData(data as CFData, nil),
               let thumb = CGImageSourceCreateThumbnailAtIndex(source, 0, [
@@ -53,6 +56,9 @@ actor ImageRenderer {
     }
 
     func export(data: Data, edit: EditRecipe, format: PhotoFormat) throws -> Data {
+        try Diagnostics.time("renderer.export") { try exportUnmeasured(data: data, edit: edit, format: format) }
+    }
+    private func exportUnmeasured(data: Data, edit: EditRecipe, format: PhotoFormat) throws -> Data {
         try Task.checkCancellation()
         guard let source = CGImageSourceCreateWithData(data as CFData, nil),
               let input = CIImage(data: data, options: [.applyOrientationProperty: true]) else { throw AppIssue.decodingFailed }

@@ -39,8 +39,8 @@ struct CameraView: View {
         .task {
             // Independent actors (CaptureStore vs. CameraService) — no reason to make the
             // camera wait on the library's disk scan before it starts warming up.
-            async let library: Void = model.library.load()
-            async let camera: Void = model.start()
+            async let library: Void = Diagnostics.time("boot.libraryLoad") { await model.library.load() }
+            async let camera: Void = Diagnostics.time("boot.cameraStart") { await model.start() }
             _ = await (library, camera)
         }
         .onChange(of: scenePhase) { _, phase in
