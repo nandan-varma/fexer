@@ -24,12 +24,38 @@ final class FrameProcessor: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
         var raw: CIImage?
         var scopes = ScopeData()
         var sequence = 0
+        var previousImage: CIImage?
+        var transitionStartedAt: Date?
+        var transitionID: UInt64 = 0
+        var isHolding = false
+        var warmupFrames = 0
     }
     private let mailbox = Mutex(Snapshot())
     private let configuration = Mutex(PreviewOptions())
     func snapshot() -> Snapshot { mailbox.withLock { $0 } }
     func setOptions(_ options: PreviewOptions) { configuration.withLock { $0 = options } }
     func clear() { mailbox.withLock { $0 = Snapshot() } }
+
+    /// Keep the last stable image on screen while AVFoundation reconfigures the capture path.
+    /// The token prevents an older, slower switch from releasing a newer transition.
+    func beginTransition() -> UInt64 {
+        mailbox.withLock { snapshot in
+            snapshot.transitionID &+= 1
+            if !snapshot.isHolding { snapshot.previousImage = snapshot.image }
+            snapshot.isHolding = true
+            snapshot.warmupFrames = 0
+            snapshot.transitionStartedAt = nil
+            return snapshot.transitionID
+        }
+    }
+
+    func finishTransition(_ id: UInt64) {
+        mailbox.withLock { snapshot in
+            guard snapshot.transitionID == id else { return }
+            snapshot.isHolding = false
+            snapshot.warmupFrames = 2
+        }
+    }
 
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
         guard let buffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
@@ -38,6 +64,7 @@ final class FrameProcessor: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
 
     func publish(_ source: CIImage) {
         autoreleasepool {
+            guard !mailbox.withLock({ $0.isHolding }) else { return }
             let options = configuration.withLock { $0 }
             var image = ImagePipeline.apply(source, recipe: options.recipe, geometry: false)
             if options.falseColor {
@@ -65,6 +92,19 @@ final class FrameProcessor: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
             let sequence = mailbox.withLock { $0.sequence + 1 }
             let scopes = options.monitor != .off && sequence % 6 == 0 ? Self.analyze(source) : nil
             mailbox.withLock {
+                guard !$0.isHolding else { return }
+                if $0.warmupFrames > 1 {
+                    $0.warmupFrames -= 1
+                    return
+                }
+                if $0.warmupFrames == 1 {
+                    $0.warmupFrames = 0
+                    $0.transitionStartedAt = .now
+                } else if let started = $0.transitionStartedAt,
+                          Date.now.timeIntervalSince(started) >= 0.24 {
+                    $0.previousImage = nil
+                    $0.transitionStartedAt = nil
+                }
                 $0.image = image
                 $0.raw = source
                 $0.sequence = sequence

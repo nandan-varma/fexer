@@ -31,13 +31,30 @@ struct CameraPreview: UIViewRepresentable {
         }
         func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {}
         func draw(in view: MTKView) {
-            guard let source = frames.snapshot().image, let drawable = view.currentDrawable,
+            let snapshot = frames.snapshot()
+            guard let source = snapshot.image, let drawable = view.currentDrawable,
                   let buffer = queue?.makeCommandBuffer(), let context else { return }
             let size = view.drawableSize
             guard size.width > 0, size.height > 0 else { return }
-            let scale = max(size.width / source.extent.width, size.height / source.extent.height)
-            var image = ImagePipeline.normalized(source).transformed(by: .init(scaleX: scale, y: scale))
-            image = image.transformed(by: .init(translationX: (size.width - image.extent.width) / 2, y: (size.height - image.extent.height) / 2))
+            func framed(_ source: CIImage) -> CIImage {
+                let normalized = ImagePipeline.normalized(source)
+                let scale = max(size.width / normalized.extent.width, size.height / normalized.extent.height)
+                let scaled = normalized.transformed(by: .init(scaleX: scale, y: scale))
+                return scaled.transformed(by: .init(
+                    translationX: (size.width - scaled.extent.width) / 2,
+                    y: (size.height - scaled.extent.height) / 2
+                ))
+            }
+            var image = framed(source)
+            if let previous = snapshot.previousImage, let started = snapshot.transitionStartedAt {
+                let progress = min(max(Date.now.timeIntervalSince(started) / 0.24, 0), 1)
+                if progress < 1 {
+                    image = framed(previous).applyingFilter("CIDissolveTransition", parameters: [
+                        kCIInputTargetImageKey: image,
+                        kCIInputTimeKey: progress
+                    ])
+                }
+            }
             context.render(image, to: drawable.texture, commandBuffer: buffer, bounds: CGRect(origin: .zero, size: size), colorSpace: ImagePipeline.colorSpace)
             buffer.present(drawable)
             buffer.commit()

@@ -76,13 +76,17 @@ final class CameraModel {
     /// Pays the session-reconfiguration cost (preset change, mic input, movie output) whenever
     /// the target mode or its settings (4K/fps) change, so tapping record itself does no
     /// reconfiguration. Idempotent — the service no-ops if nothing actually changed.
-    func updateCaptureMode() {
+    func updateCaptureMode(transitionID: UInt64? = nil) {
         let video4K = preferences.value.video4K
         let videoFPS = preferences.value.videoFPS
         let wantsVideo = mode == .video
         Task {
             if wantsVideo { await service.prewarmVideo(fourK: video4K, fps: videoFPS) }
             else { await service.prewarmPhoto() }
+            if let transitionID {
+                await previewTask?.value
+                frames.finishTransition(transitionID)
+            }
         }
     }
     func updateControls() {
@@ -96,6 +100,8 @@ final class CameraModel {
         }
     }
     func selectLens(_ lens: CameraLens) async {
+        let transitionID = frames.beginTransition()
+        defer { frames.finishTransition(transitionID) }
         do {
             try await Diagnostics.time("model.selectLens") { try await service.selectLens(lens.id) }
             controls = CameraControls()

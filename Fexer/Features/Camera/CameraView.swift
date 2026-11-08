@@ -13,26 +13,24 @@ struct CameraView: View {
     @State private var showZoomBadge = false
     @State private var zoomBadgeTask: Task<Void, Never>?
     @State private var expanded: ExpandedControl?
+    @State private var showsProControls = true
     @State private var dragAnchor: Double?
     @State private var dragHapticStep: Int?
     @State private var dragAtLimit = false
     enum Panel: String, Identifiable { case styles, settings, library; var id: Self { self } }
-    enum ExpandedControl: Equatable { case iso, shutter, whiteBalance, focus }
+    enum ExpandedControl: Equatable { case exposure, iso, shutter, whiteBalance, focus }
 
     var body: some View {
-        GeometryReader { geometry in
-            let previewHeight = min(geometry.size.width * 4 / 3, max(220, geometry.size.height - 254))
-            VStack(spacing: 0) {
-                header
-                quickControls
-                viewfinder
-                    .frame(height: previewHeight)
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
-                captureControls
-                Spacer(minLength: 0)
-            }
-            .background(Theme.background)
+        VStack(spacing: 0) {
+            header
+            if showsProControls { quickControls.transition(.move(edge: .top).combined(with: .opacity)) }
+            viewfinder
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .clipShape(RoundedRectangle(cornerRadius: 14))
+            captureControls
         }
+        .background(Theme.background)
+        .animation(.easeInOut(duration: 0.22), value: showsProControls)
         .preferredColorScheme(.dark)
         .tint(Theme.accent)
         .environment(\.hapticsEnabled, model.preferences.value.haptics)
@@ -47,7 +45,11 @@ struct CameraView: View {
             Task { if phase == .active { await model.start() } else { await model.stop() } }
         }
         .onChange(of: model.recipe) { model.updatePreview() }
-        .onChange(of: model.mode) { model.updatePreview(); model.updateCaptureMode() }
+        .onChange(of: model.mode) {
+            let transitionID = model.frames.beginTransition()
+            model.updatePreview()
+            model.updateCaptureMode(transitionID: transitionID)
+        }
         .onChange(of: model.controls) { model.updateControls() }
         .onChange(of: model.preferences.value) {
             model.updatePreview()
@@ -77,11 +79,9 @@ struct CameraView: View {
         }
     }
 
-    /// The header normally just shows the wordmark and settings gear — real estate that sits
-    /// idle most of the time. Tapping (or dragging) a control pill below repurposes it as that
-    /// control's full-width scrubber instead of opening a sheet that would cover the viewfinder.
+    /// Manual adjustment takes over this row while the viewfinder remains fully visible.
     private var header: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 8) {
             if let expanded {
                 expandedScrubber(expanded).frame(maxWidth: .infinity)
                 Button("AUTO") { setAuto(expanded) }
@@ -92,20 +92,87 @@ struct CameraView: View {
                     Image(systemName: "chevron.down").font(.system(size: 14, weight: .semibold)).frame(width: 30, height: 30)
                 }.buttonStyle(.plain).accessibilityLabel("Collapse control").accessibilityIdentifier("collapseControl")
             } else {
-                Text("fexer").font(.system(size: 29, weight: .semibold, design: .serif)).tracking(-1.5).accessibilityLabel("Fexer camera")
+                Menu {
+                    Picker("Flash", selection: $model.preferences.value.flash) {
+                        ForEach(FlashSetting.allCases) { Text($0.rawValue).tag($0) }
+                    }
+                } label: {
+                    Image(systemName: model.preferences.value.flash.symbol)
+                        .font(.system(size: 18, weight: .medium))
+                        .frame(width: 44, height: 44)
+                        .glassEffect(.regular.interactive(), in: Circle())
+                }
+                .accessibilityLabel("Flash, \(model.preferences.value.flash.rawValue)")
+                .disabled(!model.capabilities.supportsFlash)
+                Button {
+                    expanded = .exposure
+                } label: {
+                    VStack(spacing: 1) {
+                        Text(String(format: "%+.1f", model.controls.exposureBias))
+                            .font(.system(size: 15, weight: .semibold, design: .monospaced))
+                            .foregroundStyle(Theme.accent)
+                        Text("EV").font(.system(size: 9, weight: .medium)).foregroundStyle(Theme.muted)
+                    }
+                    .frame(width: 62, height: 44)
+                    .glassEffect(.regular.interactive(), in: Capsule())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Exposure compensation")
                 Spacer()
-                #if targetEnvironment(simulator)
-                Text("SAMPLE CAMERA").font(.system(size: 9, weight: .semibold, design: .monospaced)).tracking(1).foregroundStyle(Theme.muted)
-                #endif
-                IconButton(label: "Settings", symbol: "gearshape") { sheet = .settings }.accessibilityIdentifier("settings")
+                Menu {
+                    Picker("Photo format", selection: $model.preferences.value.format) {
+                        ForEach(PhotoFormat.allCases.filter { $0 != .raw || model.capabilities.supportsRAW }) { format in
+                            Text(format.rawValue).tag(format)
+                        }
+                    }
+                } label: {
+                    Text(model.preferences.value.format == .raw ? "RAW" : model.preferences.value.format.rawValue)
+                        .font(.system(size: 11, weight: .semibold)).tracking(0.6)
+                        .frame(width: 56, height: 44)
+                        .glassEffect(.regular.interactive(), in: Capsule())
+                }
+                .accessibilityLabel("Photo format, \(model.preferences.value.format.rawValue)")
+                Button { sheet = .settings } label: {
+                    Image(systemName: "gearshape")
+                        .font(.system(size: 20, weight: .medium))
+                        .frame(width: 44, height: 44)
+                        .glassEffect(.regular.interactive(), in: Circle())
+                }
+                .accessibilityLabel("Settings").accessibilityIdentifier("settings")
             }
-        }.padding(.leading, 22).padding(.trailing, 10).frame(height: 48)
+        }
+        .foregroundStyle(.white)
+        .padding(.horizontal, 10)
+        .frame(height: 52)
+        .overlay {
+            if expanded == nil {
+                Button {
+                    if showsProControls { expanded = nil }
+                    showsProControls.toggle()
+                } label: {
+                    Image(systemName: showsProControls ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: 40, height: 40)
+                        .glassEffect(.regular.interactive(), in: Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(showsProControls ? "Hide pro controls" : "Show pro controls")
+            }
+        }
     }
 
     /// Real gradations for each pill's expanded scrubber: ISO/shutter tick in third-stops over a
     /// log2 domain (how exposure actually works), white balance ticks every 100K, focus every 2%.
     @ViewBuilder private func expandedScrubber(_ control: ExpandedControl) -> some View {
         switch control {
+        case .exposure:
+            HapticScrubber(
+                title: "Exposure", value: $model.controls.exposureBias,
+                range: model.capabilities.exposureRange,
+                display: String(format: "%+.1f EV", model.controls.exposureBias),
+                minorStep: 0.1, majorEvery: 10, compact: true
+            )
         case .iso:
             let range = model.capabilities.isoRange
             let logRange = log2(range.lowerBound)...log2(range.upperBound)
@@ -140,6 +207,7 @@ struct CameraView: View {
 
     private func setAuto(_ control: ExpandedControl) {
         switch control {
+        case .exposure: model.controls.exposureBias = 0
         case .iso, .shutter: model.controls.manualExposure = false
         case .whiteBalance: model.controls.manualWhiteBalance = false
         case .focus: model.controls.manualFocus = false
@@ -155,53 +223,73 @@ struct CameraView: View {
     }
 
     private var quickControls: some View {
-        HStack(spacing: 8) {
-            Menu {
-                Picker("Flash", selection: $model.preferences.value.flash) {
-                    ForEach(FlashSetting.allCases) { Text($0.rawValue).tag($0) }
-                }
-            } label: { Image(systemName: model.preferences.value.flash.symbol).frame(width: 32, height: 32) }
-                .accessibilityLabel("Flash, \(model.preferences.value.flash.rawValue)").disabled(!model.capabilities.supportsFlash)
-            Spacer(minLength: 0)
+        GlassEffectContainer(spacing: 4) {
+            HStack(spacing: 4) {
             controlPill(
-                "ISO \(Int(model.controls.manualExposure ? model.controls.iso : model.reading.iso))",
+                "ISO", value: "\(Int(model.controls.manualExposure ? model.controls.iso : model.reading.iso))",
                 active: model.controls.manualExposure, expanded: expanded == .iso, identifier: "isoControl",
                 onTap: openISO, onDrag: isoDrag
             ).accessibilityLabel("ISO, drag to adjust")
             controlPill(
-                CameraText.shutter(model.controls.manualExposure ? model.controls.shutter : model.reading.shutter),
+                "S", value: CameraText.shutter(model.controls.manualExposure ? model.controls.shutter : model.reading.shutter),
                 active: model.controls.manualExposure, expanded: expanded == .shutter, identifier: "shutterControl",
                 onTap: openShutter, onDrag: shutterDrag
             ).accessibilityLabel("Shutter speed, drag to adjust")
             controlPill(
-                model.controls.manualWhiteBalance ? "\(Int(model.controls.temperature))K" : "AWB",
+                "WB", value: model.controls.manualWhiteBalance ? "\(Int(model.controls.temperature))K" : "AWB",
                 active: model.controls.manualWhiteBalance, expanded: expanded == .whiteBalance, identifier: "whiteBalanceControl",
                 onTap: openWhiteBalance, onDrag: temperatureDrag
             ).accessibilityLabel("White balance, drag to adjust")
             controlPill(
-                model.controls.manualFocus ? "MF \(model.controls.focus.formatted(.percent.precision(.fractionLength(0))))" : "AF",
+                "FOCUS", value: model.controls.manualFocus ? "MF \(model.controls.focus.formatted(.percent.precision(.fractionLength(0))))" : "AF",
                 active: model.controls.manualFocus, expanded: expanded == .focus, identifier: "focusControl",
                 onTap: openFocus, onDrag: focusDrag
             ).accessibilityLabel("Focus, drag to adjust")
-            Spacer(minLength: 0)
             if model.capabilities.supportsTorch {
-                IconButton(
-                    label: model.controls.torch ? "Turn off continuous light" : "Turn on continuous light",
-                    symbol: model.controls.torch ? "flashlight.on.fill" : "flashlight.off.fill", selected: model.controls.torch
-                ) { model.controls.torch.toggle() }
+                Button { model.controls.torch.toggle() } label: {
+                    Image(systemName: model.controls.torch ? "flashlight.on.fill" : "flashlight.off.fill")
+                        .font(.system(size: 18, weight: .medium))
+                        .foregroundStyle(model.controls.torch ? Theme.accent : .white)
+                        .frame(width: 38, height: 54)
+                        .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 14))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(model.controls.torch ? "Turn off continuous light" : "Turn on continuous light")
             }
-        }.foregroundStyle(.white).padding(.horizontal, 14).disabled(!model.activity.isIdle)
+            }
+        }
+        .padding(.horizontal, 5)
+        .padding(.vertical, 5)
+        .background(Theme.surface.opacity(0.8))
+        .disabled(!model.activity.isIdle)
     }
 
     /// Pills double as sliders: tap expands this control's own scrubber in the header above
     /// (never a sheet that would cover the viewfinder), drag adjusts in place immediately.
-    private func controlPill(_ text: String, active: Bool, expanded: Bool, identifier: String, onTap: @escaping () -> Void, onDrag: @escaping (CGFloat) -> Void) -> some View {
+    private func controlPill(_ title: String, value: String, active: Bool, expanded: Bool, identifier: String, onTap: @escaping () -> Void, onDrag: @escaping (CGFloat) -> Void) -> some View {
         Button(action: onTap) {
-            Text(text).font(.system(size: 11, weight: .semibold, design: .monospaced)).monospacedDigit()
-                .foregroundStyle(expanded ? Theme.background : (active ? Theme.accent : .white))
-                .padding(.horizontal, 8).frame(minWidth: 46, minHeight: 32)
-                .background(expanded ? Theme.accent : Theme.surface, in: Capsule())
-                .overlay(Capsule().stroke(!expanded && active ? Theme.accent.opacity(0.6) : .clear, lineWidth: 1))
+            HStack(spacing: 2) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(title)
+                        .font(.system(size: 9, weight: .medium))
+                        .tracking(0.8)
+                        .foregroundStyle(Theme.muted)
+                    Text(value)
+                        .font(.system(size: 15, weight: .semibold, design: .monospaced))
+                        .monospacedDigit()
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.72)
+                        .foregroundStyle(Theme.accent)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Theme.muted)
+            }
+            .padding(.horizontal, 7)
+            .frame(maxWidth: .infinity, minHeight: 54)
+            .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 14))
+            .overlay(RoundedRectangle(cornerRadius: 14).stroke(expanded || active ? Theme.accent.opacity(0.65) : .clear, lineWidth: 1))
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier(identifier)
@@ -330,16 +418,20 @@ struct CameraView: View {
                     }
                     Spacer()
                     if model.phase == .ready {
-                        HStack(spacing: 8) {
-                            ForEach(model.capabilities.lenses.filter { !$0.isFront }) { lens in
+                        HStack(spacing: 4) {
+                            ForEach(model.capabilities.lenses.filter { $0.isFront == model.capabilities.isFront }) { lens in
                                 Button { Task { await model.selectLens(lens) } } label: {
                                     Text(lens.label).font(.system(.caption, design: .monospaced).weight(.semibold))
                                         .frame(minWidth: 44, minHeight: 44)
-                                        .background(.black.opacity(0.55), in: Circle())
-                                }.tint(model.capabilities.activeLensID == lens.id ? Theme.accent : .white)
+                                        .foregroundStyle(model.capabilities.activeLensID == lens.id ? Theme.accent : .white)
+                                        .background(model.capabilities.activeLensID == lens.id ? .black.opacity(0.48) : .clear, in: Circle())
+                                }
+                                    .buttonStyle(.plain)
                                     .accessibilityLabel(lens.name + " camera").disabled(!model.activity.isIdle)
                             }
                         }
+                        .padding(4)
+                        .glassEffect(.regular, in: Capsule())
                     }
                 }.padding(14)
             }
@@ -374,56 +466,85 @@ struct CameraView: View {
     }
 
     private var captureControls: some View {
-        VStack(spacing: 6) {
-            HStack(spacing: 24) {
-                ForEach([CaptureMode.photo, .video]) { mode in
-                    Button(mode.rawValue.uppercased()) { model.mode = mode }
-                        .font(.system(size: 11, weight: .semibold)).tracking(1.5)
-                        .tint(model.mode == mode ? Theme.accent : Theme.muted).frame(minHeight: 38)
+        VStack(spacing: 8) {
+            ScrollView(.horizontal) {
+                HStack(spacing: 22) {
+                    ForEach(CaptureMode.allCases) { mode in
+                        Button { model.mode = mode; expanded = nil } label: {
+                            VStack(spacing: 5) {
+                                Text(mode.rawValue.uppercased())
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .tracking(1)
+                                    .foregroundStyle(model.mode == mode ? Theme.accent : Theme.muted)
+                                Capsule().fill(model.mode == mode ? Theme.accent : .clear)
+                                    .frame(height: 2)
+                            }
+                            .fixedSize(horizontal: true, vertical: false)
+                            .frame(height: 36)
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
-                Menu {
-                    ForEach([CaptureMode.burst, .lightTrails, .interval]) { mode in Button(mode.rawValue) { model.mode = mode } }
-                } label: {
-                    HStack(spacing: 4) { Text([CaptureMode.photo, .video].contains(model.mode) ? "MORE" : model.mode.rawValue.uppercased()); Image(systemName: "chevron.down").font(.system(size: 8)) }
-                        .font(.system(size: 11, weight: .semibold)).tracking(1).frame(minHeight: 38)
-                }.tint([CaptureMode.photo, .video].contains(model.mode) ? Theme.muted : Theme.accent)
-            }.disabled(!model.activity.isIdle)
-            HStack {
+                .padding(.horizontal, 24)
+            }
+            .scrollIndicators(.hidden)
+            .disabled(!model.activity.isIdle)
+            HStack(alignment: .center) {
                 Button { expanded = nil; sheet = .library } label: {
                     Group {
                         if let item = model.library.items.first { CaptureThumbnail(item: item, library: model.library).frame(width: 48, height: 48).clipShape(RoundedRectangle(cornerRadius: 12)) }
                         else { Image(systemName: "photo.on.rectangle").font(.title2).frame(width: 48, height: 48).background(Theme.surface, in: RoundedRectangle(cornerRadius: 12)) }
-                    }.overlay(RoundedRectangle(cornerRadius: 12).stroke(.white.opacity(0.2), lineWidth: 1))
+                    }.overlay(RoundedRectangle(cornerRadius: 12).stroke(.white.opacity(0.45), lineWidth: 1))
                 }.accessibilityLabel("Photo library").accessibilityIdentifier("library")
                 Spacer()
                 Button { model.shutter() } label: {
                     ZStack {
-                        Circle().stroke(.white.opacity(model.phase == .ready ? 0.9 : 0.3), lineWidth: 3).frame(width: 76, height: 76)
+                        Circle().stroke(.white.opacity(model.phase == .ready ? 0.95 : 0.3), lineWidth: 3).frame(width: 78, height: 78)
                         if model.activity.isIdle {
-                            Circle().fill(model.mode == .video ? .red : .white).frame(width: 64, height: 64)
+                            Circle().fill(model.mode == .video ? .red : .white).frame(width: 66, height: 66)
                         } else if model.activity == .capturing || model.activity == .finishing { ProgressView().tint(.white) }
                         else { RoundedRectangle(cornerRadius: 5).fill(model.activity.isRecording ? .red : Theme.accent).frame(width: 28, height: 28) }
                     }
                 }.buttonStyle(.plain).accessibilityLabel(model.activity.isIdle ? "Capture \(model.mode.rawValue.lowercased())" : "Stop capture")
                     .accessibilityIdentifier("shutter").disabled(model.phase != .ready || model.pendingCapture != nil)
                 Spacer()
-                VStack(spacing: 0) {
-                    if model.mode == .video {
-                        IconButton(label: "Switch camera", symbol: "arrow.triangle.2.circlepath.camera") { flip() }
-                    } else {
-                        IconButton(label: "Photo styles", symbol: "camera.filters", selected: model.recipe.styleID != "original") { expanded = nil; sheet = .styles }.accessibilityIdentifier("styles")
-                    }
-                }.frame(width: 48)
-            }.padding(.horizontal, 36)
+                Button { flip() } label: {
+                    Image(systemName: "arrow.triangle.2.circlepath.camera")
+                        .font(.system(size: 21, weight: .medium))
+                        .frame(width: 48, height: 48)
+                        .glassEffect(.regular.interactive(), in: Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Switch camera")
+                .disabled(model.capabilities.lenses.count < 2 || !model.activity.isIdle)
+            }.padding(.horizontal, 26)
             HStack {
-                Text(model.mode == .video ? "Video · natural color" : PhotoStyle.find(model.recipe.styleID).name)
-                    .lineLimit(1)
+                if model.mode != .video {
+                    Button { expanded = nil; sheet = .styles } label: {
+                        Label(PhotoStyle.find(model.recipe.styleID).name, systemImage: "camera.filters")
+                            .lineLimit(1)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Photo styles")
+                    .accessibilityIdentifier("styles")
+                } else {
+                    Text("Video · natural color")
+                }
                 Spacer()
                 if case .sequence(let count) = model.activity { Text("\(count) captured · tap to stop") }
-                else if model.mode != .video { Text(model.recipe.ratio.rawValue).monospacedDigit() }
-            }.font(.system(size: 10, weight: .medium)).foregroundStyle(Theme.muted).padding(.horizontal, 24).padding(.top, 6)
-            if model.mode == .lightTrails { Text("Keep steady · \(Int(model.preferences.value.trailSeconds))s · preview resolution").font(.caption2).foregroundStyle(Theme.accent) }
-        }
+                else if model.mode == .lightTrails {
+                    Text("Keep steady · \(Int(model.preferences.value.trailSeconds))s")
+                        .foregroundStyle(Theme.accent)
+                } else if model.mode == .interval {
+                    Text("Every \(model.preferences.value.intervalSeconds.formatted())s")
+                        .foregroundStyle(Theme.accent)
+                } else if model.mode != .video { Text(model.recipe.ratio.rawValue).monospacedDigit() }
+            }
+            .font(.system(size: 10, weight: .medium))
+            .foregroundStyle(Theme.muted)
+            .padding(.horizontal, 26)
+            .frame(height: 18)
+        }.padding(.top, 8).padding(.bottom, 4)
     }
     private var zoomGesture: some Gesture {
         MagnifyGesture()
